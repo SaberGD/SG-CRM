@@ -50,6 +50,7 @@ const ClientsList: React.FC = () => {
     labels: [] as string[],
     notes: '',
     preferredMethod: CommMethod.PHONE,
+    nextFollowUpMethod: CommMethod.PHONE,
     nextDate: '',
     nextTime: '10:00',
     nextPeriod: 'AM' as 'AM' | 'PM'
@@ -128,6 +129,7 @@ const ClientsList: React.FC = () => {
         phone: phoneFull,
         serviceName,
         nextFollowUpDate: nextTs,
+        nextFollowUpMethod: nextTs ? newClient.nextFollowUpMethod : undefined,
         salesAgentId: user.uid, 
         salesAgentName: user.name, 
         createdAt: Date.now() 
@@ -139,6 +141,7 @@ const ClientsList: React.FC = () => {
         gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
         serviceId: '', country: 'مصر', countryCode: '+20', 
         labels: [], notes: '', preferredMethod: CommMethod.PHONE,
+        nextFollowUpMethod: CommMethod.PHONE,
         nextDate: '', nextTime: '10:00', nextPeriod: 'AM' 
       });
     } catch (err) { console.error(err); }
@@ -330,9 +333,41 @@ const ClientsList: React.FC = () => {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">ملاحظات إضافية</label>
-                <textarea className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold h-24 dark:text-white" value={newClient.notes} onChange={e => setNewClient({...newClient, notes: e.target.value})} />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل المفضل</label>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.preferredMethod} onChange={e => setNewClient({...newClient, preferredMethod: e.target.value as CommMethod})}>
+                    {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">ملاحظات إضافية</label>
+                  <textarea className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold h-14 dark:text-white" value={newClient.notes} onChange={e => setNewClient({...newClient, notes: e.target.value})} />
+                </div>
+              </div>
+
+              <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-[2rem] space-y-4">
+                <h3 className="text-xs font-black uppercase text-slate-400">جدولة أول متابعة (اختياري)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تاريخ المتابعة</label>
+                    <input type="date" className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextDate} onChange={e => setNewClient({...newClient, nextDate: e.target.value})} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل المجدول</label>
+                    <select className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextFollowUpMethod} onChange={e => setNewClient({...newClient, nextFollowUpMethod: e.target.value as CommMethod})}>
+                      {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {newClient.nextDate && (
+                  <div className="flex gap-2 animate-fade-in">
+                    <input type="time" className="flex-1 p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextTime} onChange={e => setNewClient({...newClient, nextTime: e.target.value})} />
+                    <select className="p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextPeriod} onChange={e => setNewClient({...newClient, nextPeriod: e.target.value as any})}>
+                      <option value="AM">AM</option><option value="PM">PM</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all uppercase text-xs">إضافة العميل وتوثيق وقت التسجيل</button>

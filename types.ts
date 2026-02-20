@@ -99,6 +99,7 @@ export interface Client {
   createdAt: number;
   lastFollowUpDate?: number;
   nextFollowUpDate?: number;
+  nextFollowUpMethod?: CommMethod;
   notes?: string;
   preferredMethod?: CommMethod;
   country: string;

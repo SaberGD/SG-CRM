@@ -14,7 +14,7 @@ import {
   FileText, Send, BarChart3, Users, Star, 
   AlertTriangle, CheckCircle2, Target as TargetIcon, 
   TrendingUp, Clock, Search, Filter, ChevronDown, 
-  ChevronUp, Edit3, Save, X, LayoutDashboard, ListChecks
+  ChevronUp, Edit3, Save, X, LayoutDashboard, ListChecks, Download
 } from 'lucide-react';
 import { analyzeDailyReport } from '../geminiService';
 

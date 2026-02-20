@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { X, Clock, Calendar, LayoutList, Timer, Save } from 'lucide-react';
-import { Client, ClientStatus, CommMethod, StatusLabels } from '../types';
+import { Client, ClientStatus, CommMethod, StatusLabels, CommMethodLabels } from '../types';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 
@@ -22,6 +22,7 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
   const [note, setNote] = useState('');
   const [status, setStatus] = useState<ClientStatus>(client.status);
   const [method, setMethod] = useState<CommMethod>(CommMethod.PHONE);
+  const [nextFollowUpMethod, setNextFollowUpMethod] = useState<CommMethod>(CommMethod.PHONE);
   
   const [scheduleNext, setScheduleNext] = useState(false);
   const [nextDate, setNextDate] = useState('');
@@ -88,6 +89,7 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
         status,
         nextFollowUpDate: nextTs || client.nextFollowUpDate,
+        nextFollowUpMethod: nextTs ? nextFollowUpMethod : client.nextFollowUpMethod,
         lastFollowUpDate: followUpTimestamp
       });
 
@@ -146,6 +148,12 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
 
           <div className="space-y-4">
             <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل</label>
+              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500" value={method} onChange={e => setMethod(e.target.value as CommMethod)}>
+                {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">موجز السيلز (الخلاصة)</label>
               <input required placeholder="مثال: تم الاتفاق على موعد تجربة" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500" value={salesBrief} onChange={e => setSalesBrief(e.target.value)} />
             </div>
@@ -163,7 +171,16 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
               </div>
               {scheduleNext && (
                 <div className="space-y-3 animate-fade-in">
-                  <input type="date" required className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextDate} onChange={e => setNextDate(e.target.value)} />
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase">تاريخ المتابعة</label>
+                    <input type="date" required className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextDate} onChange={e => setNextDate(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase">نوع التواصل القادم</label>
+                    <select className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextFollowUpMethod} onChange={e => setNextFollowUpMethod(e.target.value as CommMethod)}>
+                      {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
+                    </select>
+                  </div>
                   <div className="flex gap-2">
                     <input type="time" required className="flex-1 p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextTime} onChange={e => setNextTime(e.target.value)} />
                     <select className="p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextPeriod} onChange={e => setNextPeriod(e.target.value as any)}>

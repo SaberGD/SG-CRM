@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Academy CRM - Educational Excellence",
+  "description": "A high-performance CRM for educational academies featuring duplicate prevention, follow-up timelines, AI sales predictions, and Arabic language support.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

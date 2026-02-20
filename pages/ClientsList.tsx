@@ -1,0 +1,366 @@
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import * as firestore from 'firebase/firestore';
+import { db, logActivity } from '../firebase';
+import { useAuth } from '../App';
+import { 
+  Client, ClientStatus, StatusLabels, UserRole, Service, Label, 
+  ClientTransfer, CommMethod, CommMethodLabels, Gender, LaptopStatus, AttendanceMode 
+} from '../types';
+import { 
+  Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2, 
+  Phone, Calendar, MessageSquare, User, Laptop, Globe, Clock, X
+} from 'lucide-react';
+
+const ARAB_COUNTRIES = [
+  { name: 'مصر', code: '+20' },
+  { name: 'السعودية', code: '+966' },
+  { name: 'الإمارات', code: '+971' },
+  { name: 'الكويت', code: '+965' },
+  { name: 'قطر', code: '+974' },
+  { name: 'الأردن', code: '+962' },
+  { name: 'عمان', code: '+968' },
+  { name: 'البحرين', code: '+973' },
+  { name: 'أخرى', code: '' }
+];
+
+const ClientsList: React.FC = () => {
+  const { user, effectiveRole, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+  const [clients, setClients] = useState<Client[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [allLabels, setAllLabels] = useState<Label[]>([]);
+  const [salesAgents, setSalesAgents] = useState<{id: string, name: string}[]>([]);
+  
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterService, setFilterService] = useState<string>('all');
+  
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [transferAgentId, setTransferAgentId] = useState('');
+  const [transferReason, setTransferReason] = useState('');
+
+  const [newClient, setNewClient] = useState({ 
+    name: '', phone: '', status: ClientStatus.INTERESTED, 
+    gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
+    serviceId: '', country: 'مصر', countryCode: '+20', 
+    labels: [] as string[],
+    notes: '',
+    preferredMethod: CommMethod.PHONE,
+    nextDate: '',
+    nextTime: '10:00',
+    nextPeriod: 'AM' as 'AM' | 'PM'
+  });
+
+  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const canDelete = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    
+    const clientsRef = firestore.collection(db, 'clients');
+    let q;
+    
+    if (isHighRole) {
+      q = firestore.query(clientsRef, firestore.orderBy('createdAt', 'desc'), firestore.limit(500));
+    } else {
+      q = firestore.query(clientsRef, firestore.where('salesAgentId', '==', user.uid), firestore.orderBy('createdAt', 'desc'));
+    }
+    
+    const unsubClients = firestore.onSnapshot(q, (snapshot) => {
+      setClients(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+    });
+
+    firestore.onSnapshot(firestore.query(firestore.collection(db, 'services'), firestore.where('isActive', '==', true)), snap => {
+      setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
+    });
+
+    firestore.onSnapshot(firestore.collection(db, 'labels'), snap => {
+      setAllLabels(snap.docs.map(d => ({ id: d.id, ...d.data() } as Label)));
+    });
+
+    if (isHighRole) {
+      firestore.getDocs(firestore.query(firestore.collection(db, 'users'), firestore.where('role', 'in', [UserRole.SALES_AGENT, UserRole.TEAM_LEADER]))).then(snap => {
+        setSalesAgents(snap.docs.map(d => ({ id: d.id, name: d.data().name })));
+      });
+    }
+
+    return () => unsubClients();
+  }, [authLoading, user, effectiveRole]);
+
+  const filteredClients = useMemo(() => {
+    return clients.filter(c => {
+      const term = searchTerm.toLowerCase();
+      const matchesSearch = c.name.toLowerCase().includes(term) || c.phone.includes(term);
+      const matchesStatus = filterStatus === 'all' || c.status === filterStatus;
+      const matchesService = filterService === 'all' || c.serviceId === filterService;
+      return matchesSearch && matchesStatus && matchesService;
+    });
+  }, [clients, searchTerm, filterStatus, filterService]);
+
+  const handleAddClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    const phoneFull = newClient.countryCode + newClient.phone.replace(/^0+/, '');
+    
+    // منع التكرار
+    const phoneCheck = await firestore.getDocs(firestore.query(firestore.collection(db, 'clients'), firestore.where('phone', '==', phoneFull)));
+    if (!phoneCheck.empty) return alert("هذا الرقم مسجل مسبقاً باسم: " + phoneCheck.docs[0].data().name);
+
+    const serviceName = services.find(s => s.id === newClient.serviceId)?.name || 'أخرى';
+
+    let nextTs = 0;
+    if (newClient.nextDate) {
+      const [h, m] = newClient.nextTime.split(':').map(Number);
+      const finalH = newClient.nextPeriod === 'PM' && h < 12 ? h + 12 : (newClient.nextPeriod === 'AM' && h === 12 ? 0 : h);
+      const dateObj = new Date(newClient.nextDate);
+      dateObj.setHours(finalH, m, 0, 0);
+      nextTs = dateObj.getTime();
+    }
+
+    try {
+      const { nextDate, nextTime, nextPeriod, ...clientToSave } = newClient;
+      const docRef = await firestore.addDoc(firestore.collection(db, 'clients'), { 
+        ...clientToSave, 
+        phone: phoneFull,
+        serviceName,
+        nextFollowUpDate: nextTs,
+        salesAgentId: user.uid, 
+        salesAgentName: user.name, 
+        createdAt: Date.now() 
+      });
+      await logActivity(user.uid, user.name, `إضافة عميل جديد: ${newClient.name}`, docRef.id, newClient.name);
+      setIsAddModalOpen(false);
+      setNewClient({ 
+        name: '', phone: '', status: ClientStatus.INTERESTED, 
+        gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
+        serviceId: '', country: 'مصر', countryCode: '+20', 
+        labels: [], notes: '', preferredMethod: CommMethod.PHONE,
+        nextDate: '', nextTime: '10:00', nextPeriod: 'AM' 
+      });
+    } catch (err) { console.error(err); }
+  };
+
+  const handleTransfer = async () => {
+    if (!selectedClient || !transferAgentId) return;
+    const newAgent = salesAgents.find(a => a.id === transferAgentId);
+    if (!newAgent) return;
+
+    try {
+      await firestore.addDoc(firestore.collection(db, 'transfers'), {
+        clientId: selectedClient.id, clientName: selectedClient.name,
+        oldAgentId: selectedClient.salesAgentId, oldAgentName: selectedClient.salesAgentName,
+        newAgentId: newAgent.id, newAgentName: newAgent.name,
+        reason: transferReason, timestamp: Date.now(),
+        performedById: user!.uid, performedByName: user!.name
+      });
+      await firestore.updateDoc(firestore.doc(db, 'clients', selectedClient.id), { 
+        salesAgentId: newAgent.id, 
+        salesAgentName: newAgent.name 
+      });
+      await logActivity(user!.uid, user!.name, `تحويل العميل إلى ${newAgent.name}`, selectedClient.id, selectedClient.name);
+      setIsTransferModalOpen(false);
+      setSelectedClient(null);
+    } catch (err) { console.error(err); }
+  };
+
+  return (
+    <div className="space-y-8 animate-fade-in pb-20">
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">قائمة <span className="text-primary-500">العملاء</span></h1>
+          <p className="text-slate-500 font-bold mt-1">إدارة بيانات المتقدمين والمتابعات</p>
+        </div>
+        <button onClick={() => setIsAddModalOpen(true)} className="bg-primary-500 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-primary-600 transition-all flex items-center gap-2">
+          <Plus size={18} /> إضافة عميل جديد
+        </button>
+      </header>
+
+      {/* Filters */}
+      <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="relative">
+            <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              type="text" placeholder="بحث بالاسم أو الهاتف..." 
+              className="w-full pr-12 pl-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-sm dark:text-white"
+              value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+            <option value="all">كل الحالات</option>
+            {Object.entries(StatusLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
+          </select>
+          <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterService} onChange={e => setFilterService(e.target.value)}>
+            <option value="all">كل الخدمات</option>
+            {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-right">
+            <thead className="bg-slate-50 dark:bg-slate-800/50">
+              <tr>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">العميل / وقت التسجيل</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">الحالة / الخدمة</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">المواصفات</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">المسؤول</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
+                  الإجراءات
+                  <div className="flex justify-center gap-3 mt-1 text-[7px] opacity-70 font-bold">
+                    <span>واتساب</span>
+                    <span>السجل</span>
+                    {isHighRole && <span>تحويل</span>}
+                    {canDelete && <span>حذف</span>}
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {filteredClients.length === 0 ? (
+                <tr><td colSpan={5} className="py-20 text-center text-slate-400 font-bold italic">لا يوجد عملاء حالياً</td></tr>
+              ) : filteredClients.map((client) => (
+                <tr key={client.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-all">
+                  <td className="px-8 py-6">
+                    <p onClick={() => navigate(`/clients/${client.id}`)} className="font-black text-sm text-slate-900 dark:text-white cursor-pointer hover:text-primary-500">{client.name}</p>
+                    <p className="text-[9px] font-black text-slate-400 mt-1 flex items-center gap-1">
+                      <Clock size={10}/> {new Date(client.createdAt).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </td>
+                  <td className="px-8 py-6">
+                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${StatusLabels[client.status]?.color || ''}`}>
+                      {StatusLabels[client.status]?.ar}
+                    </span>
+                    <p className="text-[10px] font-bold text-slate-500 mt-1">{client.serviceName}</p>
+                  </td>
+                  <td className="px-8 py-6">
+                    <div className="flex flex-wrap gap-1">
+                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.gender === Gender.MALE ? 'ذكر' : 'أنثى'}</span>
+                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : 'بدون لابتوب'}</span>
+                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : 'أوفلاين'}</span>
+                    </div>
+                  </td>
+                  <td className="px-8 py-6 text-center text-[10px] text-slate-500 font-bold italic">{client.salesAgentName}</td>
+                  <td className="px-8 py-6">
+                    <div className="flex justify-center gap-2">
+                      <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="p-2.5 bg-emerald-50 text-emerald-500 rounded-xl hover:scale-110 transition-all dark:bg-emerald-500/10"><MessageCircle size={16} /></a>
+                      <button onClick={() => navigate(`/clients/${client.id}`)} title="عرض السجل والمتابعة" className="p-2.5 bg-primary-50 text-primary-500 rounded-xl hover:scale-110 transition-all dark:bg-primary-500/10"><History size={16} /></button>
+                      {isHighRole && (
+                        <button onClick={() => { setSelectedClient(client); setIsTransferModalOpen(true); }} title="تحويل العميل لموظف آخر" className="p-2.5 bg-amber-50 text-amber-500 rounded-xl hover:scale-110 transition-all dark:bg-amber-500/10"><ArrowRightLeft size={16} /></button>
+                      )}
+                      {canDelete && (
+                        <button onClick={async () => { if(confirm("حذف العميل نهائياً؟")) await firestore.deleteDoc(firestore.doc(db, 'clients', client.id)); }} title="حذف العميل" className="p-2.5 bg-rose-50 text-rose-500 rounded-xl hover:scale-110 transition-all dark:bg-rose-500/10"><Trash2 size={16} /></button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Add Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-2xl p-10 space-y-6 animate-fade-in shadow-2xl max-h-[90vh] overflow-y-auto border border-slate-100 dark:border-slate-800">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-black flex items-center gap-3"><Plus className="text-primary-500" /> إضافة عميل جديد</h2>
+              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-900"><X size={24}/></button>
+            </div>
+            <form onSubmit={handleAddClient} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الاسم بالكامل</label>
+                  <input required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" placeholder="أدخل الاسم..." value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} />
+                </div>
+                <div className="space-y-1.5">
+                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الخدمة المطلوبة</label>
+                   <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.serviceId} onChange={e => setNewClient({...newClient, serviceId: e.target.value})}>
+                    <option value="">اختر الخدمة...</option>
+                    {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الجنس</label>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.gender} onChange={e => setNewClient({...newClient, gender: e.target.value as Gender})}>
+                    <option value={Gender.MALE}>ذكر</option>
+                    <option value={Gender.FEMALE}>أنثى</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">حالة اللابتوب</label>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.laptop} onChange={e => setNewClient({...newClient, laptop: e.target.value as LaptopStatus})}>
+                    <option value={LaptopStatus.WITH}>مع لابتوب</option>
+                    <option value={LaptopStatus.WITHOUT}>بدون لابتوب</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نظام الحضور</label>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.mode} onChange={e => setNewClient({...newClient, mode: e.target.value as AttendanceMode})}>
+                    <option value={AttendanceMode.OFFLINE}>أوفلاين (في المقر)</option>
+                    <option value={AttendanceMode.ONLINE}>أونلاين (عن بعد)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <div className="w-1/3 space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الدولة</label>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.country} onChange={e => {
+                    const country = ARAB_COUNTRIES.find(c => c.name === e.target.value);
+                    setNewClient({...newClient, country: e.target.value, countryCode: country?.code || ''});
+                  }}>
+                    {ARAB_COUNTRIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف (بدون كود الدولة)</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400" dir="ltr">{newClient.countryCode}</span>
+                    <input required className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-right dark:text-white" dir="ltr" placeholder="01012345678" value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">ملاحظات إضافية</label>
+                <textarea className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold h-24 dark:text-white" value={newClient.notes} onChange={e => setNewClient({...newClient, notes: e.target.value})} />
+              </div>
+
+              <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all uppercase text-xs">إضافة العميل وتوثيق وقت التسجيل</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer Modal */}
+      {isTransferModalOpen && selectedClient && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
+            <h2 className="text-2xl font-black mb-4 flex items-center gap-2"><ArrowRightLeft className="text-amber-500"/> تحويل العميل</h2>
+            <p className="text-sm font-bold text-slate-500">تحويل <span className="text-primary-500 font-black">{selectedClient.name}</span> لموظف آخر:</p>
+            <div className="space-y-4">
+              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={transferAgentId} onChange={e => setTransferAgentId(e.target.value)}>
+                <option value="">اختر الموظف...</option>
+                {salesAgents.filter(a => a.id !== selectedClient.salesAgentId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <textarea placeholder="سبب التحويل..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none h-24 dark:text-white" value={transferReason} onChange={e => setTransferReason(e.target.value)} />
+              <button onClick={handleTransfer} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl">تأكيد التحويل</button>
+              <button onClick={() => setIsTransferModalOpen(false)} className="w-full py-4 text-slate-400 font-bold uppercase text-[10px]">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ClientsList;

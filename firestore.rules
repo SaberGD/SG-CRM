@@ -1,0 +1,82 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // وظائف مساعدة للتحقق من الصلاحيات
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && (getUserData().role == 'admin');
+    }
+    
+    function isManager() {
+      return isAuthenticated() && (getUserData().role == 'manager' || getUserData().role == 'admin');
+    }
+    
+    function isTeamLeader() {
+      return isAuthenticated() && (getUserData().role == 'team_leader' || getUserData().role == 'manager' || getUserData().role == 'admin');
+    }
+
+    // قواعد مجموعة المستخدمين
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || request.auth.uid == userId;
+    }
+    
+    // قواعد العملاء
+    match /clients/{clientId} {
+      allow read: if isTeamLeader() || (isAuthenticated() && resource.data.salesAgentId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update: if isTeamLeader() || (isAuthenticated() && resource.data.salesAgentId == request.auth.uid);
+      allow delete: if isManager();
+    }
+    
+    // قواعد المتابعات
+    match /followups/{id} {
+      allow read: if isTeamLeader() || (isAuthenticated() && resource.data.agentId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update, delete: if isManager();
+    }
+    
+    // قواعد الدعوات (مهمة للتسجيل)
+    match /invitations/{id} {
+      allow read: if true; // السماح بالقراءة للتحقق من التوكن أثناء التسجيل
+      allow write: if isTeamLeader();
+    }
+    
+    // قواعد السجلات
+    match /logs/{id} {
+      allow read: if isTeamLeader();
+      allow create: if isAuthenticated();
+    }
+    
+    // قواعد الخدمات والتصنيفات
+    match /services/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    
+    match /labels/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    
+    // قواعد التقارير والتحويلات
+    match /reports/{id} {
+      allow read: if isManager() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated();
+    }
+    
+    match /transfers/{id} {
+      allow read: if isTeamLeader();
+      allow create: if isTeamLeader();
+    }
+  }
+}

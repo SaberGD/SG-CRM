@@ -22,7 +22,7 @@ jobs:
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.0
         with:
-          server: ftp.yourdomain.com
+          server: ftp.sabergroupacademy.com
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/

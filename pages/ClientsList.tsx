@@ -51,6 +51,7 @@ const ClientsList: React.FC = () => {
     notes: '',
     preferredMethod: CommMethod.PHONE,
     nextFollowUpMethod: CommMethod.PHONE,
+    scheduleNext: false,
     nextDate: '',
     nextTime: '10:00',
     nextPeriod: 'AM' as 'AM' | 'PM'
@@ -114,7 +115,7 @@ const ClientsList: React.FC = () => {
     const serviceName = services.find(s => s.id === newClient.serviceId)?.name || 'أخرى';
 
     let nextTs = 0;
-    if (newClient.nextDate) {
+    if (newClient.scheduleNext && newClient.nextDate) {
       const [h, m] = newClient.nextTime.split(':').map(Number);
       const finalH = newClient.nextPeriod === 'PM' && h < 12 ? h + 12 : (newClient.nextPeriod === 'AM' && h === 12 ? 0 : h);
       const dateObj = new Date(newClient.nextDate);
@@ -123,7 +124,7 @@ const ClientsList: React.FC = () => {
     }
 
     try {
-      const { nextDate, nextTime, nextPeriod, ...clientToSave } = newClient;
+      const { nextDate, nextTime, nextPeriod, scheduleNext, ...clientToSave } = newClient;
       const docRef = await firestore.addDoc(firestore.collection(db, 'clients'), { 
         ...clientToSave, 
         phone: phoneFull,
@@ -142,6 +143,7 @@ const ClientsList: React.FC = () => {
         serviceId: '', country: 'مصر', countryCode: '+20', 
         labels: [], notes: '', preferredMethod: CommMethod.PHONE,
         nextFollowUpMethod: CommMethod.PHONE,
+        scheduleNext: false,
         nextDate: '', nextTime: '10:00', nextPeriod: 'AM' 
       });
     } catch (err) { console.error(err); }
@@ -347,25 +349,36 @@ const ClientsList: React.FC = () => {
               </div>
 
               <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-[2rem] space-y-4">
-                <h3 className="text-xs font-black uppercase text-slate-400">جدولة أول متابعة (اختياري)</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تاريخ المتابعة</label>
-                    <input type="date" className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextDate} onChange={e => setNewClient({...newClient, nextDate: e.target.value})} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل المجدول</label>
-                    <select className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextFollowUpMethod} onChange={e => setNewClient({...newClient, nextFollowUpMethod: e.target.value as CommMethod})}>
-                      {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
-                    </select>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black uppercase text-slate-400">جدولة أول متابعة</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-slate-400">تفعيل الجدولة</span>
+                    <input type="checkbox" checked={newClient.scheduleNext} onChange={e => setNewClient({...newClient, scheduleNext: e.target.checked})} className="w-5 h-5 accent-primary-500" />
                   </div>
                 </div>
-                {newClient.nextDate && (
-                  <div className="flex gap-2 animate-fade-in">
-                    <input type="time" className="flex-1 p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextTime} onChange={e => setNewClient({...newClient, nextTime: e.target.value})} />
-                    <select className="p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextPeriod} onChange={e => setNewClient({...newClient, nextPeriod: e.target.value as any})}>
-                      <option value="AM">AM</option><option value="PM">PM</option>
-                    </select>
+                
+                {newClient.scheduleNext && (
+                  <div className="space-y-4 animate-fade-in">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تاريخ المتابعة</label>
+                        <input type="date" required className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextDate} onChange={e => setNewClient({...newClient, nextDate: e.target.value})} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل المجدول</label>
+                        <select className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextFollowUpMethod} onChange={e => setNewClient({...newClient, nextFollowUpMethod: e.target.value as CommMethod})}>
+                          {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    {newClient.nextDate && (
+                      <div className="flex gap-2 animate-fade-in">
+                        <input type="time" className="flex-1 p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextTime} onChange={e => setNewClient({...newClient, nextTime: e.target.value})} />
+                        <select className="p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextPeriod} onChange={e => setNewClient({...newClient, nextPeriod: e.target.value as any})}>
+                          <option value="AM">AM</option><option value="PM">PM</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -6,7 +6,7 @@ import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { 
   Client, FollowUp, ClientStatus, CommMethod, StatusLabels, CommMethodLabels,
-  UserRole, ActivityLog, Gender, LaptopStatus, AttendanceMode 
+  UserRole, ActivityLog, Gender, LaptopStatus, AttendanceMode, Service 
 } from '../types';
 import { 
   Play, Square, Clock, Calendar, History, PhoneIncoming, Clock4, 
@@ -41,6 +41,17 @@ const ClientDetails: React.FC = () => {
   const [nextFollowUpMethod, setNextFollowUpMethod] = useState<CommMethod>(CommMethod.PHONE);
   const [status, setStatus] = useState<ClientStatus>(ClientStatus.INTERESTED);
   const [scheduleNext, setScheduleNext] = useState(false);
+  
+  // Booking States
+  const [isBooked, setIsBooked] = useState(false);
+  const [bookedCourseId, setBookedCourseId] = useState('');
+  const [bookedCourseName, setBookedCourseName] = useState('');
+  const [totalPrice, setTotalPrice] = useState(0);
+  const [paidAmount, setPaidAmount] = useState(0);
+  const [remainingAmount, setRemainingAmount] = useState(0);
+  
+  // Services for booking
+  const [services, setServices] = useState<Service[]>([]);
   
   // Scheduling
   const [nextDate, setNextDate] = useState('');
@@ -90,10 +101,15 @@ const ClientDetails: React.FC = () => {
       }
     );
 
+    const unsubServices = firestore.onSnapshot(firestore.collection(db, 'services'), (snap) => {
+      setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
+    });
+
     return () => {
       unsubClient();
       unsubFollowups();
       unsubLogs();
+      unsubServices();
     };
   }, [id]);
 
@@ -160,9 +176,19 @@ const ClientDetails: React.FC = () => {
       });
 
       const updateData: any = {
-        status,
+        status: isBooked ? ClientStatus.BOOKED : status,
         lastFollowUpDate: Date.now()
       };
+
+      if (isBooked) {
+        updateData.isBooked = true;
+        updateData.bookedCourseId = bookedCourseId;
+        updateData.bookedCourseName = bookedCourseName;
+        updateData.totalPrice = totalPrice;
+        updateData.paidAmount = paidAmount;
+        updateData.remainingAmount = remainingAmount;
+        updateData.bookingDate = Date.now();
+      }
 
       if (nextTs) {
         updateData.nextFollowUpDate = nextTs;
@@ -342,6 +368,69 @@ const ClientDetails: React.FC = () => {
                   </select>
                 </div>
 
+                {/* Booking Section */}
+                <div className="p-5 bg-amber-50 dark:bg-amber-500/5 rounded-2xl border border-amber-200 dark:border-amber-500/20 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-black text-amber-700 dark:text-amber-400">هل قام العميل بالحجز؟</label>
+                    <input type="checkbox" checked={isBooked} onChange={e => setIsBooked(e.target.checked)} className="w-5 h-5 accent-amber-500" />
+                  </div>
+                  
+                  {isBooked && (
+                    <div className="space-y-4 animate-fade-in pt-2">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase">الكورس المحجوز</label>
+                        <select 
+                          required 
+                          className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                          value={bookedCourseId} 
+                          onChange={e => {
+                            const s = services.find(srv => srv.id === e.target.value);
+                            setBookedCourseId(e.target.value);
+                            setBookedCourseName(s?.name || '');
+                          }}
+                        >
+                          <option value="">اختر الكورس...</option>
+                          {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-400 uppercase">السعر الإجمالي</label>
+                          <input 
+                            type="number" 
+                            required 
+                            className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                            value={totalPrice} 
+                            onChange={e => {
+                              const val = parseFloat(e.target.value) || 0;
+                              setTotalPrice(val);
+                              setRemainingAmount(val - paidAmount);
+                            }} 
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-400 uppercase">المبلغ المدفوع</label>
+                          <input 
+                            type="number" 
+                            required 
+                            className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                            value={paidAmount} 
+                            onChange={e => {
+                              const val = parseFloat(e.target.value) || 0;
+                              setPaidAmount(val);
+                              setRemainingAmount(totalPrice - val);
+                            }} 
+                          />
+                        </div>
+                      </div>
+                      <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-amber-100 dark:border-amber-500/10">
+                        <p className="text-[9px] font-black text-slate-400 uppercase">المبلغ المتبقي</p>
+                        <p className="text-sm font-black text-amber-600">{remainingAmount} ج.م</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all">حفظ وإتمام المتابعة</button>
               </form>
             </div>
@@ -355,8 +444,8 @@ const ClientDetails: React.FC = () => {
 
       {/* Edit Client Modal */}
       {isEditModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
+        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 my-4 sm:my-20 space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
              <div className="flex justify-between items-center">
                <h2 className="text-2xl font-black">تعديل الملف</h2>
                <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400"><X size={24}/></button>

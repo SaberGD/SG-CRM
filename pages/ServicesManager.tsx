@@ -74,8 +74,8 @@ const ServicesManager: React.FC = () => {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 space-y-6 animate-fade-in shadow-2xl">
+        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 my-4 sm:my-20 space-y-6 animate-fade-in shadow-2xl">
             <h2 className="text-2xl font-black mb-6">{editingService ? 'تعديل خدمة' : 'إضافة خدمة جديدة'}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <input required placeholder="اسم الخدمة / الكورس" className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />

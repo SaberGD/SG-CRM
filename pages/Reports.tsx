@@ -51,7 +51,7 @@ const Reports: React.FC = () => {
 
   // Target Management
   const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
-  const [targetForm, setTargetForm] = useState({ newClients: 0, bookings: 0, followUps: 0 });
+  const [targetForm, setTargetForm] = useState({ newClients: 0, bookings: 0, followUps: 0, income: 0 });
 
   const exportToCSV = () => {
     if (filteredReports.length === 0) return;
@@ -134,17 +134,17 @@ const Reports: React.FC = () => {
     const followUpsSnap = await getDocs(query(collection(db, 'followups'), where('agentId', '==', user.uid), where('timestamp', '>=', todayStart)));
     const todayFollowUps = followUpsSnap.docs.map(d => d.data() as FollowUp);
 
-    // 3. Fetch Target
-    const targetSnap = await getDocs(query(collection(db, 'targets'), where('userId', '==', user.uid), where('date', '==', todayStr)));
+    const targetId = `${user.uid}_${todayStr}`;
+    const targetSnap = await getDoc(doc(db, 'targets', targetId));
     let target: Target | null = null;
-    if (!targetSnap.empty) {
-      target = { id: targetSnap.docs[0].id, ...targetSnap.docs[0].data() } as Target;
+    if (targetSnap.exists()) {
+      target = { id: targetSnap.id, ...targetSnap.data() } as Target;
     } else {
       // Try default target
       const defTargetDoc = await getDoc(doc(db, 'defaultTargets', user.uid));
       if (defTargetDoc.exists()) {
         const data = defTargetDoc.data();
-        target = { id: 'default', userId: user.uid, date: todayStr, newClients: data.newClients, bookings: data.bookings, followUps: data.followUps } as Target;
+        target = { id: 'default', userId: user.uid, date: todayStr, newClients: data.newClients, bookings: data.bookings, followUps: data.followUps, income: data.income || 0 } as Target;
       }
     }
     setTodayTarget(target);
@@ -153,19 +153,23 @@ const Reports: React.FC = () => {
     const completedTodayScheduledForToday = todayFollowUps.filter(f => f.scheduledTime >= todayStart && f.scheduledTime <= todayEnd).length;
     const remainingScheduledToday = allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate >= todayStart && c.nextFollowUpDate <= todayEnd).length;
 
+    const bookedToday = allMyClients.filter(c => c.isBooked && c.bookingDate && c.bookingDate >= todayStart && c.bookingDate <= todayEnd);
+
     const stats: Partial<DailyReport> = {
       newClients: allMyClients.filter(c => c.createdAt >= todayStart).length,
       interested: allMyClients.filter(c => c.status === ClientStatus.INTERESTED).length,
       notInterested: allMyClients.filter(c => c.status === ClientStatus.NOT_INTERESTED).length,
       potential: allMyClients.filter(c => c.status === ClientStatus.POTENTIAL).length,
-      booked: allMyClients.filter(c => c.status === ClientStatus.BOOKED).length,
+      booked: bookedToday.length,
       scheduledToday: completedTodayScheduledForToday + remainingScheduledToday,
       completedToday: todayFollowUps.length,
       overdueToday: allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate < now).length,
       largeDelays: todayFollowUps.filter(f => f.delayStatus === 'large_delay').length,
       punctualityRatio: todayFollowUps.length > 0 
         ? Math.round((todayFollowUps.filter(f => f.delayStatus !== 'large_delay').length / todayFollowUps.length) * 100) 
-        : 100
+        : 100,
+      totalPaidToday: bookedToday.reduce((sum, c) => sum + (c.paidAmount || 0), 0),
+      totalRemainingToday: bookedToday.reduce((sum, c) => sum + (c.remainingAmount || 0), 0)
     };
     setTodayStats(stats);
   };
@@ -228,6 +232,9 @@ const Reports: React.FC = () => {
       targetNewClients: todayTarget?.newClients || 0,
       targetBookings: todayTarget?.bookings || 0,
       targetFollowUps: todayTarget?.followUps || 0,
+      targetIncome: todayTarget?.income || 0,
+      totalPaidToday: todayStats.totalPaidToday || 0,
+      totalRemainingToday: todayStats.totalRemainingToday || 0,
       checklist,
       notes
     };
@@ -321,8 +328,9 @@ const Reports: React.FC = () => {
       const achievement = (
         (r.newClients / (r.targetNewClients || 1)) + 
         (r.booked / (r.targetBookings || 1)) + 
-        (r.completedToday / (r.targetFollowUps || 1))
-      ) / 3 * 100;
+        (r.completedToday / (r.targetFollowUps || 1)) +
+        ((r.totalPaidToday || 0) / (r.targetIncome || 1))
+      ) / 4 * 100;
 
       agentStats[r.userId].reportsCount++;
       agentStats[r.userId].totalAchievement += achievement;
@@ -330,6 +338,8 @@ const Reports: React.FC = () => {
       agentStats[r.userId].totalDelays += r.largeDelays;
       agentStats[r.userId].totalBookings += r.booked;
       agentStats[r.userId].totalNewClients += r.newClients;
+      agentStats[r.userId].totalIncome = (agentStats[r.userId].totalIncome || 0) + (r.totalPaidToday || 0);
+      agentStats[r.userId].totalRemaining = (agentStats[r.userId].totalRemaining || 0) + (r.totalRemainingToday || 0);
     });
 
     return Object.values(agentStats).map(s => ({
@@ -379,6 +389,24 @@ const Reports: React.FC = () => {
               <StatCard label="متابعات مكتملة" value={todayStats.completedToday} icon={TrendingUp} color="text-primary-500" />
             </section>
 
+            {/* Financial Stats Today */}
+            <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+               <div className="bg-emerald-500 text-white p-8 rounded-[3rem] shadow-xl shadow-emerald-500/20 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase opacity-80 mb-1">إجمالي الدخل المحصل اليوم</p>
+                    <p className="text-3xl font-black">{todayStats.totalPaidToday?.toLocaleString('ar-EG')} ج.م</p>
+                  </div>
+                  <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center"><TrendingUp size={32}/></div>
+               </div>
+               <div className="bg-amber-500 text-white p-8 rounded-[3rem] shadow-xl shadow-amber-500/20 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase opacity-80 mb-1">إجمالي المتبقي للاستكمال</p>
+                    <p className="text-3xl font-black">{todayStats.totalRemainingToday?.toLocaleString('ar-EG')} ج.م</p>
+                  </div>
+                  <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center"><Clock size={32}/></div>
+               </div>
+            </section>
+
             {/* Detailed Stats Grid */}
             <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl grid grid-cols-2 md:grid-cols-3 gap-8">
               <MiniStat label="غير مهتم" value={todayStats.notInterested} />
@@ -396,6 +424,7 @@ const Reports: React.FC = () => {
                 <TargetProgress label="العملاء الجدد" current={todayStats.newClients || 0} target={todayTarget?.newClients || 0} />
                 <TargetProgress label="الحجوزات" current={todayStats.booked || 0} target={todayTarget?.bookings || 0} />
                 <TargetProgress label="المتابعات المنفذة" current={todayStats.completedToday || 0} target={todayTarget?.followUps || 0} />
+                <TargetProgress label="إجمالي الدخل (ج.م)" current={todayStats.totalPaidToday || 0} target={todayTarget?.income || 0} />
               </div>
             </section>
 
@@ -518,6 +547,8 @@ const Reports: React.FC = () => {
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">نسبة التحويل</th>
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">الالتزام</th>
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">الحجوزات</th>
+                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">إجمالي المحصل</th>
+                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">إجمالي المتبقي</th>
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">التأخيرات</th>
                     </tr>
                   </thead>
@@ -541,6 +572,8 @@ const Reports: React.FC = () => {
                         <td className="px-8 py-6 text-center font-black text-blue-500">{agent.conversionRatio}%</td>
                         <td className="px-8 py-6 text-center font-black text-emerald-500">{agent.avgPunctuality}%</td>
                         <td className="px-8 py-6 text-center font-black text-amber-500">{agent.totalBookings}</td>
+                        <td className="px-8 py-6 text-center font-black text-emerald-600">{agent.totalIncome?.toLocaleString('ar-EG')} ج.م</td>
+                        <td className="px-8 py-6 text-center font-black text-amber-600">{agent.totalRemaining?.toLocaleString('ar-EG')} ج.م</td>
                         <td className="px-8 py-6 text-center font-black text-rose-500">{agent.totalDelays}</td>
                       </tr>
                     ))}
@@ -572,6 +605,7 @@ const Reports: React.FC = () => {
                         <TargetInput label="عملاء جدد" value={targetForm.newClients} onChange={v => setTargetForm({...targetForm, newClients: v})} />
                         <TargetInput label="حجوزات" value={targetForm.bookings} onChange={v => setTargetForm({...targetForm, bookings: v})} />
                         <TargetInput label="متابعات" value={targetForm.followUps} onChange={v => setTargetForm({...targetForm, followUps: v})} />
+                        <TargetInput label="الدخل المستهدف (ج.م)" value={targetForm.income} onChange={v => setTargetForm({...targetForm, income: v})} />
                         <div className="flex flex-col gap-2 pt-2">
                           <button onClick={() => handleUpdateTarget(agent.uid, false)} className="w-full py-3 bg-primary-500 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-primary-500/20"><Save size={14}/> حفظ لهذا اليوم فقط</button>
                           <button onClick={() => handleUpdateTarget(agent.uid, true)} className="w-full py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-black text-xs flex items-center justify-center gap-2">حفظ كهدف افتراضي يومي</button>
@@ -583,13 +617,15 @@ const Reports: React.FC = () => {
                         <TargetDisplay label="عملاء جدد" value={def?.newClients || 0} />
                         <TargetDisplay label="حجوزات" value={def?.bookings || 0} />
                         <TargetDisplay label="متابعات" value={def?.followUps || 0} />
+                        <TargetDisplay label="الدخل المستهدف" value={`${(def?.income || 0).toLocaleString('ar-EG')} ج.م`} />
                         <button 
                           onClick={() => {
                             setEditingTargetId(agent.uid);
                             setTargetForm({ 
                               newClients: def?.newClients || 0, 
                               bookings: def?.bookings || 0, 
-                              followUps: def?.followUps || 0 
+                              followUps: def?.followUps || 0,
+                              income: def?.income || 0
                             });
                           }}
                           className="w-full py-3 bg-slate-50 dark:bg-slate-800 text-primary-500 rounded-xl font-black text-xs uppercase hover:bg-primary-500 hover:text-white transition-all"
@@ -662,8 +698,9 @@ const ReportCard: React.FC<{ report: DailyReport, onEdit: () => void, isManager?
   const achievement = Math.round((
     (report.newClients / (report.targetNewClients || 1)) + 
     (report.booked / (report.targetBookings || 1)) + 
-    (report.completedToday / (report.targetFollowUps || 1))
-  ) / 3 * 100);
+    (report.completedToday / (report.targetFollowUps || 1)) +
+    ((report.totalPaidToday || 0) / (report.targetIncome || 1))
+  ) / 4 * 100);
 
   return (
     <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm space-y-4 relative overflow-hidden">
@@ -687,6 +724,17 @@ const ReportCard: React.FC<{ report: DailyReport, onEdit: () => void, isManager?
         <MiniReportStat label="جديد" value={report.newClients} target={report.targetNewClients} />
         <MiniReportStat label="حجز" value={report.booked} target={report.targetBookings} />
         <MiniReportStat label="متابعة" value={report.completedToday} target={report.targetFollowUps} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="p-3 bg-emerald-50 dark:bg-emerald-500/5 rounded-xl text-center">
+          <p className="text-[8px] font-black text-emerald-600 uppercase">المحصل</p>
+          <p className="text-xs font-black text-emerald-700">{report.totalPaidToday?.toLocaleString('ar-EG')} ج.م</p>
+        </div>
+        <div className="p-3 bg-amber-50 dark:bg-amber-500/5 rounded-xl text-center">
+          <p className="text-[8px] font-black text-amber-600 uppercase">المتبقي</p>
+          <p className="text-xs font-black text-amber-700">{report.totalRemainingToday?.toLocaleString('ar-EG')} ج.م</p>
+        </div>
       </div>
 
       {report.notes && (

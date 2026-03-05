@@ -24,12 +24,31 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
   const [method, setMethod] = useState<CommMethod>(CommMethod.PHONE);
   const [nextFollowUpMethod, setNextFollowUpMethod] = useState<CommMethod>(CommMethod.PHONE);
   
+  // Booking States
+  const [isBooked, setIsBooked] = useState(false);
+  const [bookedCourseId, setBookedCourseId] = useState('');
+  const [bookedCourseName, setBookedCourseName] = useState('');
+  const [totalPrice, setTotalPrice] = useState(0);
+  const [paidAmount, setPaidAmount] = useState(0);
+  const [remainingAmount, setRemainingAmount] = useState(0);
+  
+  // Services for booking
+  const [services, setServices] = useState<any[]>([]);
+  
   const [scheduleNext, setScheduleNext] = useState(false);
   const [nextDate, setNextDate] = useState('');
   const [nextTime, setNextTime] = useState('10:00');
   const [nextPeriod, setNextPeriod] = useState<'AM' | 'PM'>('AM');
 
   const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const unsub = firestore.onSnapshot(firestore.collection(db, 'services'), (snap) => {
+      setServices(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return unsub;
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -87,9 +106,19 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
       });
 
       const updateData: any = {
-        status,
+        status: isBooked ? ClientStatus.BOOKED : status,
         lastFollowUpDate: followUpTimestamp
       };
+
+      if (isBooked) {
+        updateData.isBooked = true;
+        updateData.bookedCourseId = bookedCourseId;
+        updateData.bookedCourseName = bookedCourseName;
+        updateData.totalPrice = totalPrice;
+        updateData.paidAmount = paidAmount;
+        updateData.remainingAmount = remainingAmount;
+        updateData.bookingDate = followUpTimestamp;
+      }
 
       if (nextTs) {
         updateData.nextFollowUpDate = nextTs;
@@ -109,8 +138,8 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
   };
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-950/60 backdrop-blur-md p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-2xl my-8 shadow-2xl border border-slate-100 dark:border-slate-800 animate-fade-in overflow-hidden">
+    <div className="fixed inset-0 z-[150] flex items-start justify-center bg-slate-950/60 backdrop-blur-md p-4 overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-2xl my-4 sm:my-10 shadow-2xl border border-slate-100 dark:border-slate-800 animate-fade-in overflow-hidden">
         <div className="p-8 border-b border-slate-50 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-primary-500 text-white rounded-2xl shadow-lg shadow-primary-500/20">
@@ -202,6 +231,69 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
                 {Object.entries(StatusLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
               </select>
             </div>
+          </div>
+
+          {/* Booking Section */}
+          <div className="p-6 bg-amber-50 dark:bg-amber-500/5 rounded-[2rem] border border-amber-200 dark:border-amber-500/20 space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black text-amber-700 dark:text-amber-400">هل قام العميل بالحجز في هذا التواصل؟</label>
+              <input type="checkbox" checked={isBooked} onChange={e => setIsBooked(e.target.checked)} className="w-5 h-5 accent-amber-500" />
+            </div>
+            
+            {isBooked && (
+              <div className="space-y-4 animate-fade-in pt-2">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase">الكورس المحجوز</label>
+                  <select 
+                    required 
+                    className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                    value={bookedCourseId} 
+                    onChange={e => {
+                      const s = services.find(srv => srv.id === e.target.value);
+                      setBookedCourseId(e.target.value);
+                      setBookedCourseName(s?.name || '');
+                    }}
+                  >
+                    <option value="">اختر الكورس...</option>
+                    {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase">السعر الإجمالي</label>
+                    <input 
+                      type="number" 
+                      required 
+                      className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                      value={totalPrice} 
+                      onChange={e => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setTotalPrice(val);
+                        setRemainingAmount(val - paidAmount);
+                      }} 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase">المبلغ المدفوع</label>
+                    <input 
+                      type="number" 
+                      required 
+                      className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                      value={paidAmount} 
+                      onChange={e => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setPaidAmount(val);
+                        setRemainingAmount(totalPrice - val);
+                      }} 
+                    />
+                  </div>
+                </div>
+                <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-amber-100 dark:border-amber-500/10">
+                  <p className="text-[9px] font-black text-slate-400 uppercase">المبلغ المتبقي</p>
+                  <p className="text-sm font-black text-amber-600">{remainingAmount} ج.م</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <button type="submit" disabled={loading} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all flex items-center justify-center gap-3 disabled:opacity-50">

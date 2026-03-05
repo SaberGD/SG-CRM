@@ -92,8 +92,8 @@ const LabelsManager: React.FC = () => {
 
       {/* Add Label Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-sm p-10 space-y-8 animate-fade-in shadow-2xl border border-slate-100 dark:border-slate-800">
+        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-sm p-10 my-4 sm:my-20 space-y-8 animate-fade-in shadow-2xl border border-slate-100 dark:border-slate-800">
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-black flex items-center gap-3">
                 <Plus className="text-primary-500" /> تصنيف جديد

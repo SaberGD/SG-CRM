@@ -104,6 +104,14 @@ export interface Client {
   preferredMethod?: CommMethod;
   country: string;
   countryCode: string;
+  // Booking Fields
+  isBooked?: boolean;
+  bookedCourseId?: string;
+  bookedCourseName?: string;
+  totalPrice?: number;
+  paidAmount?: number;
+  remainingAmount?: number;
+  bookingDate?: number;
 }
 
 export interface FollowUp {
@@ -158,10 +166,15 @@ export interface DailyReport {
   largeDelays: number;
   punctualityRatio: number;
   
+  // Financial stats
+  totalPaidToday: number;
+  totalRemainingToday: number;
+  
   // Targets at submission
   targetNewClients: number;
   targetBookings: number;
   targetFollowUps: number;
+  targetIncome: number;
   
   // Checklist
   checklist: {

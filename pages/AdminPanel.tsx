@@ -125,13 +125,18 @@ const AdminPanel: React.FC = () => {
     if (!user) return;
     if (u.uid === user.uid) return alert("لا يمكنك حذف حسابك الخاص من هنا!");
     
-    if (window.confirm(`هل أنت متأكد من حذف المستخدم [${u.name || u.email}] نهائياً؟ ستفقد كافة بياناته.`)) {
+    const confirmation = prompt(`لحذف المستخدم [${u.name || u.email}] نهائياً، يرجى كتابة كلمة 'delete' للتأكيد:`);
+    if (confirmation === 'delete') {
       try {
         await deleteDoc(doc(db, 'users', u.uid));
         await logActivity(user.uid, user.name, `حذف الموظف [${u.name || u.email}]`, u.uid, u.name || 'غير معروف');
+        alert("تم حذف المستخدم بنجاح");
       } catch (err) {
         console.error(err);
+        alert("حدث خطأ أثناء الحذف");
       }
+    } else if (confirmation !== null) {
+      alert("كلمة التأكيد غير صحيحة، لم يتم الحذف.");
     }
   };
 

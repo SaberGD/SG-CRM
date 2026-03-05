@@ -158,12 +158,18 @@ const ClientDetails: React.FC = () => {
         scheduledTime,
         delayStatus
       });
-      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), { 
-        status, 
-        nextFollowUpDate: nextTs || client.nextFollowUpDate, 
-        nextFollowUpMethod: nextTs ? nextFollowUpMethod : client.nextFollowUpMethod,
-        lastFollowUpDate: Date.now() 
-      });
+
+      const updateData: any = {
+        status,
+        lastFollowUpDate: Date.now()
+      };
+
+      if (nextTs) {
+        updateData.nextFollowUpDate = nextTs;
+        updateData.nextFollowUpMethod = nextFollowUpMethod;
+      }
+
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), updateData);
       
       await logActivity(user.uid, user.name, `إنهاء متابعة: ${salesBrief}`, client.id, client.name);
       

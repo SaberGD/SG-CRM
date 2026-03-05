@@ -112,7 +112,17 @@ const InvitesManager: React.FC = () => {
                   </td>
                   <td className="px-8 py-6 text-center text-xs text-slate-500 font-bold">{invite.invitedByName}</td>
                   <td className="px-8 py-6 text-center">
-                    <button onClick={async () => { if(confirm("حذف هذا الإيميل من قائمة الوصول؟")) await deleteDoc(doc(db, 'invitations', invite.id)); }} className="p-3 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all"><Trash2 size={16}/></button>
+                    <button onClick={async () => { 
+                      if(confirm(`هل أنت متأكد من حذف البريد [${invite.email}] من قائمة الوصول؟`)) {
+                        try {
+                          await deleteDoc(doc(db, 'invitations', invite.id));
+                          alert("تم الحذف بنجاح");
+                        } catch (error) {
+                          console.error("Error deleting invite:", error);
+                          alert("حدث خطأ أثناء الحذف");
+                        }
+                      }
+                    }} className="p-3 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all"><Trash2 size={16}/></button>
                   </td>
                 </tr>
               ))}

@@ -125,16 +125,21 @@ const ClientsList: React.FC = () => {
 
     try {
       const { nextDate, nextTime, nextPeriod, scheduleNext, ...clientToSave } = newClient;
-      const docRef = await firestore.addDoc(firestore.collection(db, 'clients'), { 
+      const dataToSave: any = { 
         ...clientToSave, 
         phone: phoneFull,
         serviceName,
         nextFollowUpDate: nextTs,
-        nextFollowUpMethod: nextTs ? newClient.nextFollowUpMethod : undefined,
         salesAgentId: user.uid, 
         salesAgentName: user.name, 
         createdAt: Date.now() 
-      });
+      };
+      
+      if (nextTs) {
+        dataToSave.nextFollowUpMethod = newClient.nextFollowUpMethod;
+      }
+
+      const docRef = await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
       await logActivity(user.uid, user.name, `إضافة عميل جديد: ${newClient.name}`, docRef.id, newClient.name);
       setIsAddModalOpen(false);
       setNewClient({ 
@@ -258,7 +263,21 @@ const ClientsList: React.FC = () => {
                         <button onClick={() => { setSelectedClient(client); setIsTransferModalOpen(true); }} title="تحويل العميل لموظف آخر" className="p-2.5 bg-amber-50 text-amber-500 rounded-xl hover:scale-110 transition-all dark:bg-amber-500/10"><ArrowRightLeft size={16} /></button>
                       )}
                       {canDelete && (
-                        <button onClick={async () => { if(confirm("حذف العميل نهائياً؟")) await firestore.deleteDoc(firestore.doc(db, 'clients', client.id)); }} title="حذف العميل" className="p-2.5 bg-rose-50 text-rose-500 rounded-xl hover:scale-110 transition-all dark:bg-rose-500/10"><Trash2 size={16} /></button>
+                        <button onClick={async () => { 
+                          const confirmation = prompt("لحذف العميل نهائياً، يرجى كتابة كلمة 'delete' للتأكيد:");
+                          if(confirmation === 'delete') {
+                            try {
+                              await firestore.deleteDoc(firestore.doc(db, 'clients', client.id));
+                              await logActivity(user!.uid, user!.name, `حذف العميل نهائياً: ${client.name}`, client.id, client.name);
+                              alert("تم حذف العميل بنجاح");
+                            } catch (error) {
+                              console.error("Error deleting client:", error);
+                              alert("حدث خطأ أثناء الحذف. يرجى التحقق من الصلاحيات.");
+                            }
+                          } else if (confirmation !== null) {
+                            alert("كلمة التأكيد غير صحيحة، لم يتم الحذف.");
+                          }
+                        }} title="حذف العميل" className="p-2.5 bg-rose-50 text-rose-500 rounded-xl hover:scale-110 transition-all dark:bg-rose-500/10"><Trash2 size={16} /></button>
                       )}
                     </div>
                   </td>

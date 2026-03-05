@@ -51,7 +51,17 @@ const ServicesManager: React.FC = () => {
               </span>
               <div className="flex gap-2">
                 <button onClick={() => { setEditingService(service); setFormData(service); setIsModalOpen(true); }} className="text-slate-400 hover:text-primary-500"><Edit3 size={18}/></button>
-                <button onClick={async () => { if(confirm("حذف؟")) await deleteDoc(doc(db, 'services', service.id)); }} className="text-slate-400 hover:text-rose-500"><Trash2 size={18}/></button>
+                <button onClick={async () => { 
+                  if(confirm(`هل أنت متأكد من حذف الخدمة [${service.name}] نهائياً؟`)) {
+                    try {
+                      await deleteDoc(doc(db, 'services', service.id));
+                      alert("تم حذف الخدمة بنجاح");
+                    } catch (error) {
+                      console.error("Error deleting service:", error);
+                      alert("حدث خطأ أثناء الحذف");
+                    }
+                  }
+                }} className="text-slate-400 hover:text-rose-500"><Trash2 size={18}/></button>
               </div>
             </div>
             <h3 className="text-xl font-black text-slate-900 dark:text-white">{service.name}</h3>

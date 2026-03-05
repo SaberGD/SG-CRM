@@ -86,12 +86,17 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
         delayStatus
       });
 
-      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+      const updateData: any = {
         status,
-        nextFollowUpDate: nextTs || client.nextFollowUpDate,
-        nextFollowUpMethod: nextTs ? nextFollowUpMethod : client.nextFollowUpMethod,
         lastFollowUpDate: followUpTimestamp
-      });
+      };
+
+      if (nextTs) {
+        updateData.nextFollowUpDate = nextTs;
+        updateData.nextFollowUpMethod = nextFollowUpMethod;
+      }
+
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), updateData);
 
       await logActivity(user.uid, user.name, `تسجيل متابعة خارجية: ${salesBrief}`, client.id, client.name);
       

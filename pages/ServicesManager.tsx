@@ -14,6 +14,8 @@ const ServicesManager: React.FC = () => {
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'services'), snap => {
       setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
+    }, (err) => {
+      console.error("ServicesManager Snapshot Error:", err);
     });
     return unsub;
   }, []);

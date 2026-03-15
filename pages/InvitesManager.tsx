@@ -29,6 +29,9 @@ const InvitesManager: React.FC = () => {
     const unsub = onSnapshot(q, (snap) => {
       setInvites(snap.docs.map(d => ({ id: d.id, ...d.data() } as Invitation)));
       setLoading(false);
+    }, (err) => {
+      console.error("InvitesManager Snapshot Error:", err);
+      setLoading(false);
     });
     return unsub;
   }, [user, effectiveRole]);

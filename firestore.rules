@@ -3,7 +3,25 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // وظائف مساعدة للتحقق من الصلاحيات
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields: name (string), email (string), role (string), createdAt (number)
+    //
+    // Collection: clients
+    // Fields: name (string), phone (string), status (string), salesAgentId (string), salesAgentName (string)
+    //
+    // Collection: reports
+    // Fields: userId (string), userName (string), date (string), submittedAt (number)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -12,42 +30,86 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
     
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    
     function isAdmin() {
-      return isAuthenticated() && (getUserData().role == 'admin');
+      return isAuthenticated() && (
+        (userExists() && (getUserData().role == 'admin' || getUserData().role == 'administrator')) || 
+        (request.auth.token.email == "saber.gd.fl@gmail.com" && request.auth.token.email_verified == true)
+      );
     }
     
     function isManager() {
-      return isAuthenticated() && (getUserData().role == 'manager' || getUserData().role == 'admin');
+      return isAdmin() || (isAuthenticated() && userExists() && (getUserData().role == 'manager' || getUserData().role == 'supervisor'));
     }
     
     function isTeamLeader() {
-      return isAuthenticated() && (getUserData().role == 'team_leader' || getUserData().role == 'manager' || getUserData().role == 'admin');
+      return isManager() || (isAuthenticated() && userExists() && (getUserData().role == 'team_leader' || getUserData().role == 'leader'));
     }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string &&
+             data.role in ['admin', 'manager', 'team_leader', 'sales_agent'];
+    }
+
+    function isValidClient(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.phone is string && data.phone.size() > 0 &&
+             data.salesAgentId is string &&
+             (data.salesAgentId == request.auth.uid || isTeamLeader());
+    }
+
+    function isValidReport(data) {
+      return data.userId is string && (data.userId == request.auth.uid || isManager()) &&
+             data.date is string &&
+             data.submittedAt is number;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
 
     // قواعد مجموعة المستخدمين
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin() || request.auth.uid == userId;
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin();
     }
     
     // قواعد العملاء
     match /clients/{clientId} {
-      allow read: if isTeamLeader() || (isAuthenticated() && resource.data.salesAgentId == request.auth.uid);
-      allow create: if isAuthenticated();
-      allow update: if isTeamLeader() || (isAuthenticated() && resource.data.salesAgentId == request.auth.uid);
+      allow read: if isAuthenticated(); 
+      allow create: if isAuthenticated() && isValidClient(request.resource.data);
+      allow update: if isAuthenticated() && isValidClient(request.resource.data) && (isTeamLeader() || resource.data.salesAgentId == request.auth.uid);
       allow delete: if isManager();
     }
     
     // قواعد المتابعات
     match /followups/{id} {
-      allow read: if isTeamLeader() || (isAuthenticated() && resource.data.agentId == request.auth.uid);
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated();
       allow update, delete: if isManager();
     }
     
-    // قواعد الدعوات (مهمة للتسجيل)
+    // قواعد الدعوات
     match /invitations/{id} {
-      allow read: if true; // السماح بالقراءة للتحقق من التوكن أثناء التسجيل
+      allow read: if isAuthenticated(); 
       allow write: if isTeamLeader();
     }
     
@@ -70,9 +132,9 @@ service cloud.firestore {
     
     // قواعد التقارير والتحويلات
     match /reports/{id} {
-      allow read: if isManager() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if isAuthenticated();
-      allow update: if isManager();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidReport(request.resource.data);
+      allow update: if isManager() && isValidReport(request.resource.data);
     }
     
     match /targets/{id} {

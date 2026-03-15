@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
-import { db, logActivity } from '../firebase';
+import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../App';
 import { 
   Client, ClientStatus, StatusLabels, UserRole, Service, Label, 
@@ -46,7 +46,7 @@ const ClientsList: React.FC = () => {
   const [newClient, setNewClient] = useState({ 
     name: '', phone: '', status: ClientStatus.INTERESTED, 
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
-    serviceId: '', country: 'مصر', countryCode: '+20', 
+    serviceId: '', customServiceName: '', country: 'مصر', countryCode: '+20', 
     labels: [] as string[],
     notes: '',
     preferredMethod: CommMethod.PHONE,
@@ -80,14 +80,20 @@ const ClientsList: React.FC = () => {
     
     const unsubClients = firestore.onSnapshot(q, (snapshot) => {
       setClients(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+    }, (err) => {
+      console.error("ClientsList Clients Snapshot Error:", err);
     });
 
-    firestore.onSnapshot(firestore.query(firestore.collection(db, 'services'), firestore.where('isActive', '==', true)), snap => {
+    const unsubServices = firestore.onSnapshot(firestore.query(firestore.collection(db, 'services'), firestore.where('isActive', '==', true)), snap => {
       setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
+    }, (err) => {
+      console.error("ClientsList Services Snapshot Error:", err);
     });
 
-    firestore.onSnapshot(firestore.collection(db, 'labels'), snap => {
+    const unsubLabels = firestore.onSnapshot(firestore.collection(db, 'labels'), snap => {
       setAllLabels(snap.docs.map(d => ({ id: d.id, ...d.data() } as Label)));
+    }, (err) => {
+      console.error("ClientsList Labels Snapshot Error:", err);
     });
 
     if (isHighRole) {
@@ -96,7 +102,11 @@ const ClientsList: React.FC = () => {
       });
     }
 
-    return () => unsubClients();
+    return () => {
+      unsubClients();
+      unsubServices();
+      unsubLabels();
+    };
   }, [authLoading, user, effectiveRole]);
 
   const filteredClients = useMemo(() => {
@@ -118,7 +128,8 @@ const ClientsList: React.FC = () => {
     const phoneCheck = await firestore.getDocs(firestore.query(firestore.collection(db, 'clients'), firestore.where('phone', '==', phoneFull)));
     if (!phoneCheck.empty) return alert("هذا الرقم مسجل مسبقاً باسم: " + phoneCheck.docs[0].data().name);
 
-    const serviceName = services.find(s => s.id === newClient.serviceId)?.name || 'أخرى';
+    const isOtherService = newClient.serviceId === 'other';
+    const serviceName = isOtherService ? newClient.customServiceName : (services.find(s => s.id === newClient.serviceId)?.name || 'أخرى');
 
     let nextTs = 0;
     if (newClient.scheduleNext && newClient.nextDate) {
@@ -130,7 +141,7 @@ const ClientsList: React.FC = () => {
     }
 
     try {
-      const { nextDate, nextTime, nextPeriod, scheduleNext, isBooked, bookedCourseId, bookedCourseName, totalPrice, paidAmount, remainingAmount, ...clientToSave } = newClient;
+      const { nextDate, nextTime, nextPeriod, scheduleNext, isBooked, bookedCourseId, bookedCourseName, totalPrice, paidAmount, remainingAmount, customServiceName, ...clientToSave } = newClient;
       const dataToSave: any = { 
         ...clientToSave, 
         phone: phoneFull,
@@ -157,19 +168,24 @@ const ClientsList: React.FC = () => {
         dataToSave.status = ClientStatus.BOOKED;
       }
 
+      console.log("Attempting to add client with data:", dataToSave);
       const docRef = await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
+      console.log("Client added successfully, ID:", docRef.id);
       await logActivity(user.uid, user.name, `إضافة عميل جديد: ${newClient.name}`, docRef.id, newClient.name);
       setIsAddModalOpen(false);
       setNewClient({ 
         name: '', phone: '', status: ClientStatus.INTERESTED, 
         gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
-        serviceId: '', country: 'مصر', countryCode: '+20', 
+        serviceId: '', customServiceName: '', country: 'مصر', countryCode: '+20', 
         labels: [], notes: '', preferredMethod: CommMethod.PHONE,
         nextFollowUpMethod: CommMethod.PHONE,
         scheduleNext: false,
         nextDate: '', nextTime: '10:00', nextPeriod: 'AM' 
       });
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      handleFirestoreError(err, OperationType.CREATE, 'clients');
+      alert("حدث خطأ في الصلاحيات أثناء إضافة العميل. يرجى التأكد من إعدادات Firebase.");
+    }
   };
 
   const updateRemaining = (total: number, paid: number) => {
@@ -196,7 +212,10 @@ const ClientsList: React.FC = () => {
       await logActivity(user!.uid, user!.name, `تحويل العميل إلى ${newAgent.name}`, selectedClient.id, selectedClient.name);
       setIsTransferModalOpen(false);
       setSelectedClient(null);
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      handleFirestoreError(err, OperationType.WRITE, 'clients/transfers');
+      alert("حدث خطأ في الصلاحيات أثناء تحويل العميل. يرجى التأكد من أنك تملك صلاحية Team Leader على الأقل.");
+    }
   };
 
   return (
@@ -325,12 +344,30 @@ const ClientsList: React.FC = () => {
                   <input required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" placeholder="أدخل الاسم..." value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} />
                 </div>
                 <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">حالة العميل</label>
+                  <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.status} onChange={e => setNewClient({...newClient, status: e.target.value as ClientStatus})}>
+                    {(Object.entries(StatusLabels) as [ClientStatus, any][]).map(([k, v]) => (
+                      <option key={k} value={k}>{v.ar}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الخدمة المطلوبة</label>
                    <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.serviceId} onChange={e => setNewClient({...newClient, serviceId: e.target.value})}>
                     <option value="">اختر الخدمة...</option>
                     {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    <option value="other">خدمة أخرى...</option>
                   </select>
                 </div>
+                {newClient.serviceId === 'other' && (
+                  <div className="space-y-1.5 animate-fade-in">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">اسم الخدمة الأخرى</label>
+                    <input required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white border-2 border-primary-500/30" placeholder="أدخل اسم الخدمة..." value={newClient.customServiceName} onChange={e => setNewClient({...newClient, customServiceName: e.target.value})} />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

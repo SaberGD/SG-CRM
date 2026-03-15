@@ -1,0 +1,55 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System user (Admin, Manager, Team Leader, Sales Agent)",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "manager", "team_leader", "sales_agent"] },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["name", "email", "role"]
+    },
+    "Client": {
+      "title": "Client",
+      "description": "Lead or customer information",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["interested", "not_interested", "potential", "booked"] },
+        "salesAgentId": { "type": "string" },
+        "salesAgentName": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["name", "phone", "status", "salesAgentId"]
+    },
+    "Report": {
+      "title": "Daily Report",
+      "description": "Daily performance report submitted by agents",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "date": { "type": "string" },
+        "submittedAt": { "type": "number" }
+      },
+      "required": ["userId", "date", "submittedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "User profiles" },
+    "/clients/{clientId}": { "schema": "Client", "description": "Client leads" },
+    "/reports/{reportId}": { "schema": "Report", "description": "Daily reports" },
+    "/logs/{logId}": { "schema": "ActivityLog", "description": "System activity logs" },
+    "/followups/{id}": { "schema": "FollowUp", "description": "Client follow-up notes" },
+    "/invitations/{id}": { "schema": "Invitation", "description": "User registration invitations" },
+    "/services/{id}": { "schema": "Service", "description": "Available services/courses" },
+    "/labels/{id}": { "schema": "Label", "description": "Client labels/tags" },
+    "/targets/{id}": { "schema": "Target", "description": "Daily targets for agents" },
+    "/defaultTargets/{id}": { "schema": "DefaultTarget", "description": "Default targets for agents" },
+    "/transfers/{id}": { "schema": "ClientTransfer", "description": "Client transfer history" }
+  }
+}

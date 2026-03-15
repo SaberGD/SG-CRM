@@ -4,7 +4,7 @@ import {
   collection, query, where, getDocs, addDoc, limit, orderBy, 
   doc, updateDoc, setDoc, getDoc, onSnapshot 
 } from 'firebase/firestore';
-import { db, logActivity } from '../firebase';
+import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../App';
 import { 
   DailyReport, Client, ClientStatus, UserRole, 
@@ -98,13 +98,73 @@ const Reports: React.FC = () => {
     }
   }, [effectiveRole, user]);
 
+  const [allMyClients, setAllMyClients] = useState<Client[]>([]);
+  const [todayFollowUps, setTodayFollowUps] = useState<FollowUp[]>([]);
+
   useEffect(() => {
     if (!user) return;
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayStartTs = todayStart.getTime();
+
+    const qClients = query(collection(db, 'clients'), where('salesAgentId', '==', user.uid));
+    const unsubClients = onSnapshot(qClients, (snap) => {
+      setAllMyClients(snap.docs.map(d => d.data() as Client));
+    }, (err) => {
+      console.error("Reports Clients Snapshot Error:", err);
+    });
+
+    const qFollowups = query(collection(db, 'followups'), where('agentId', '==', user.uid), where('timestamp', '>=', todayStartTs));
+    const unsubFollowups = onSnapshot(qFollowups, (snap) => {
+      setTodayFollowUps(snap.docs.map(d => d.data() as FollowUp));
+    }, (err) => {
+      console.error("Reports Followups Snapshot Error:", err);
+    });
+
+    return () => {
+      unsubClients();
+      unsubFollowups();
+    };
+  }, [user]);
+
+  useEffect(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayStartTs = todayStart.getTime();
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+    const todayEndTs = todayEnd.getTime();
+    const now = Date.now();
+
+    const bookedToday = allMyClients.filter(c => c.isBooked && c.bookingDate && c.bookingDate >= todayStartTs && c.bookingDate <= todayEndTs);
+    const completedTodayScheduledForToday = todayFollowUps.filter(f => f.scheduledTime >= todayStartTs && f.scheduledTime <= todayEndTs).length;
+    const remainingScheduledToday = allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate >= todayStartTs && c.nextFollowUpDate <= todayEndTs).length;
+
+    setTodayStats({
+      newClients: allMyClients.filter(c => c.createdAt >= todayStartTs).length,
+      interested: allMyClients.filter(c => c.status === ClientStatus.INTERESTED).length,
+      notInterested: allMyClients.filter(c => c.status === ClientStatus.NOT_INTERESTED).length,
+      potential: allMyClients.filter(c => c.status === ClientStatus.POTENTIAL).length,
+      booked: bookedToday.length,
+      scheduledToday: completedTodayScheduledForToday + remainingScheduledToday,
+      completedToday: todayFollowUps.length,
+      overdueToday: allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate < now).length,
+      largeDelays: todayFollowUps.filter(f => f.delayStatus === 'large_delay').length,
+      punctualityRatio: todayFollowUps.length > 0 
+        ? Math.round((todayFollowUps.filter(f => f.delayStatus !== 'large_delay').length / todayFollowUps.length) * 100) 
+        : 100,
+      totalPaidToday: bookedToday.reduce((sum, c) => sum + (c.paidAmount || 0), 0),
+      totalRemainingToday: bookedToday.reduce((sum, c) => sum + (c.remainingAmount || 0), 0)
+    });
+  }, [allMyClients, todayFollowUps]);
+
+  useEffect(() => {
     const init = async () => {
       setLoading(true);
       try {
         await Promise.all([
-          calculateTodayStats(),
+          fetchTodayTarget(),
           fetchMyReports(),
           isHighRole ? fetchAllReports() : Promise.resolve(),
           isHighRole ? fetchAgents() : Promise.resolve(),
@@ -119,22 +179,11 @@ const Reports: React.FC = () => {
     init();
   }, [user, effectiveRole]);
 
-  const calculateTodayStats = async () => {
+  const fetchTodayTarget = async () => {
     if (!user) return;
-    const todayStr = new Date().toISOString().split('T')[0];
-    const todayStart = new Date().setHours(0,0,0,0);
-    const todayEnd = new Date().setHours(23,59,59,999);
-    const now = Date.now();
-
-    // 1. Fetch Clients
-    const clientsSnap = await getDocs(query(collection(db, 'clients'), where('salesAgentId', '==', user.uid)));
-    const allMyClients = clientsSnap.docs.map(d => d.data() as Client);
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     
-    // 2. Fetch Today's FollowUps
-    const followUpsSnap = await getDocs(query(collection(db, 'followups'), where('agentId', '==', user.uid), where('timestamp', '>=', todayStart)));
-    const todayFollowUps = followUpsSnap.docs.map(d => d.data() as FollowUp);
-
-    // 3. Fetch Targets (Handle errors gracefully)
     let target: Target | null = null;
     try {
       const targetId = `${user.uid}_${todayStr}`;
@@ -153,30 +202,6 @@ const Reports: React.FC = () => {
       console.warn("Target fetch failed (likely permissions):", err);
     }
     setTodayTarget(target);
-
-    // Calculate Stats
-    const completedTodayScheduledForToday = todayFollowUps.filter(f => f.scheduledTime >= todayStart && f.scheduledTime <= todayEnd).length;
-    const remainingScheduledToday = allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate >= todayStart && c.nextFollowUpDate <= todayEnd).length;
-
-    const bookedToday = allMyClients.filter(c => c.isBooked && c.bookingDate && c.bookingDate >= todayStart && c.bookingDate <= todayEnd);
-
-    const stats: Partial<DailyReport> = {
-      newClients: allMyClients.filter(c => c.createdAt >= todayStart).length,
-      interested: allMyClients.filter(c => c.status === ClientStatus.INTERESTED).length,
-      notInterested: allMyClients.filter(c => c.status === ClientStatus.NOT_INTERESTED).length,
-      potential: allMyClients.filter(c => c.status === ClientStatus.POTENTIAL).length,
-      booked: bookedToday.length,
-      scheduledToday: completedTodayScheduledForToday + remainingScheduledToday,
-      completedToday: todayFollowUps.length,
-      overdueToday: allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate < now).length,
-      largeDelays: todayFollowUps.filter(f => f.delayStatus === 'large_delay').length,
-      punctualityRatio: todayFollowUps.length > 0 
-        ? Math.round((todayFollowUps.filter(f => f.delayStatus !== 'large_delay').length / todayFollowUps.length) * 100) 
-        : 100,
-      totalPaidToday: bookedToday.reduce((sum, c) => sum + (c.paidAmount || 0), 0),
-      totalRemainingToday: bookedToday.reduce((sum, c) => sum + (c.remainingAmount || 0), 0)
-    };
-    setTodayStats(stats);
   };
 
   const fetchMyReports = async () => {
@@ -245,15 +270,17 @@ const Reports: React.FC = () => {
     };
 
     try {
+      console.log("Attempting to submit report with data:", reportData);
       const aiAnalysis = await analyzeDailyReport(reportData as DailyReport);
       const finalData = { ...reportData, aiAnalysis };
       await addDoc(collection(db, 'reports'), finalData);
+      console.log("Report submitted successfully");
       await logActivity(user.uid, user.name, "إرسال تقرير يومي", "report", todayStr);
       alert("تم إرسال التقرير بنجاح");
       fetchMyReports();
     } catch (err) {
-      console.error(err);
-      alert("خطأ في إرسال التقرير");
+      handleFirestoreError(err, OperationType.CREATE, 'reports');
+      alert("خطأ في الصلاحيات أثناء إرسال التقرير. يرجى التأكد من إعدادات Firebase.");
     } finally {
       setIsSubmitting(false);
     }

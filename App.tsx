@@ -4,7 +4,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
 // Namespaced import to fix "no exported member" errors.
 import * as firestore from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import { User, UserRole } from './types';
 
 import Layout from './components/Layout';
@@ -43,6 +43,18 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Test Firestore connection
+    const testConnection = async () => {
+      try {
+        await firestore.getDocFromCache(firestore.doc(db, 'users', 'connection-test'));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. The client appears to be offline.");
+        }
+      }
+    };
+    testConnection();
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setLoading(true);
       if (firebaseUser) {
@@ -52,16 +64,28 @@ const App: React.FC = () => {
           
           if (userDoc.exists()) {
             const data = userDoc.data();
+            // Normalize roles if they are coming from a different source or legacy data
+            let role = data.role as string;
+            if (role === 'sales') role = UserRole.SALES_AGENT;
+            if (role === 'supervisor') role = UserRole.MANAGER;
+            if (role === 'leader') role = UserRole.TEAM_LEADER;
+            if (role === 'administrator') role = UserRole.ADMIN;
+
             if (!data.name || data.name === 'مستخدم' || data.name === '') {
               const fixedName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'مدير النظام';
               try {
                 await firestore.updateDoc(userDocRef, { name: fixedName });
-              } catch (e) { console.warn("Permission denied for self-repair, using local values."); }
-              const userData = { uid: firebaseUser.uid, ...data, name: fixedName } as User;
+              } catch (e) { 
+                handleFirestoreError(e, OperationType.UPDATE, `users/${firebaseUser.uid}`);
+                console.warn("Permission denied for self-repair, using local values."); 
+              }
+              const userData = { uid: firebaseUser.uid, ...data, name: fixedName, role: role as UserRole } as User;
+              console.log("User Logged In (Repaired):", userData.name, "Role:", userData.role);
               setUser(userData);
               setEffectiveRoleState(userData.role);
             } else {
-              const userData = { uid: firebaseUser.uid, ...data } as User;
+              const userData = { uid: firebaseUser.uid, ...data, role: role as UserRole } as User;
+              console.log("User Logged In:", userData.name, "Role:", userData.role);
               setUser(userData);
               const savedRole = localStorage.getItem('viewAsRole') as UserRole;
               setEffectiveRoleState(savedRole && userData.role === UserRole.ADMIN ? savedRole : userData.role);
@@ -75,12 +99,16 @@ const App: React.FC = () => {
             };
             try {
               await firestore.setDoc(userDocRef, repairData);
-            } catch (e) { console.error("Critical: Could not create user document. Check Firestore Rules."); }
+            } catch (e) { 
+              handleFirestoreError(e, OperationType.CREATE, `users/${firebaseUser.uid}`);
+              console.error("Critical: Could not create user document. Check Firestore Rules."); 
+            }
             const userData = { uid: firebaseUser.uid, ...repairData } as User;
             setUser(userData);
             setEffectiveRoleState(userData.role);
           }
         } catch (error) {
+          handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
           console.error("Auth Sync Permission Error:", error);
           // Fallback minimal user object if Firestore is locked
           setUser({ uid: firebaseUser.uid, email: firebaseUser.email || '', name: 'مستخدم (محدود)', role: UserRole.SALES_AGENT });

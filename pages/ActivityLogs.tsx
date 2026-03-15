@@ -14,6 +14,9 @@ const ActivityLogs: React.FC = () => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivityLog)));
       setLoading(false);
+    }, (err) => {
+      console.error("ActivityLogs Snapshot Error:", err);
+      setLoading(false);
     });
     return () => unsubscribe();
   }, []);

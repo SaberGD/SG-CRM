@@ -87,12 +87,17 @@ const ClientDetails: React.FC = () => {
         setStatus(data.status);
       }
       setLoading(false);
+    }, (err) => {
+      console.error("ClientDetails Client Snapshot Error:", err);
+      setLoading(false);
     });
 
     const unsubFollowups = firestore.onSnapshot(
       firestore.query(firestore.collection(db, 'followups'), firestore.where('clientId', '==', id), firestore.orderBy('timestamp', 'desc')),
       (snap) => {
         setFollowUps(snap.docs.map(d => ({ id: d.id, ...d.data() } as FollowUp)));
+      }, (err) => {
+        console.error("ClientDetails Followups Snapshot Error:", err);
       }
     );
 
@@ -100,11 +105,15 @@ const ClientDetails: React.FC = () => {
       firestore.query(firestore.collection(db, 'logs'), firestore.where('targetId', '==', id), firestore.orderBy('timestamp', 'desc')),
       (snap) => {
         setActivityLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as ActivityLog)));
+      }, (err) => {
+        console.error("ClientDetails Logs Snapshot Error:", err);
       }
     );
 
     const unsubServices = firestore.onSnapshot(firestore.collection(db, 'services'), (snap) => {
       setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
+    }, (err) => {
+      console.error("ClientDetails Services Snapshot Error:", err);
     });
 
     return () => {

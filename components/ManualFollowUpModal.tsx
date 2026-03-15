@@ -46,6 +46,8 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
     if (!isOpen) return;
     const unsub = firestore.onSnapshot(firestore.collection(db, 'services'), (snap) => {
       setServices(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error("ManualFollowUpModal Services Snapshot Error:", err);
     });
     return unsub;
   }, [isOpen]);

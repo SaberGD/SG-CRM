@@ -25,6 +25,8 @@ const LabelsManager: React.FC = () => {
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'labels'), snap => {
       setLabels(snap.docs.map(d => ({ id: d.id, ...d.data() } as Label)));
+    }, (err) => {
+      console.error("LabelsManager Snapshot Error:", err);
     });
     return unsub;
   }, []);

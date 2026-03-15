@@ -34,6 +34,8 @@ const Notifications: React.FC = () => {
   useEffect(() => {
     const unsubServices = onSnapshot(query(collection(db, 'services'), where('isActive', '==', true)), snap => {
       setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
+    }, (err) => {
+      console.error("Notifications Services Snapshot Error:", err);
     });
 
     if (isHighRole) {

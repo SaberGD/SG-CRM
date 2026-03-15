@@ -54,6 +54,8 @@ const AdminPanel: React.FC = () => {
 
     const unsubClients = onSnapshot(collection(db, 'clients'), (snap) => {
       setClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+    }, (err) => {
+      console.error("AdminPanel Clients Snapshot Error:", err);
     });
 
     return () => {

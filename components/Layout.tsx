@@ -38,6 +38,8 @@ const AlarmManager: React.FC<{ user: any }> = ({ user }) => {
 
       const overdue = clients.some(c => c.nextFollowUpDate && c.nextFollowUpDate < (now - 60000));
       setHasOverdueTasks(overdue);
+    }, (err) => {
+      console.error("AlarmManager Clients Snapshot Error:", err);
     });
     return () => unsubscribe();
   }, [user, activeAlarm]);
@@ -137,6 +139,8 @@ const Layout: React.FC = () => {
             }
           }
         });
+      }, (err) => {
+        console.error("Layout Logs Snapshot Error:", err);
       });
       return () => unsubscribe();
     }

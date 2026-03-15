@@ -54,7 +54,13 @@ const ClientsList: React.FC = () => {
     scheduleNext: false,
     nextDate: '',
     nextTime: '10:00',
-    nextPeriod: 'AM' as 'AM' | 'PM'
+    nextPeriod: 'AM' as 'AM' | 'PM',
+    isBooked: false,
+    bookedCourseId: '',
+    bookedCourseName: '',
+    totalPrice: 0,
+    paidAmount: 0,
+    remainingAmount: 0
   });
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
@@ -124,7 +130,7 @@ const ClientsList: React.FC = () => {
     }
 
     try {
-      const { nextDate, nextTime, nextPeriod, scheduleNext, ...clientToSave } = newClient;
+      const { nextDate, nextTime, nextPeriod, scheduleNext, isBooked, bookedCourseId, bookedCourseName, totalPrice, paidAmount, remainingAmount, ...clientToSave } = newClient;
       const dataToSave: any = { 
         ...clientToSave, 
         phone: phoneFull,
@@ -137,6 +143,18 @@ const ClientsList: React.FC = () => {
       
       if (nextTs) {
         dataToSave.nextFollowUpMethod = newClient.nextFollowUpMethod;
+      }
+
+      if (isBooked) {
+        dataToSave.isBooked = true;
+        dataToSave.isBookedOnCreation = true;
+        dataToSave.bookedCourseId = bookedCourseId;
+        dataToSave.bookedCourseName = bookedCourseName;
+        dataToSave.totalPrice = totalPrice;
+        dataToSave.paidAmount = paidAmount;
+        dataToSave.remainingAmount = remainingAmount;
+        dataToSave.bookingDate = Date.now();
+        dataToSave.status = ClientStatus.BOOKED;
       }
 
       const docRef = await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
@@ -152,6 +170,10 @@ const ClientsList: React.FC = () => {
         nextDate: '', nextTime: '10:00', nextPeriod: 'AM' 
       });
     } catch (err) { console.error(err); }
+  };
+
+  const updateRemaining = (total: number, paid: number) => {
+    setNewClient(prev => ({ ...prev, totalPrice: total, paidAmount: paid, remainingAmount: total - paid }));
   };
 
   const handleTransfer = async () => {
@@ -398,6 +420,62 @@ const ClientsList: React.FC = () => {
                         </select>
                       </div>
                     )}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-amber-50 dark:bg-amber-500/5 rounded-[2rem] border border-amber-200 dark:border-amber-500/20 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black uppercase text-amber-600">تسجيل حجز فوري</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-amber-600">العميل حجز بالفعل</span>
+                    <input type="checkbox" checked={newClient.isBooked} onChange={e => setNewClient({...newClient, isBooked: e.target.checked})} className="w-5 h-5 accent-amber-500" />
+                  </div>
+                </div>
+                
+                {newClient.isBooked && (
+                  <div className="space-y-4 animate-fade-in">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الكورس المحجوز</label>
+                      <select 
+                        required 
+                        className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
+                        value={newClient.bookedCourseId} 
+                        onChange={e => {
+                          const s = services.find(srv => srv.id === e.target.value);
+                          setNewClient({...newClient, bookedCourseId: e.target.value, bookedCourseName: s?.name || ''});
+                        }}
+                      >
+                        <option value="">اختر الكورس...</option>
+                        {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">السعر الإجمالي</label>
+                        <input 
+                          type="number" 
+                          required 
+                          className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
+                          value={newClient.totalPrice} 
+                          onChange={e => updateRemaining(parseFloat(e.target.value) || 0, newClient.paidAmount)} 
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المبلغ المدفوع</label>
+                        <input 
+                          type="number" 
+                          required 
+                          className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
+                          value={newClient.paidAmount} 
+                          onChange={e => updateRemaining(newClient.totalPrice, parseFloat(e.target.value) || 0)} 
+                        />
+                      </div>
+                    </div>
+                    <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-amber-100 dark:border-amber-500/10">
+                      <p className="text-[9px] font-black text-slate-400 uppercase">المبلغ المتبقي</p>
+                      <p className="text-sm font-black text-amber-600">{newClient.remainingAmount} ج.م</p>
+                    </div>
                   </div>
                 )}
               </div>

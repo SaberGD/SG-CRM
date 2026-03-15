@@ -33,6 +33,8 @@ const ClientDetails: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
 
+  const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
+
   // Form States
   const [note, setNote] = useState('');
   const [result, setResult] = useState('');
@@ -129,11 +131,12 @@ const ClientDetails: React.FC = () => {
     return items.sort((a, b) => b.timestamp - a.timestamp);
   }, [followUps, activityLogs]);
 
-  const handleStartCall = async () => {
+  const handleStartCall = async (appointmentId?: string) => {
     if (!user || !client) return;
     setIsCommunicating(true);
     setStartTime(Date.now());
-    await logActivity(user.uid, user.name, "بدء جلسة تواصل", client.id, client.name);
+    setActiveAppointmentId(appointmentId || null);
+    await logActivity(user.uid, user.name, appointmentId ? "بدء متابعة لموعد مجدول" : "بدء جلسة تواصل", client.id, client.name);
   };
 
   const calculateTimestamp = (d: string, t: string, p: string) => {
@@ -172,12 +175,14 @@ const ClientDetails: React.FC = () => {
         note, result, salesBrief, method,
         timestamp: Date.now(), startTime, endTime, duration,
         scheduledTime,
-        delayStatus
+        delayStatus,
+        appointmentId: activeAppointmentId
       });
 
       const updateData: any = {
         status: isBooked ? ClientStatus.BOOKED : status,
-        lastFollowUpDate: Date.now()
+        lastFollowUpDate: Date.now(),
+        nextFollowUpDate: nextTs || 0 // Clear if not rescheduled
       };
 
       if (isBooked) {
@@ -204,6 +209,20 @@ const ClientDetails: React.FC = () => {
       setIsCommunicating(false);
       setStartTime(null);
       setElapsedTime(0);
+    } catch (err) { console.error(err); }
+  };
+
+  const handleScheduleFollowUp = async () => {
+    if (!client || !user || !nextDate) return;
+    const nextTs = calculateTimestamp(nextDate, nextTime, nextPeriod);
+    try {
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+        nextFollowUpDate: nextTs,
+        nextFollowUpMethod: nextFollowUpMethod
+      });
+      await logActivity(user.uid, user.name, `جدولة متابعة جديدة: ${new Date(nextTs).toLocaleString()}`, client.id, client.name);
+      setIsScheduleModalOpen(false);
+      setNextDate('');
     } catch (err) { console.error(err); }
   };
 
@@ -240,8 +259,11 @@ const ClientDetails: React.FC = () => {
         <div className="flex gap-3">
            {!isCommunicating && !showForm && (
             <>
-              <button onClick={handleStartCall} className="bg-primary-500 text-white px-10 py-4 rounded-2xl font-black shadow-xl flex items-center gap-3 text-xs uppercase hover:bg-primary-600 transition-all">
+              <button onClick={() => handleStartCall()} className="bg-primary-500 text-white px-10 py-4 rounded-2xl font-black shadow-xl flex items-center gap-3 text-xs uppercase hover:bg-primary-600 transition-all">
                 <Play size={18} /> بدء المتابعة
+              </button>
+              <button onClick={() => setIsScheduleModalOpen(true)} className="bg-amber-500 text-white px-6 py-4 rounded-2xl font-black shadow-xl flex items-center gap-3 text-xs uppercase hover:bg-amber-600 transition-all">
+                <CalendarPlus size={18} /> جدولة موعد
               </button>
               <button onClick={() => setIsManualModalOpen(true)} className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-6 py-4 rounded-2xl font-black shadow-sm flex items-center gap-3 text-xs uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-all border border-slate-200 dark:border-slate-700">
                 <HistoryIcon size={18} /> تم التواصل مسبقاً
@@ -261,11 +283,19 @@ const ClientDetails: React.FC = () => {
            <div className="w-14 h-14 bg-blue-50 dark:bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center"><Clock size={28}/></div>
            <div><p className="text-[10px] font-black text-slate-400 uppercase">وقت التسجيل في النظام</p><p className="text-xs font-black">{new Date(client.createdAt).toLocaleString('ar-EG')}</p></div>
         </div>
-        <div className={`p-8 rounded-[2.5rem] shadow-xl text-center flex flex-col items-center justify-center ${client.nextFollowUpDate && client.nextFollowUpDate < Date.now() ? 'bg-rose-500 text-white' : 'bg-primary-500 text-white'}`}>
+        <div className={`p-8 rounded-[2.5rem] shadow-xl text-center flex flex-col items-center justify-center relative overflow-hidden ${client.nextFollowUpDate && client.nextFollowUpDate < Date.now() ? 'bg-rose-500 text-white' : 'bg-primary-500 text-white'}`}>
            <p className="text-[10px] font-black uppercase opacity-80 mb-2">الموعد المجدول القادم</p>
            <p className="text-xl font-black">{client.nextFollowUpDate ? new Date(client.nextFollowUpDate).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'غير محدد'}</p>
            {client.nextFollowUpDate && client.nextFollowUpMethod && (
              <p className="text-[10px] font-black mt-1 bg-white/20 px-3 py-1 rounded-full">{CommMethodLabels[client.nextFollowUpMethod].ar}</p>
+           )}
+           {client.nextFollowUpDate && !isCommunicating && !showForm && (
+             <button 
+               onClick={() => handleStartCall('scheduled')}
+               className="mt-4 bg-white text-primary-500 px-4 py-2 rounded-xl text-[10px] font-black shadow-lg hover:scale-105 transition-all"
+             >
+               بدء المتابعة لهذا الموعد
+             </button>
            )}
         </div>
         <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-5">
@@ -441,6 +471,37 @@ const ClientDetails: React.FC = () => {
           )}
         </aside>
       </div>
+
+      {/* Schedule Modal */}
+      {isScheduleModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 my-4 sm:my-20 space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
+             <div className="flex justify-between items-center">
+               <h2 className="text-2xl font-black flex items-center gap-3"><CalendarPlus className="text-amber-500"/> جدولة موعد</h2>
+               <button onClick={() => setIsScheduleModalOpen(false)} className="text-slate-400"><X size={24}/></button>
+             </div>
+             <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تاريخ المتابعة</label>
+                  <input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white" value={nextDate} onChange={e => setNextDate(e.target.value)} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <input type="time" className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white" value={nextTime} onChange={e => setNextTime(e.target.value)} />
+                  <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white" value={nextPeriod} onChange={e => setNextPeriod(e.target.value as any)}>
+                    <option value="AM">AM</option><option value="PM">PM</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل</label>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white" value={nextFollowUpMethod} onChange={e => setNextFollowUpMethod(e.target.value as CommMethod)}>
+                    {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
+                  </select>
+                </div>
+                <button onClick={handleScheduleFollowUp} className="w-full py-5 bg-amber-500 text-white rounded-3xl font-black shadow-xl">تأكيد الجدولة</button>
+             </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Client Modal */}
       {isEditModalOpen && (

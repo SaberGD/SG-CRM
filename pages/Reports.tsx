@@ -134,18 +134,23 @@ const Reports: React.FC = () => {
     const followUpsSnap = await getDocs(query(collection(db, 'followups'), where('agentId', '==', user.uid), where('timestamp', '>=', todayStart)));
     const todayFollowUps = followUpsSnap.docs.map(d => d.data() as FollowUp);
 
-    const targetId = `${user.uid}_${todayStr}`;
-    const targetSnap = await getDoc(doc(db, 'targets', targetId));
+    // 3. Fetch Targets (Handle errors gracefully)
     let target: Target | null = null;
-    if (targetSnap.exists()) {
-      target = { id: targetSnap.id, ...targetSnap.data() } as Target;
-    } else {
-      // Try default target
-      const defTargetDoc = await getDoc(doc(db, 'defaultTargets', user.uid));
-      if (defTargetDoc.exists()) {
-        const data = defTargetDoc.data();
-        target = { id: 'default', userId: user.uid, date: todayStr, newClients: data.newClients, bookings: data.bookings, followUps: data.followUps, income: data.income || 0 } as Target;
+    try {
+      const targetId = `${user.uid}_${todayStr}`;
+      const targetSnap = await getDoc(doc(db, 'targets', targetId));
+      if (targetSnap.exists()) {
+        target = { id: targetSnap.id, ...targetSnap.data() } as Target;
+      } else {
+        // Try default target
+        const defTargetDoc = await getDoc(doc(db, 'defaultTargets', user.uid));
+        if (defTargetDoc.exists()) {
+          const data = defTargetDoc.data();
+          target = { id: 'default', userId: user.uid, date: todayStr, newClients: data.newClients, bookings: data.bookings, followUps: data.followUps, income: data.income || 0 } as Target;
+        }
       }
+    } catch (err) {
+      console.warn("Target fetch failed (likely permissions):", err);
     }
     setTodayTarget(target);
 
@@ -259,12 +264,25 @@ const Reports: React.FC = () => {
     const newNotes = prompt("تعديل ملاحظات التقرير:", report.notes);
     if (newNotes === null) return;
 
+    const editLog = {
+      id: crypto.randomUUID(),
+      reportId: report.id,
+      editorId: user.uid,
+      editorName: user.name,
+      timestamp: Date.now(),
+      previousNotes: report.notes,
+      newNotes: newNotes,
+      previousStats: { ...report },
+      newStats: { ...report, notes: newNotes }
+    };
+
     try {
       await updateDoc(doc(db, 'reports', report.id), {
         notes: newNotes,
         isEdited: true,
         editedBy: user.name,
-        editedAt: Date.now()
+        editedAt: Date.now(),
+        editHistory: [...(report.editHistory || []), editLog]
       });
       await logActivity(user.uid, user.name, "تعديل تقرير يومي", report.id, report.date);
       fetchMyReports();
@@ -705,8 +723,23 @@ const ReportCard: React.FC<{ report: DailyReport, onEdit: () => void, isManager?
   return (
     <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm space-y-4 relative overflow-hidden">
       {report.isEdited && (
-        <div className="absolute top-0 left-0 bg-blue-500 text-white px-4 py-1 rounded-br-2xl text-[8px] font-black flex items-center gap-1">
-          <Edit3 size={10} /> تم التعديل بواسطة: {report.editedBy}
+        <div className="flex flex-col gap-2">
+          <div className="absolute top-0 left-0 bg-blue-500 text-white px-4 py-1 rounded-br-2xl text-[8px] font-black flex items-center gap-1">
+            <Edit3 size={10} /> تم التعديل بواسطة: {report.editedBy}
+          </div>
+          {report.editHistory && report.editHistory.length > 0 && (
+            <button 
+              onClick={() => {
+                const historyText = report.editHistory?.map(h => 
+                  `المعدل: ${h.editorName}\nالتاريخ: ${new Date(h.timestamp).toLocaleString('ar-EG')}\nالملاحظات السابقة: ${h.previousNotes}\nالملاحظات الجديدة: ${h.newNotes}\n-------------------`
+                ).join('\n');
+                alert(`سجل التعديلات:\n\n${historyText}`);
+              }}
+              className="text-[8px] font-black text-blue-500 underline mt-1 self-start"
+            >
+              عرض سجل التعديلات ({report.editHistory.length})
+            </button>
+          )}
         </div>
       )}
       <div className="flex justify-between items-start pt-2">

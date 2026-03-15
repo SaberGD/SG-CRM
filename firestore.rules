@@ -72,6 +72,17 @@ service cloud.firestore {
     match /reports/{id} {
       allow read: if isManager() || (isAuthenticated() && resource.data.userId == request.auth.uid);
       allow create: if isAuthenticated();
+      allow update: if isManager();
+    }
+    
+    match /targets/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isTeamLeader();
+    }
+    
+    match /defaultTargets/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isTeamLeader();
     }
     
     match /transfers/{id} {

@@ -6,7 +6,7 @@ import { auth, db, logActivity } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { 
-  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog
+  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog, Database
 } from 'lucide-react';
 import { UserRole, Client } from '../types';
 
@@ -181,6 +181,7 @@ const Layout: React.FC = () => {
   // الترتيب المطلوب: الدعوات ثم الإدارة
   if (effectiveRole !== UserRole.SALES_AGENT) {
     navItems.push({ name: 'نظام الدعوات', path: '/invites', icon: UserPlus });
+    navItems.push({ name: 'النسخ الاحتياطي', path: '/backup', icon: Database });
   }
   if (user?.role === UserRole.ADMIN) {
     navItems.push({ name: 'إدارة الفريق', path: '/admin', icon: UserCog });
@@ -205,6 +206,18 @@ const Layout: React.FC = () => {
           {user?.name?.[0] || '?'}
         </div>
       </header>
+
+      <nav className="lg:hidden flex overflow-x-auto no-scrollbar bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 p-2 gap-2 sticky top-[65px] z-40">
+        {navItems.map((item) => (
+          <Link 
+            key={item.path} 
+            to={item.path} 
+            className={`flex items-center px-4 py-2 text-[10px] font-black rounded-xl whitespace-nowrap transition-all ${location.pathname === item.path ? 'bg-primary-500 text-white shadow-lg' : 'text-slate-500 bg-slate-50 dark:bg-slate-800'}`}
+          >
+            <item.icon className="ml-2" size={14} /> {item.name}
+          </Link>
+        ))}
+      </nav>
 
       {liveNotification && (
         <div className="fixed top-20 lg:top-6 left-1/2 -translate-x-1/2 z-[1000] bg-white dark:bg-slate-900 px-6 py-4 rounded-3xl shadow-2xl border-2 border-primary-500 animate-fade-in flex items-center gap-4 w-[90%] max-w-md">

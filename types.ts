@@ -112,6 +112,7 @@ export interface Client {
   paidAmount?: number;
   remainingAmount?: number;
   bookingDate?: number;
+  isBookedOnCreation?: boolean;
 }
 
 export interface FollowUp {
@@ -189,6 +190,19 @@ export interface DailyReport {
   editedBy?: string;
   editedAt?: number;
   aiAnalysis?: string;
+  editHistory?: ReportEditLog[];
+}
+
+export interface ReportEditLog {
+  id: string;
+  reportId: string;
+  editorId: string;
+  editorName: string;
+  timestamp: number;
+  previousNotes: string;
+  newNotes: string;
+  previousStats: Partial<DailyReport>;
+  newStats: Partial<DailyReport>;
 }
 
 export interface Target {
@@ -198,6 +212,7 @@ export interface Target {
   newClients: number;
   bookings: number;
   followUps: number;
+  income: number;
 }
 
 export interface DefaultTarget {
@@ -206,6 +221,7 @@ export interface DefaultTarget {
   newClients: number;
   bookings: number;
   followUps: number;
+  income: number;
 }
 
 export interface ActivityLog {

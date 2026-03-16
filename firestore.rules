@@ -35,18 +35,23 @@ service cloud.firestore {
     }
     
     function isAdmin() {
-      return isAuthenticated() && (
-        (userExists() && (getUserData().role == 'admin' || getUserData().role == 'administrator')) || 
-        (request.auth.token.email == "saber.gd.fl@gmail.com" && request.auth.token.email_verified == true)
+      return request.auth != null && (
+        (request.auth.token.email == "saber.gd.fl@gmail.com") ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'administrator']))
       );
     }
     
     function isManager() {
-      return isAdmin() || (isAuthenticated() && userExists() && (getUserData().role == 'manager' || getUserData().role == 'supervisor'));
+      return isAdmin() || (request.auth != null && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['manager', 'supervisor']));
     }
     
     function isTeamLeader() {
-      return isManager() || (isAuthenticated() && userExists() && (getUserData().role == 'team_leader' || getUserData().role == 'leader'));
+      return isManager() || (request.auth != null && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['team_leader', 'leader']));
     }
 
     function isOwner(userId) {
@@ -57,6 +62,10 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly(fields);
     }
 
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
     // ===============================================================
     // Domain Validators
     // ===============================================================
@@ -64,7 +73,7 @@ service cloud.firestore {
     function isValidUser(data) {
       return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.email is string &&
-             data.role in ['admin', 'manager', 'team_leader', 'sales_agent'];
+             data.role in ['admin', 'manager', 'team_leader', 'sales_agent', 'administrator', 'supervisor', 'leader'];
     }
 
     function isValidClient(data) {
@@ -75,10 +84,9 @@ service cloud.firestore {
     }
 
     function isValidReport(data) {
-      return data.userId is string && 
+      return hasRequiredFields(['userId', 'userName', 'date', 'submittedAt']) &&
              (data.userId == request.auth.uid || isManager()) &&
-             data.date is string &&
-             data.submittedAt is number;
+             data.date is string && data.submittedAt is number;
     }
 
     // ===============================================================
@@ -95,9 +103,9 @@ service cloud.firestore {
     
     // قواعد العملاء
     match /clients/{clientId} {
-      allow read: if isAuthenticated(); 
-      allow create: if isAuthenticated() && isValidClient(request.resource.data);
-      allow update: if isAuthenticated() && isValidClient(request.resource.data) && (isTeamLeader() || resource.data.salesAgentId == request.auth.uid);
+      allow read: if request.auth != null; 
+      allow create: if request.auth != null && isValidClient(request.resource.data);
+      allow update: if request.auth != null && isValidClient(request.resource.data) && (isTeamLeader() || resource.data.salesAgentId == request.auth.uid);
       allow delete: if isManager();
     }
     
@@ -110,14 +118,15 @@ service cloud.firestore {
     
     // قواعد الدعوات
     match /invitations/{id} {
-      allow read: if isAuthenticated(); 
-      allow write: if isTeamLeader();
+      allow read: if true; 
+      allow create, delete: if isTeamLeader();
+      allow update: if isTeamLeader() || (isAuthenticated() && request.auth.token.email == resource.data.email);
     }
     
     // قواعد السجلات
     match /logs/{id} {
-      allow read: if isTeamLeader();
-      allow create: if isAuthenticated();
+      allow read: if request.auth != null && (isTeamLeader() || resource.data.userId == request.auth.uid || resource.data.targetId == request.auth.uid);
+      allow create: if request.auth != null;
     }
     
     // قواعد الخدمات والتصنيفات
@@ -135,7 +144,7 @@ service cloud.firestore {
     match /reports/{id} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidReport(request.resource.data);
-      allow update: if isManager() && isValidReport(request.resource.data);
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isManager()) && isValidReport(request.resource.data);
       allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isManager());
     }
     
@@ -150,7 +159,7 @@ service cloud.firestore {
     }
     
     match /transfers/{id} {
-      allow read: if isTeamLeader();
+      allow read: if isTeamLeader() || resource.data.oldAgentId == request.auth.uid || resource.data.newAgentId == request.auth.uid;
       allow create: if isTeamLeader();
     }
   }

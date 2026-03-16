@@ -91,21 +91,31 @@ const App: React.FC = () => {
               setEffectiveRoleState(savedRole && userData.role === UserRole.ADMIN ? savedRole : userData.role);
             }
           } else { 
+            // Only auto-create if it's the main admin bootstrapping
+            const isMainAdmin = firebaseUser.email === "saber.gd.fl@gmail.com";
             const repairData = {
-              name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'مدير النظام',
+              name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || (isMainAdmin ? 'مدير النظام' : 'مستخدم جديد'),
               email: firebaseUser.email || '',
-              role: UserRole.ADMIN,
+              role: isMainAdmin ? UserRole.ADMIN : UserRole.SALES_AGENT,
               createdAt: Date.now()
             };
-            try {
-              await firestore.setDoc(userDocRef, repairData);
-            } catch (e) { 
-              handleFirestoreError(e, OperationType.CREATE, `users/${firebaseUser.uid}`);
-              console.error("Critical: Could not create user document. Check Firestore Rules."); 
+            
+            if (isMainAdmin) {
+              try {
+                await firestore.setDoc(userDocRef, repairData);
+                const userData = { uid: firebaseUser.uid, ...repairData } as User;
+                setUser(userData);
+                setEffectiveRoleState(userData.role);
+              } catch (e) { 
+                handleFirestoreError(e, OperationType.CREATE, `users/${firebaseUser.uid}`);
+                console.error("Critical: Could not create admin document."); 
+              }
+            } else {
+              // For non-admins, if document is missing, they might be in the middle of signup
+              // or their document creation failed. We'll set a temporary state.
+              console.warn("User document missing for non-admin. Signup might be in progress.");
+              setUser({ uid: firebaseUser.uid, email: firebaseUser.email || '', name: repairData.name, role: UserRole.SALES_AGENT });
             }
-            const userData = { uid: firebaseUser.uid, ...repairData } as User;
-            setUser(userData);
-            setEffectiveRoleState(userData.role);
           }
         } catch (error) {
           handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);

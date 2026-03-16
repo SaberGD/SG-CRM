@@ -36,12 +36,28 @@ const Login: React.FC = () => {
         const inviteData = inviteDoc.data() as Invitation;
         
         if (inviteData.status === 'used') {
-          throw new Error("هذا الحساب تم تفعيله مسبقاً. حاول تسجيل الدخول.");
+          // التحقق مما إذا كان المستخدم موجوداً بالفعل في الداتابيز
+          const userDoc = await getDocs(query(collection(db, 'users'), where('email', '==', email.toLowerCase().trim())));
+          if (!userDoc.empty) {
+            throw new Error("هذا الحساب تم تفعيله مسبقاً. حاول تسجيل الدخول.");
+          }
+          // إذا كانت الدعوة مستخدمة ولكن لا يوجد يوزر، سنكمل العملية (ربما فشل الإنشاء سابقاً)
         }
 
-        // 2. إنشاء الحساب في Firebase Auth
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
+        let user;
+        try {
+          // 2. إنشاء الحساب في Firebase Auth
+          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+          user = userCredential.user;
+        } catch (authErr: any) {
+          if (authErr.code === 'auth/email-already-in-use') {
+            // إذا كان الإيميل موجوداً في Auth، نحاول تسجيل الدخول به لإكمال البيانات
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            user = userCredential.user;
+          } else {
+            throw authErr;
+          }
+        }
         
         // 3. تخزين بيانات المستخدم مع الرتبة المحددة في الدعوة مسبقاً
         await setDoc(doc(db, 'users', user.uid), {

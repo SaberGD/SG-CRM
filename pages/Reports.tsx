@@ -164,7 +164,7 @@ const Reports: React.FC = () => {
       booked: bookedToday.length,
       scheduledToday: completedTodayScheduledForToday + remainingScheduledToday,
       completedToday: todayFollowUps.length,
-      overdueToday: allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate < now).length,
+      overdueToday: allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate < endTs).length,
       largeDelays: todayFollowUps.filter(f => f.delayStatus === 'large_delay').length,
       punctualityRatio: todayFollowUps.length > 0 
         ? Math.round((todayFollowUps.filter(f => f.delayStatus !== 'large_delay').length / todayFollowUps.length) * 100) 

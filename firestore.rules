@@ -75,7 +75,8 @@ service cloud.firestore {
     }
 
     function isValidReport(data) {
-      return data.userId is string && (data.userId == request.auth.uid || isManager()) &&
+      return data.userId is string && 
+             (data.userId == request.auth.uid || isManager()) &&
              data.date is string &&
              data.submittedAt is number;
     }
@@ -135,6 +136,7 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidReport(request.resource.data);
       allow update: if isManager() && isValidReport(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isManager());
     }
     
     match /targets/{id} {

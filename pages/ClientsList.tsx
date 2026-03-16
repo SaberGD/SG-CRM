@@ -36,6 +36,11 @@ const ClientsList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterService, setFilterService] = useState<string>('all');
+  const [filterLabel, setFilterLabel] = useState<string>('all');
+  const [filterLaptop, setFilterLaptop] = useState<string>('all');
+  const [filterMode, setFilterMode] = useState<string>('all');
+  const [filterGender, setFilterGender] = useState<string>('all');
+  const [filterBookedCourse, setFilterBookedCourse] = useState<string>('all');
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -115,9 +120,15 @@ const ClientsList: React.FC = () => {
       const matchesSearch = c.name.toLowerCase().includes(term) || c.phone.includes(term);
       const matchesStatus = filterStatus === 'all' || c.status === filterStatus;
       const matchesService = filterService === 'all' || c.serviceId === filterService;
-      return matchesSearch && matchesStatus && matchesService;
+      const matchesLabel = filterLabel === 'all' || (c.labels && c.labels.includes(filterLabel));
+      const matchesLaptop = filterLaptop === 'all' || c.laptop === filterLaptop;
+      const matchesMode = filterMode === 'all' || c.mode === filterMode;
+      const matchesGender = filterGender === 'all' || c.gender === filterGender;
+      const matchesBookedCourse = filterBookedCourse === 'all' || c.bookedCourseId === filterBookedCourse;
+      
+      return matchesSearch && matchesStatus && matchesService && matchesLabel && matchesLaptop && matchesMode && matchesGender && matchesBookedCourse;
     });
-  }, [clients, searchTerm, filterStatus, filterService]);
+  }, [clients, searchTerm, filterStatus, filterService, filterLabel, filterLaptop, filterMode, filterGender, filterBookedCourse]);
 
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,23 +242,55 @@ const ClientsList: React.FC = () => {
       </header>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="relative">
-            <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input 
-              type="text" placeholder="بحث بالاسم أو الهاتف..." 
-              className="w-full pr-12 pl-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-sm dark:text-white"
-              value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-            />
+      <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="relative">
+              <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input 
+                type="text" placeholder="بحث بالاسم أو الهاتف..." 
+                className="w-full pr-12 pl-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-sm dark:text-white"
+                value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+              <option value="all">كل الحالات</option>
+              {Object.entries(StatusLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
+            </select>
+            <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterService} onChange={e => setFilterService(e.target.value)}>
+              <option value="all">كل الخدمات المطلوبة</option>
+              {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
           </div>
-          <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-            <option value="all">كل الحالات</option>
-            {Object.entries(StatusLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
-          </select>
-          <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterService} onChange={e => setFilterService(e.target.value)}>
-            <option value="all">كل الخدمات</option>
-            {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
+              <option value="all">كل التصنيفات (Labels)</option>
+              {allLabels.map(l => <option key={l.id} value={l.id}>{l.text}</option>)}
+            </select>
+            
+            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterBookedCourse} onChange={e => setFilterBookedCourse(e.target.value)}>
+              <option value="all">الكورس المحجوز</option>
+              {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+
+            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterLaptop} onChange={e => setFilterLaptop(e.target.value)}>
+              <option value="all">حالة اللابتوب</option>
+              <option value={LaptopStatus.WITH}>مع لابتوب</option>
+              <option value={LaptopStatus.WITHOUT}>بدون لابتوب</option>
+            </select>
+
+            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterMode} onChange={e => setFilterMode(e.target.value)}>
+              <option value="all">نظام الحضور</option>
+              <option value={AttendanceMode.ONLINE}>أونلاين</option>
+              <option value={AttendanceMode.OFFLINE}>أوفلاين</option>
+            </select>
+
+            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterGender} onChange={e => setFilterGender(e.target.value)}>
+              <option value="all">الجنس</option>
+              <option value={Gender.MALE}>ذكر</option>
+              <option value={Gender.FEMALE}>أنثى</option>
+            </select>
+          </div>
       </div>
 
       {/* Table */}
@@ -410,6 +453,37 @@ const ClientsList: React.FC = () => {
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400" dir="ltr">{newClient.countryCode}</span>
                     <input required className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-right dark:text-white" dir="ltr" placeholder="01012345678" value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} />
                   </div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">التصنيفات (Labels) - اختياري</label>
+                <div className="flex flex-wrap gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl min-h-[60px]">
+                  {allLabels.map(label => {
+                    const isSelected = newClient.labels.includes(label.id);
+                    return (
+                      <button
+                        key={label.id}
+                        type="button"
+                        onClick={() => {
+                          const labels = isSelected
+                            ? newClient.labels.filter(id => id !== label.id)
+                            : [...newClient.labels, label.id];
+                          setNewClient({...newClient, labels});
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2`}
+                        style={{
+                          backgroundColor: isSelected ? label.color : 'transparent',
+                          borderColor: label.color,
+                          color: isSelected ? '#fff' : label.color,
+                        }}
+                      >
+                        {label.text}
+                        {isSelected && <X size={12} />}
+                      </button>
+                    );
+                  })}
+                  {allLabels.length === 0 && <p className="text-[10px] font-bold text-slate-400">لا توجد تصنيفات متاحة. يمكنك إضافتها من صفحة الإعدادات.</p>}
                 </div>
               </div>
 

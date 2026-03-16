@@ -2,13 +2,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   collection, query, where, getDocs, addDoc, limit, orderBy, 
-  doc, updateDoc, setDoc, getDoc, onSnapshot 
+  doc, updateDoc, setDoc, getDoc, onSnapshot, deleteDoc 
 } from 'firebase/firestore';
 import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../App';
 import { 
   DailyReport, Client, ClientStatus, UserRole, 
-  FollowUp, Target, DefaultTarget, User 
+  FollowUp, Target, DefaultTarget, User, Label 
 } from '../types';
 import { 
   FileText, Send, BarChart3, Users, Star, 
@@ -35,6 +35,10 @@ const Reports: React.FC = () => {
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [myReports, setMyReports] = useState<DailyReport[]>([]);
+  const [allLabels, setAllLabels] = useState<Label[]>([]);
+  const [labelStats, setLabelStats] = useState<Record<string, number>>({});
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [existingReport, setExistingReport] = useState<DailyReport | null>(null);
 
   // Manager State
   const [allReports, setAllReports] = useState<DailyReport[]>([]);
@@ -104,9 +108,10 @@ const Reports: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayStartTs = todayStart.getTime();
+    const date = new Date(selectedDate);
+    date.setHours(0, 0, 0, 0);
+    const startTs = date.getTime();
+    const endTs = startTs + 86400000 - 1;
 
     const qClients = query(collection(db, 'clients'), where('salesAgentId', '==', user.uid));
     const unsubClients = onSnapshot(qClients, (snap) => {
@@ -115,34 +120,44 @@ const Reports: React.FC = () => {
       console.error("Reports Clients Snapshot Error:", err);
     });
 
-    const qFollowups = query(collection(db, 'followups'), where('agentId', '==', user.uid), where('timestamp', '>=', todayStartTs));
-    const unsubFollowups = onSnapshot(qFollowups, (snap) => {
+    const unsubFollowups = query(
+      collection(db, 'followups'), 
+      where('agentId', '==', user.uid), 
+      where('timestamp', '>=', startTs),
+      where('timestamp', '<=', endTs)
+    );
+    const unsubFollowupsSnap = onSnapshot(unsubFollowups, (snap) => {
       setTodayFollowUps(snap.docs.map(d => d.data() as FollowUp));
     }, (err) => {
       console.error("Reports Followups Snapshot Error:", err);
     });
 
+    const unsubLabels = onSnapshot(collection(db, 'labels'), (snap) => {
+      setAllLabels(snap.docs.map(d => ({ id: d.id, ...d.data() } as Label)));
+    }, (err) => {
+      console.error("Reports Labels Snapshot Error:", err);
+    });
+
     return () => {
       unsubClients();
-      unsubFollowups();
+      unsubFollowupsSnap();
+      unsubLabels();
     };
-  }, [user]);
+  }, [user, selectedDate]);
 
   useEffect(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayStartTs = todayStart.getTime();
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-    const todayEndTs = todayEnd.getTime();
+    const date = new Date(selectedDate);
+    date.setHours(0, 0, 0, 0);
+    const startTs = date.getTime();
+    const endTs = startTs + 86400000 - 1;
     const now = Date.now();
 
-    const bookedToday = allMyClients.filter(c => c.isBooked && c.bookingDate && c.bookingDate >= todayStartTs && c.bookingDate <= todayEndTs);
-    const completedTodayScheduledForToday = todayFollowUps.filter(f => f.scheduledTime >= todayStartTs && f.scheduledTime <= todayEndTs).length;
-    const remainingScheduledToday = allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate >= todayStartTs && c.nextFollowUpDate <= todayEndTs).length;
+    const bookedToday = allMyClients.filter(c => c.isBooked && c.bookingDate && c.bookingDate >= startTs && c.bookingDate <= endTs);
+    const completedTodayScheduledForToday = todayFollowUps.filter(f => f.scheduledTime >= startTs && f.scheduledTime <= endTs).length;
+    const remainingScheduledToday = allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate >= startTs && c.nextFollowUpDate <= endTs).length;
 
     setTodayStats({
-      newClients: allMyClients.filter(c => c.createdAt >= todayStartTs).length,
+      newClients: allMyClients.filter(c => c.createdAt >= startTs && c.createdAt <= endTs).length,
       interested: allMyClients.filter(c => c.status === ClientStatus.INTERESTED).length,
       notInterested: allMyClients.filter(c => c.status === ClientStatus.NOT_INTERESTED).length,
       potential: allMyClients.filter(c => c.status === ClientStatus.POTENTIAL).length,
@@ -157,7 +172,17 @@ const Reports: React.FC = () => {
       totalPaidToday: bookedToday.reduce((sum, c) => sum + (c.paidAmount || 0), 0),
       totalRemainingToday: bookedToday.reduce((sum, c) => sum + (c.remainingAmount || 0), 0)
     });
-  }, [allMyClients, todayFollowUps]);
+
+    // Calculate Label Stats for selected date's new clients
+    const selectedDayClients = allMyClients.filter(c => c.createdAt >= startTs && c.createdAt <= endTs);
+    const lStats: Record<string, number> = {};
+    selectedDayClients.forEach(c => {
+      c.labels?.forEach(labelId => {
+        lStats[labelId] = (lStats[labelId] || 0) + 1;
+      });
+    });
+    setLabelStats(lStats);
+  }, [allMyClients, todayFollowUps, selectedDate]);
 
   useEffect(() => {
     const init = async () => {
@@ -166,6 +191,7 @@ const Reports: React.FC = () => {
         await Promise.all([
           fetchTodayTarget(),
           fetchMyReports(),
+          checkExistingReport(),
           isHighRole ? fetchAllReports() : Promise.resolve(),
           isHighRole ? fetchAgents() : Promise.resolve(),
           isHighRole ? fetchDefaultTargets() : Promise.resolve()
@@ -177,16 +203,26 @@ const Reports: React.FC = () => {
       }
     };
     init();
-  }, [user, effectiveRole]);
+  }, [user, effectiveRole, selectedDate]);
+
+  const checkExistingReport = async () => {
+    if (!user) return;
+    const q = query(collection(db, 'reports'), where('userId', '==', user.uid), where('date', '==', selectedDate));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      setExistingReport({ id: snap.docs[0].id, ...snap.docs[0].data() } as DailyReport);
+    } else {
+      setExistingReport(null);
+    }
+  };
 
   const fetchTodayTarget = async () => {
     if (!user) return;
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const targetDate = selectedDate;
     
     let target: Target | null = null;
     try {
-      const targetId = `${user.uid}_${todayStr}`;
+      const targetId = `${user.uid}_${targetDate}`;
       const targetSnap = await getDoc(doc(db, 'targets', targetId));
       if (targetSnap.exists()) {
         target = { id: targetSnap.id, ...targetSnap.data() } as Target;
@@ -195,7 +231,7 @@ const Reports: React.FC = () => {
         const defTargetDoc = await getDoc(doc(db, 'defaultTargets', user.uid));
         if (defTargetDoc.exists()) {
           const data = defTargetDoc.data();
-          target = { id: 'default', userId: user.uid, date: todayStr, newClients: data.newClients, bookings: data.bookings, followUps: data.followUps, income: data.income || 0 } as Target;
+          target = { id: 'default', userId: user.uid, date: targetDate, newClients: data.newClients, bookings: data.bookings, followUps: data.followUps, income: data.income || 0 } as Target;
         }
       }
     } catch (err) {
@@ -242,7 +278,7 @@ const Reports: React.FC = () => {
     }
 
     setIsSubmitting(true);
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = selectedDate;
     
     const reportData: Omit<DailyReport, 'id'> = {
       userId: user.uid,
@@ -265,6 +301,7 @@ const Reports: React.FC = () => {
       targetIncome: todayTarget?.income || 0,
       totalPaidToday: todayStats.totalPaidToday || 0,
       totalRemainingToday: todayStats.totalRemainingToday || 0,
+      labelStats,
       checklist,
       notes
     };
@@ -273,16 +310,37 @@ const Reports: React.FC = () => {
       console.log("Attempting to submit report with data:", reportData);
       const aiAnalysis = await analyzeDailyReport(reportData as DailyReport);
       const finalData = { ...reportData, aiAnalysis };
-      await addDoc(collection(db, 'reports'), finalData);
+      
+      if (existingReport) {
+        await updateDoc(doc(db, 'reports', existingReport.id), finalData);
+      } else {
+        await addDoc(collection(db, 'reports'), finalData);
+      }
+      
       console.log("Report submitted successfully");
       await logActivity(user.uid, user.name, "إرسال تقرير يومي", "report", todayStr);
       alert("تم إرسال التقرير بنجاح");
       fetchMyReports();
+      checkExistingReport();
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'reports');
       alert("خطأ في الصلاحيات أثناء إرسال التقرير. يرجى التأكد من إعدادات Firebase.");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteReport = async (reportId: string) => {
+    if (!user || !window.confirm("هل أنت متأكد من حذف هذا التقرير؟")) return;
+    try {
+      await deleteDoc(doc(db, 'reports', reportId));
+      await logActivity(user.uid, user.name, "حذف تقرير يومي", "report", reportId);
+      alert("تم حذف التقرير بنجاح");
+      fetchMyReports();
+      if (existingReport?.id === reportId) setExistingReport(null);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'reports');
+      alert("خطأ في الصلاحيات أثناء حذف التقرير.");
     }
   };
 
@@ -426,6 +484,25 @@ const Reports: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
           {/* Left: Stats & Form */}
           <div className="lg:col-span-8 space-y-8">
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-primary-50 dark:bg-primary-500/10 text-primary-500 rounded-2xl flex items-center justify-center">
+                  <Clock size={24} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white">تاريخ التقرير</h3>
+                  <p className="text-[10px] font-bold text-slate-500">اختر اليوم الذي تريد إرسال تقريره</p>
+                </div>
+              </div>
+              <input 
+                type="date" 
+                className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none border-2 border-transparent focus:border-primary-500 transition-all"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                max={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+
             {/* Stats Cards */}
             <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatCard label="عملاء جدد" value={todayStats.newClients} icon={Users} color="text-blue-500" />
@@ -473,6 +550,28 @@ const Reports: React.FC = () => {
               </div>
             </section>
 
+            {/* Labels Summary Today */}
+            {Object.keys(labelStats).length > 0 && (
+              <section className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl space-y-6">
+                <h2 className="text-xl font-black flex items-center gap-2"><Star className="text-primary-500" /> تصنيفات عملاء اليوم</h2>
+                <div className="flex flex-wrap gap-4">
+                  {Object.entries(labelStats).map(([labelId, count]) => {
+                    const label = allLabels.find(l => l.id === labelId);
+                    if (!label) return null;
+                    return (
+                      <div key={labelId} className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: label.color }}></div>
+                        <div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase">{label.text}</p>
+                          <p className="text-lg font-black">{count}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
             {/* Checklist & Notes */}
             <section className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl space-y-8">
               <div className="space-y-4">
@@ -495,25 +594,40 @@ const Reports: React.FC = () => {
                 />
               </div>
 
-              <button 
-                onClick={handleSubmitReport}
-                disabled={isSubmitting}
-                className="w-full py-6 bg-primary-500 text-white rounded-[2rem] font-black text-lg shadow-2xl hover:bg-primary-600 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
-              >
-                <Send size={24} /> {isSubmitting ? 'جاري الإرسال...' : 'إرسال التقرير النهائي'}
-              </button>
-            </section>
-          </div>
+                <button 
+                  onClick={handleSubmitReport}
+                  disabled={isSubmitting}
+                  className={`w-full py-6 rounded-[2rem] font-black text-lg shadow-2xl flex items-center justify-center gap-3 transition-all ${isSubmitting ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-primary-500 text-white hover:bg-primary-600'}`}
+                >
+                  <Send size={24} /> 
+                  {isSubmitting ? 'جاري الإرسال...' : (existingReport ? 'تحديث التقرير الحالي' : 'إرسال التقرير النهائي')}
+                </button>
 
-          {/* Right: History */}
-          <div className="lg:col-span-4 space-y-6">
-            <h2 className="text-2xl font-black flex items-center gap-3"><Clock className="text-primary-500" /> تقاريري السابقة</h2>
-            <div className="space-y-4">
-              {myReports.map(report => (
-                <ReportCard key={report.id} report={report} onEdit={() => handleEditReport(report)} />
-              ))}
+                {existingReport && (
+                  <button 
+                    onClick={() => handleDeleteReport(existingReport.id)}
+                    className="w-full py-4 rounded-2xl font-black text-rose-500 border-2 border-rose-500/20 hover:bg-rose-50 transition-all flex items-center justify-center gap-2 text-xs"
+                  >
+                    <X size={16} /> حذف التقرير والبدء من جديد
+                  </button>
+                )}
+              </section>
             </div>
-          </div>
+
+            {/* Right: History */}
+            <div className="lg:col-span-4 space-y-6">
+              <h2 className="text-2xl font-black flex items-center gap-3"><Clock className="text-primary-500" /> تقاريري السابقة</h2>
+              <div className="space-y-4">
+                {myReports.map(report => (
+                  <ReportCard 
+                    key={report.id} 
+                    report={report} 
+                    onEdit={() => handleEditReport(report)} 
+                    onDelete={() => handleDeleteReport(report.id)}
+                  />
+                ))}
+              </div>
+            </div>
         </div>
       ) : (
         <div className="space-y-8">
@@ -739,7 +853,7 @@ const CheckItem = ({ label, checked, onChange }: { label: string, checked: boole
   </label>
 );
 
-const ReportCard: React.FC<{ report: DailyReport, onEdit: () => void, isManager?: boolean }> = ({ report, onEdit, isManager }) => {
+const ReportCard: React.FC<{ report: DailyReport, onEdit: () => void, onDelete?: () => void, isManager?: boolean }> = ({ report, onEdit, onDelete, isManager }) => {
   const achievement = Math.round((
     (report.newClients / (report.targetNewClients || 1)) + 
     (report.booked / (report.targetBookings || 1)) + 
@@ -775,7 +889,13 @@ const ReportCard: React.FC<{ report: DailyReport, onEdit: () => void, isManager?
           <p className="text-[9px] text-slate-400 font-black uppercase">إرسال: {new Date(report.submittedAt).toLocaleTimeString('ar-EG')}</p>
         </div>
         <div className="flex flex-col items-end">
-          <span className="text-lg font-black text-primary-500">{achievement}%</span>
+          <div className="flex items-center gap-2">
+            {onDelete && (
+              <button onClick={onDelete} className="p-1.5 text-slate-400 hover:text-rose-500 transition-all"><X size={14}/></button>
+            )}
+            <button onClick={onEdit} className="p-1.5 text-slate-400 hover:text-primary-500 transition-all"><Edit3 size={14}/></button>
+            <span className="text-lg font-black text-primary-500">{achievement}%</span>
+          </div>
           <span className="text-[8px] font-black text-slate-400 uppercase">الإنجاز الكلي</span>
         </div>
       </div>

@@ -170,6 +170,7 @@ export interface DailyReport {
   // Financial stats
   totalPaidToday: number;
   totalRemainingToday: number;
+  labelStats?: Record<string, number>;
   
   // Targets at submission
   targetNewClients: number;

@@ -6,7 +6,7 @@ import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { 
   Client, FollowUp, ClientStatus, CommMethod, StatusLabels, CommMethodLabels,
-  UserRole, ActivityLog, Gender, LaptopStatus, AttendanceMode, Service 
+  UserRole, ActivityLog, Gender, LaptopStatus, AttendanceMode, Service, Label 
 } from '../types';
 import { 
   Play, Square, Clock, Calendar, History, PhoneIncoming, Clock4, 
@@ -42,6 +42,7 @@ const ClientDetails: React.FC = () => {
   const [method, setMethod] = useState<CommMethod>(CommMethod.PHONE);
   const [nextFollowUpMethod, setNextFollowUpMethod] = useState<CommMethod>(CommMethod.PHONE);
   const [status, setStatus] = useState<ClientStatus>(ClientStatus.INTERESTED);
+  const [labels, setLabels] = useState<string[]>([]);
   const [scheduleNext, setScheduleNext] = useState(false);
   
   // Booking States
@@ -54,6 +55,7 @@ const ClientDetails: React.FC = () => {
   
   // Services for booking
   const [services, setServices] = useState<Service[]>([]);
+  const [allLabels, setAllLabels] = useState<Label[]>([]);
   
   // Scheduling
   const [nextDate, setNextDate] = useState('');
@@ -63,7 +65,8 @@ const ClientDetails: React.FC = () => {
   // Edit Client
   const [editClientData, setEditClientData] = useState({ 
     name: '', phone: '', serviceName: '', status: ClientStatus.INTERESTED,
-    gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE
+    gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
+    labels: [] as string[]
   });
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
@@ -82,9 +85,11 @@ const ClientDetails: React.FC = () => {
           status: data.status,
           gender: data.gender || Gender.MALE,
           laptop: data.laptop || LaptopStatus.WITHOUT,
-          mode: data.mode || AttendanceMode.OFFLINE
+          mode: data.mode || AttendanceMode.OFFLINE,
+          labels: data.labels || []
         });
         setStatus(data.status);
+        setLabels(data.labels || []);
       }
       setLoading(false);
     }, (err) => {
@@ -116,11 +121,18 @@ const ClientDetails: React.FC = () => {
       console.error("ClientDetails Services Snapshot Error:", err);
     });
 
+    const unsubLabels = firestore.onSnapshot(firestore.collection(db, 'labels'), (snap) => {
+      setAllLabels(snap.docs.map(d => ({ id: d.id, ...d.data() } as Label)));
+    }, (err) => {
+      console.error("ClientDetails Labels Snapshot Error:", err);
+    });
+
     return () => {
       unsubClient();
       unsubFollowups();
       unsubLogs();
       unsubServices();
+      unsubLabels();
     };
   }, [id]);
 
@@ -190,6 +202,7 @@ const ClientDetails: React.FC = () => {
 
       const updateData: any = {
         status: isBooked ? ClientStatus.BOOKED : status,
+        labels,
         lastFollowUpDate: Date.now(),
         nextFollowUpDate: nextTs || 0 // Clear if not rescheduled
       };
@@ -238,7 +251,15 @@ const ClientDetails: React.FC = () => {
   const handleUpdateClient = async () => {
     if (!client || !user) return;
     try {
-      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), editClientData);
+      const finalData = { ...editClientData };
+      if (finalData.serviceId === 'other' && finalData.customServiceName) {
+        finalData.serviceName = finalData.customServiceName;
+      } else if (finalData.serviceId) {
+        const service = services.find(s => s.id === finalData.serviceId);
+        if (service) finalData.serviceName = service.name;
+      }
+
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), finalData);
       await logActivity(user.uid, user.name, `تحديث بيانات العميل`, client.id, client.name);
       setIsEditModalOpen(false);
     } catch (err) { console.error(err); }
@@ -258,10 +279,23 @@ const ClientDetails: React.FC = () => {
               <button onClick={() => setIsEditModalOpen(true)} className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 hover:text-primary-500"><Edit2 size={16}/></button>
             </div>
             <p className="text-primary-500 font-bold flex items-center gap-2 mt-1"><PhoneIncoming size={14}/> {client.phone}</p>
-            <div className="flex gap-2 mt-3">
+            <div className="flex flex-wrap gap-2 mt-3">
               <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.gender === Gender.MALE ? 'ذكر' : 'أنثى'}</span>
               <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : 'بدون لابتوب'}</span>
               <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : 'أوفلاين'}</span>
+              {client.labels?.map(labelId => {
+                const label = allLabels.find(l => l.id === labelId);
+                if (!label) return null;
+                return (
+                  <span 
+                    key={labelId} 
+                    className="px-3 py-1 rounded-full text-[9px] font-black text-white"
+                    style={{ backgroundColor: label.color }}
+                  >
+                    {label.text}
+                  </span>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -407,6 +441,33 @@ const ClientDetails: React.FC = () => {
                   </select>
                 </div>
 
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تحديث التصنيفات (Labels)</label>
+                  <div className="flex flex-wrap gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl min-h-[60px]">
+                    {allLabels.map(label => {
+                      const isSelected = labels.includes(label.id);
+                      return (
+                        <button
+                          key={label.id}
+                          type="button"
+                          onClick={() => {
+                            setLabels(prev => isSelected ? prev.filter(id => id !== label.id) : [...prev, label.id]);
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2`}
+                          style={{
+                            backgroundColor: isSelected ? label.color : 'transparent',
+                            borderColor: label.color,
+                            color: isSelected ? '#fff' : label.color,
+                          }}
+                        >
+                          {label.text}
+                          {isSelected && <X size={12} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Booking Section */}
                 <div className="p-5 bg-amber-50 dark:bg-amber-500/5 rounded-2xl border border-amber-200 dark:border-amber-500/20 space-y-4">
                   <div className="flex items-center justify-between">
@@ -522,6 +583,23 @@ const ClientDetails: React.FC = () => {
              </div>
              <div className="space-y-4">
                <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white" value={editClientData.name} onChange={e => setEditClientData({...editClientData, name: e.target.value})} placeholder="الاسم" />
+               
+               <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الخدمة المطلوبة</label>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={editClientData.serviceId || ''} onChange={e => setEditClientData({...editClientData, serviceId: e.target.value})}>
+                    <option value="">اختر الخدمة...</option>
+                    {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    <option value="other">خدمة أخرى...</option>
+                  </select>
+               </div>
+
+               {editClientData.serviceId === 'other' && (
+                  <div className="space-y-1.5 animate-fade-in">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">اسم الخدمة الأخرى</label>
+                    <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white border-2 border-primary-500/30" placeholder="أدخل اسم الخدمة..." value={editClientData.customServiceName || ''} onChange={e => setEditClientData({...editClientData, customServiceName: e.target.value})} />
+                  </div>
+               )}
+
                <div className="grid grid-cols-3 gap-3">
                   <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white text-xs" value={editClientData.gender} onChange={e => setEditClientData({...editClientData, gender: e.target.value as Gender})}>
                     <option value={Gender.MALE}>ذكر</option><option value={Gender.FEMALE}>أنثى</option>
@@ -533,6 +611,35 @@ const ClientDetails: React.FC = () => {
                     <option value={AttendanceMode.OFFLINE}>أوفلاين</option><option value={AttendanceMode.ONLINE}>أونلاين</option>
                   </select>
                </div>
+               <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">التصنيفات (Labels)</label>
+                  <div className="flex flex-wrap gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl min-h-[60px]">
+                    {allLabels.map(label => {
+                      const isSelected = editClientData.labels.includes(label.id);
+                      return (
+                        <button
+                          key={label.id}
+                          type="button"
+                          onClick={() => {
+                            const labels = isSelected
+                              ? editClientData.labels.filter(id => id !== label.id)
+                              : [...editClientData.labels, label.id];
+                            setEditClientData({...editClientData, labels});
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2`}
+                          style={{
+                            backgroundColor: isSelected ? label.color : 'transparent',
+                            borderColor: label.color,
+                            color: isSelected ? '#fff' : label.color,
+                          }}
+                        >
+                          {label.text}
+                          {isSelected && <X size={12} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                <button onClick={handleUpdateClient} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl">حفظ التغييرات</button>
              </div>
           </div>

@@ -1,10 +1,10 @@
 
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, getDocs, collection, query, where, updateDoc } from 'firebase/firestore';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { doc, setDoc, getDocs, collection, query, where, updateDoc, getDoc } from 'firebase/firestore';
 import { auth, db, logActivity } from '../firebase';
 import { UserRole, Invitation } from '../types';
-import { LayoutDashboard, Lock, UserPlus, AlertCircle, Mail, User } from 'lucide-react';
+import { LayoutDashboard, Lock, UserPlus, AlertCircle, Mail, User, Chrome } from 'lucide-react';
 
 const Login: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -13,6 +13,70 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      
+      if (!user.email) throw new Error("فشل الحصول على البريد الإلكتروني من جوجل.");
+
+      // 1. التحقق من أن الإيميل مسموح له بالدخول
+      const invitesRef = collection(db, 'invitations');
+      const q = query(invitesRef, where('email', '==', user.email.toLowerCase().trim()));
+      const snap = await getDocs(q);
+      
+      if (snap.empty) {
+        // إذا لم يكن مضافاً كدعوة، نتحقق إذا كان موجوداً كأدمن رئيسي
+        if (user.email.toLowerCase().trim() !== "saber.gd.fl@gmail.com") {
+          await auth.signOut();
+          throw new Error("عذراً، هذا البريد غير مسجل في قائمة المسموح لهم بالانضمام. يرجى مراجعة الإدارة.");
+        }
+      }
+
+      // 2. التحقق من وجود وثيقة المستخدم في Firestore
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (!userDocSnap.exists()) {
+        let role = UserRole.SALES_AGENT;
+        let invitedBy = 'system';
+
+        if (!snap.empty) {
+          const inviteDoc = snap.docs[0];
+          const inviteData = inviteDoc.data() as Invitation;
+          role = inviteData.role;
+          invitedBy = inviteData.invitedBy;
+
+          // تحديث حالة الدعوة
+          await updateDoc(doc(db, 'invitations', inviteDoc.id), {
+            status: 'used'
+          });
+        } else if (user.email.toLowerCase().trim() === "saber.gd.fl@gmail.com") {
+          role = UserRole.ADMIN;
+        }
+
+        // إنشاء وثيقة المستخدم
+        await setDoc(userDocRef, {
+          name: user.displayName || name || 'موظف جديد',
+          email: user.email.toLowerCase().trim(),
+          role: role,
+          invitedBy: invitedBy,
+          createdAt: Date.now()
+        });
+
+        await logActivity(user.uid, user.displayName || 'موظف جديد', `تسجيل دخول لأول مرة عبر جوجل برتبة (${role})`, user.uid, user.displayName || 'موظف جديد');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'فشل تسجيل الدخول عبر جوجل');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -166,6 +230,25 @@ const Login: React.FC = () => {
                   className="w-full py-5 rounded-3xl bg-primary-500 text-white font-black shadow-xl hover:bg-primary-600 transition-all flex items-center justify-center gap-2 mt-4 uppercase text-xs tracking-widest"
                 >
                   {loading ? 'جاري التحقق...' : (isLogin ? 'دخول النظام' : 'تفعيل الحساب')}
+                </button>
+
+                <div className="relative py-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-slate-100 dark:border-slate-800"></div>
+                  </div>
+                  <div className="relative flex justify-center text-[10px] uppercase font-black">
+                    <span className="bg-white dark:bg-slate-900 px-4 text-slate-400">أو عبر جوجل</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  disabled={loading}
+                  className="w-full py-4 rounded-3xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-3 border border-slate-100 dark:border-slate-700 text-sm"
+                >
+                  <Chrome className="text-rose-500" size={20} />
+                  الدخول عبر Gmail
                 </button>
               </form>
 

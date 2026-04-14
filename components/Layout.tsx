@@ -126,7 +126,7 @@ const Layout: React.FC = () => {
   const [liveNotification, setLiveNotification] = useState<string | null>(null);
 
   useEffect(() => {
-    if (effectiveRole === UserRole.TEAM_LEADER || effectiveRole === UserRole.ADMIN) {
+    if (effectiveRole === UserRole.TEAM_LEADER || effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER) {
       const q = query(collection(db, 'logs'), where('action', '==', 'بدء مكالمة'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         snapshot.docChanges().forEach((change) => {

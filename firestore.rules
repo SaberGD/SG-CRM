@@ -35,7 +35,7 @@ service cloud.firestore {
     }
     
     function isAdmin() {
-      return request.auth != null && (
+      return isAuthenticated() && (
         (request.auth.token.email == "saber.gd.fl@gmail.com") ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'administrator']))
@@ -43,13 +43,13 @@ service cloud.firestore {
     }
     
     function isManager() {
-      return isAdmin() || (request.auth != null && 
+      return isAdmin() || (isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['manager', 'supervisor']));
     }
     
     function isTeamLeader() {
-      return isManager() || (request.auth != null && 
+      return isManager() || (isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['team_leader', 'leader']));
     }
@@ -125,8 +125,8 @@ service cloud.firestore {
     
     // قواعد السجلات
     match /logs/{id} {
-      allow read: if request.auth != null && (isTeamLeader() || resource.data.userId == request.auth.uid || resource.data.targetId == request.auth.uid);
-      allow create: if request.auth != null;
+      allow read: if isAuthenticated() && (isAdmin() || isManager() || isTeamLeader() || resource.data.userId == request.auth.uid || resource.data.targetId == request.auth.uid);
+      allow create: if isAuthenticated();
     }
     
     // قواعد الخدمات والتصنيفات

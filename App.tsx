@@ -64,63 +64,74 @@ const App: React.FC = () => {
           
           if (userDoc.exists()) {
             const data = userDoc.data();
-            // Normalize roles if they are coming from a different source or legacy data
             let role = data.role as string;
+            // Normalize roles
             if (role === 'sales') role = UserRole.SALES_AGENT;
             if (role === 'supervisor') role = UserRole.MANAGER;
             if (role === 'leader') role = UserRole.TEAM_LEADER;
             if (role === 'administrator') role = UserRole.ADMIN;
 
+            const userData = { uid: firebaseUser.uid, ...data, role: role as UserRole } as User;
+            
+            // Repair name if missing
             if (!data.name || data.name === 'مستخدم' || data.name === '') {
-              const fixedName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'مدير النظام';
+              const fixedName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'موظف';
               try {
                 await firestore.updateDoc(userDocRef, { name: fixedName });
-              } catch (e) { 
-                handleFirestoreError(e, OperationType.UPDATE, `users/${firebaseUser.uid}`);
-                console.warn("Permission denied for self-repair, using local values."); 
-              }
-              const userData = { uid: firebaseUser.uid, ...data, name: fixedName, role: role as UserRole } as User;
-              console.log("User Logged In (Repaired):", userData.name, "Role:", userData.role);
-              setUser(userData);
-              setEffectiveRoleState(userData.role);
-            } else {
-              const userData = { uid: firebaseUser.uid, ...data, role: role as UserRole } as User;
-              console.log("User Logged In:", userData.name, "Role:", userData.role);
-              setUser(userData);
-              const savedRole = localStorage.getItem('viewAsRole') as UserRole;
-              setEffectiveRoleState(savedRole && userData.role === UserRole.ADMIN ? savedRole : userData.role);
+                userData.name = fixedName;
+              } catch (e) { console.warn("Self-repair failed:", e); }
             }
+
+            console.log("User Logged In:", userData.name, "Role:", userData.role);
+            setUser(userData);
+            const savedRole = localStorage.getItem('viewAsRole') as UserRole;
+            setEffectiveRoleState(savedRole && userData.role === UserRole.ADMIN ? savedRole : userData.role);
           } else { 
-            // Only auto-create if it's the main admin bootstrapping
+            // Document missing - Check if main admin or invited
             const isMainAdmin = firebaseUser.email === "saber.gd.fl@gmail.com";
-            const repairData = {
-              name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || (isMainAdmin ? 'مدير النظام' : 'مستخدم جديد'),
-              email: firebaseUser.email || '',
-              role: isMainAdmin ? UserRole.ADMIN : UserRole.SALES_AGENT,
-              createdAt: Date.now()
-            };
             
             if (isMainAdmin) {
-              try {
-                await firestore.setDoc(userDocRef, repairData);
-                const userData = { uid: firebaseUser.uid, ...repairData } as User;
-                setUser(userData);
-                setEffectiveRoleState(userData.role);
-              } catch (e) { 
-                handleFirestoreError(e, OperationType.CREATE, `users/${firebaseUser.uid}`);
-                console.error("Critical: Could not create admin document."); 
-              }
+              const adminData = {
+                name: firebaseUser.displayName || "مدير النظام",
+                email: firebaseUser.email || '',
+                role: UserRole.ADMIN,
+                createdAt: Date.now()
+              };
+              await firestore.setDoc(userDocRef, adminData);
+              setUser({ uid: firebaseUser.uid, ...adminData } as User);
+              setEffectiveRoleState(UserRole.ADMIN);
             } else {
-              // For non-admins, if document is missing, they might be in the middle of signup
-              // or their document creation failed. We'll set a temporary state.
-              console.warn("User document missing for non-admin. Signup might be in progress.");
-              setUser({ uid: firebaseUser.uid, email: firebaseUser.email || '', name: repairData.name, role: UserRole.SALES_AGENT });
+              // Check for invitation
+              const inviteQuery = firestore.query(
+                firestore.collection(db, 'invitations'), 
+                firestore.where('email', '==', firebaseUser.email?.toLowerCase().trim()),
+                firestore.where('status', '==', 'pending'),
+                firestore.limit(1)
+              );
+              const inviteSnap = await firestore.getDocs(inviteQuery);
+              
+              if (!inviteSnap.empty) {
+                const inviteData = inviteSnap.docs[0].data();
+                const newUser = {
+                  name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'موظف مبيعات',
+                  email: firebaseUser.email || '',
+                  role: inviteData.role as UserRole,
+                  createdAt: Date.now(),
+                  invitedBy: inviteData.invitedBy
+                };
+                await firestore.setDoc(userDocRef, newUser);
+                await firestore.updateDoc(firestore.doc(db, 'invitations', inviteSnap.docs[0].id), { status: 'used' });
+                setUser({ uid: firebaseUser.uid, ...newUser } as User);
+                setEffectiveRoleState(newUser.role);
+                console.log("User document created from invitation.");
+              } else {
+                console.warn("No invitation found for:", firebaseUser.email);
+                setUser({ uid: firebaseUser.uid, email: firebaseUser.email || '', name: 'مستخدم غير مسجل', role: UserRole.SALES_AGENT });
+              }
             }
           }
         } catch (error) {
           handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
-          console.error("Auth Sync Permission Error:", error);
-          // Fallback minimal user object if Firestore is locked
           setUser({ uid: firebaseUser.uid, email: firebaseUser.email || '', name: 'مستخدم (محدود)', role: UserRole.SALES_AGENT });
         }
       } else { 

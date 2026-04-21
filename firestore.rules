@@ -36,30 +36,21 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && (
-        (request.auth.token.email == "saber.gd.fl@gmail.com") ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'administrator']))
+        request.auth.token.email == "saber.gd.fl@gmail.com" ||
+        (userExists() && getUserData().get('role', '') in ['admin', 'administrator'])
       );
     }
     
     function isManager() {
-      return isAdmin() || (isAuthenticated() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['manager', 'supervisor']));
+      return isAdmin() || (userExists() && getUserData().get('role', '') in ['manager', 'supervisor']);
     }
     
     function isTeamLeader() {
-      return isManager() || (isAuthenticated() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['team_leader', 'leader']));
+      return isManager() || (userExists() && getUserData().get('role', '') in ['team_leader', 'leader']);
     }
 
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
     }
 
     function hasRequiredFields(fields) {
@@ -69,19 +60,6 @@ service cloud.firestore {
     // ===============================================================
     // Domain Validators
     // ===============================================================
-
-    function isValidUser(data) {
-      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.email is string &&
-             data.role in ['admin', 'manager', 'team_leader', 'sales_agent', 'administrator', 'supervisor', 'leader'];
-    }
-
-    function isValidClient(data) {
-      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.phone is string && data.phone.size() > 0 &&
-             data.salesAgentId is string &&
-             (data.salesAgentId == request.auth.uid || isTeamLeader());
-    }
 
     function isValidReport(data) {
       return hasRequiredFields(['userId', 'userName', 'date', 'submittedAt']) &&
@@ -96,16 +74,15 @@ service cloud.firestore {
     // قواعد مجموعة المستخدمين
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
-      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow create, update: if isAuthenticated() && (isOwner(userId) || isAdmin());
       allow delete: if isAdmin();
     }
     
     // قواعد العملاء
     match /clients/{clientId} {
-      allow read: if request.auth != null; 
-      allow create: if request.auth != null && isValidClient(request.resource.data);
-      allow update: if request.auth != null && isValidClient(request.resource.data) && (isTeamLeader() || resource.data.salesAgentId == request.auth.uid);
+      allow read: if isAuthenticated(); 
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (isTeamLeader() || resource.data.salesAgentId == request.auth.uid);
       allow delete: if isManager();
     }
     
@@ -125,7 +102,7 @@ service cloud.firestore {
     
     // قواعد السجلات
     match /logs/{id} {
-      allow read: if isAuthenticated() && (isAdmin() || isManager() || isTeamLeader() || resource.data.userId == request.auth.uid || resource.data.targetId == request.auth.uid);
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated();
     }
     
@@ -144,7 +121,7 @@ service cloud.firestore {
     match /reports/{id} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidReport(request.resource.data);
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isManager()) && isValidReport(request.resource.data);
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isManager());
       allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isManager());
     }
     

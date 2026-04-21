@@ -7,8 +7,9 @@ import { Client, FollowUp, DailyReport } from "./types";
  * Predicts sales opportunity and analyzes lead history using Gemini API.
  */
 export const predictSalesOpportunity = async (client: Client, followUps: FollowUp[]) => {
-  // Creating a new GoogleGenAI instance right before the call as per guidelines.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Use a safer way to access the API key to avoid ReferenceError
+  const apiKey = typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.API_KEY) : ((import.meta as any).env?.VITE_GEMINI_API_KEY);
+  const ai = new GoogleGenAI({ apiKey: apiKey || "" });
   
   const history = followUps.map(f => {
     const timing = f.isEarly ? "EARLY" : "ON-TIME";
@@ -23,6 +24,7 @@ export const predictSalesOpportunity = async (client: Client, followUps: FollowU
   3. Provide 1 professional recommendation in Arabic.`;
 
   try {
+    if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
     // Using gemini-3-pro-preview for advanced reasoning and sales prediction tasks.
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
@@ -41,7 +43,6 @@ export const predictSalesOpportunity = async (client: Client, followUps: FollowU
       },
     });
     
-    // Accessing .text property directly (not as a method) as per SDK rules.
     const jsonStr = response.text?.trim();
     if (!jsonStr) return { score: 'Medium', reason: 'لم يتم استلام رد من الذكاء الاصطناعي' };
     
@@ -56,8 +57,8 @@ export const predictSalesOpportunity = async (client: Client, followUps: FollowU
  * Provides automated analysis for daily sales reports.
  */
 export const analyzeDailyReport = async (report: DailyReport) => {
-  // Creating a new GoogleGenAI instance right before the call.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.API_KEY) : ((import.meta as any).env?.VITE_GEMINI_API_KEY);
+  const ai = new GoogleGenAI({ apiKey: apiKey || "" });
   
   const prompt = `تحليل تقرير مبيعات أكاديمية تعليمية:
   الموظف: ${report.userName}
@@ -72,13 +73,13 @@ export const analyzeDailyReport = async (report: DailyReport) => {
   قدم تحليل مهني قصير (30 كلمة) باللغة العربية مع نصيحة واحدة لتحسين الأداء أو سرعة المتابعة.`;
 
   try {
+    if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
     // Using gemini-3-flash-preview for standard text generation and summarization.
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
     });
     
-    // Accessing .text property directly as per latest SDK guidelines.
     return response.text || "فشل تحليل التقرير بواسطة AI.";
   } catch (error) {
     console.error("Gemini analyzeDailyReport error:", error);

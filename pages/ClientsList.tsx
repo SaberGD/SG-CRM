@@ -43,6 +43,7 @@ const ClientsList: React.FC = () => {
   const [filterBookedCourse, setFilterBookedCourse] = useState<string>('all');
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [transferAgentId, setTransferAgentId] = useState('');
@@ -132,26 +133,32 @@ const ClientsList: React.FC = () => {
 
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
-    const phoneFull = newClient.countryCode + newClient.phone.replace(/^0+/, '');
+    if (!user || isSubmitting) return;
+    setIsSubmitting(true);
+    
+    const phoneFull = newClient.countryCode + newClient.phone.replace(/^0+/, '').trim();
     
     // منع التكرار
-    const phoneCheck = await firestore.getDocs(firestore.query(firestore.collection(db, 'clients'), firestore.where('phone', '==', phoneFull)));
-    if (!phoneCheck.empty) return alert("هذا الرقم مسجل مسبقاً باسم: " + phoneCheck.docs[0].data().name);
-
-    const isOtherService = newClient.serviceId === 'other';
-    const serviceName = isOtherService ? newClient.customServiceName : (services.find(s => s.id === newClient.serviceId)?.name || 'أخرى');
-
-    let nextTs = 0;
-    if (newClient.scheduleNext && newClient.nextDate) {
-      const [h, m] = newClient.nextTime.split(':').map(Number);
-      const finalH = newClient.nextPeriod === 'PM' && h < 12 ? h + 12 : (newClient.nextPeriod === 'AM' && h === 12 ? 0 : h);
-      const dateObj = new Date(newClient.nextDate);
-      dateObj.setHours(finalH, m, 0, 0);
-      nextTs = dateObj.getTime();
-    }
-
     try {
+      const phoneCheck = await firestore.getDocs(firestore.query(firestore.collection(db, 'clients'), firestore.where('phone', '==', phoneFull)));
+      if (!phoneCheck.empty) {
+        const existingClient = phoneCheck.docs[0].data() as Client;
+        setIsSubmitting(false);
+        return alert(`هذا الرقم مسجل مسبقاً باسم: ${existingClient.name}\nومسؤول عنه الموظف: ${existingClient.salesAgentName}\n\nيرجى مراجعة الإدارة إذا كنت تود تحويله باسمك.`);
+      }
+
+      const isOtherService = newClient.serviceId === 'other';
+      const serviceName = isOtherService ? newClient.customServiceName : (services.find(s => s.id === newClient.serviceId)?.name || 'أخرى');
+
+      let nextTs = 0;
+      if (newClient.scheduleNext && newClient.nextDate) {
+        const [h, m] = newClient.nextTime.split(':').map(Number);
+        const finalH = newClient.nextPeriod === 'PM' && h < 12 ? h + 12 : (newClient.nextPeriod === 'AM' && h === 12 ? 0 : h);
+        const dateObj = new Date(newClient.nextDate);
+        dateObj.setHours(finalH, m, 0, 0);
+        nextTs = dateObj.getTime();
+      }
+
       const { nextDate, nextTime, nextPeriod, scheduleNext, isBooked, bookedCourseId, bookedCourseName, totalPrice, paidAmount, remainingAmount, customServiceName, ...clientToSave } = newClient;
       const dataToSave: any = { 
         ...clientToSave, 
@@ -196,6 +203,8 @@ const ClientsList: React.FC = () => {
     } catch (err) { 
       handleFirestoreError(err, OperationType.CREATE, 'clients');
       alert("حدث خطأ في الصلاحيات أثناء إضافة العميل. يرجى التأكد من إعدادات Firebase.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -591,7 +600,13 @@ const ClientsList: React.FC = () => {
                 )}
               </div>
 
-              <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all uppercase text-xs">إضافة العميل وتوثيق وقت التسجيل</button>
+              <button 
+                type="submit" 
+                disabled={isSubmitting}
+                className={`w-full py-5 rounded-3xl font-black shadow-xl transition-all uppercase text-xs ${isSubmitting ? 'bg-slate-400 cursor-not-allowed' : 'bg-primary-500 hover:bg-primary-600 text-white'}`}
+              >
+                {isSubmitting ? 'جاري التسجيل...' : 'إضافة العميل وتوثيق وقت التسجيل'}
+              </button>
             </form>
           </div>
         </div>

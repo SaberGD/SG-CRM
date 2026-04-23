@@ -1,16 +1,12 @@
 
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { doc, setDoc, getDocs, collection, query, where, updateDoc, getDoc } from 'firebase/firestore';
 import { auth, db, logActivity } from '../firebase';
 import { UserRole, Invitation } from '../types';
-import { LayoutDashboard, Lock, UserPlus, AlertCircle, Mail, User, Chrome } from 'lucide-react';
+import { LayoutDashboard, AlertCircle, Chrome } from 'lucide-react';
 
 const Login: React.FC = () => {
-  const [isLogin, setIsLogin] = useState(true);
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -61,7 +57,7 @@ const Login: React.FC = () => {
 
         // إنشاء وثيقة المستخدم
         await setDoc(userDocRef, {
-          name: user.displayName || name || 'موظف جديد',
+          name: user.displayName || 'موظف جديد',
           email: user.email.toLowerCase().trim(),
           role: role,
           invitedBy: invitedBy,
@@ -73,78 +69,6 @@ const Login: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'فشل تسجيل الدخول عبر جوجل');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    
-    try {
-      if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
-      } else {
-        // 1. التحقق من أن الإيميل مسموح له بالتسجيل
-        const invitesRef = collection(db, 'invitations');
-        const q = query(invitesRef, where('email', '==', email.toLowerCase().trim()));
-        const snap = await getDocs(q);
-        
-        if (snap.empty) {
-          throw new Error("عذراً، هذا البريد غير مسجل في قائمة المسموح لهم بالانضمام. يرجى مراجعة الإدارة.");
-        }
-        
-        const inviteDoc = snap.docs[0];
-        const inviteData = inviteDoc.data() as Invitation;
-        
-        if (inviteData.status === 'used') {
-          // التحقق مما إذا كان المستخدم موجوداً بالفعل في الداتابيز
-          const userDoc = await getDocs(query(collection(db, 'users'), where('email', '==', email.toLowerCase().trim())));
-          if (!userDoc.empty) {
-            throw new Error("هذا الحساب تم تفعيله مسبقاً. حاول تسجيل الدخول.");
-          }
-          // إذا كانت الدعوة مستخدمة ولكن لا يوجد يوزر، سنكمل العملية (ربما فشل الإنشاء سابقاً)
-        }
-
-        let user;
-        try {
-          // 2. إنشاء الحساب في Firebase Auth
-          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-          user = userCredential.user;
-        } catch (authErr: any) {
-          if (authErr.code === 'auth/email-already-in-use') {
-            // إذا كان الإيميل موجوداً في Auth، نحاول تسجيل الدخول به لإكمال البيانات
-            const userCredential = await signInWithEmailAndPassword(auth, email, password);
-            user = userCredential.user;
-          } else {
-            throw authErr;
-          }
-        }
-        
-        // 3. تخزين بيانات المستخدم مع الرتبة المحددة في الدعوة مسبقاً
-        await setDoc(doc(db, 'users', user.uid), {
-          name: name,
-          email: email.toLowerCase().trim(),
-          role: inviteData.role,
-          invitedBy: inviteData.invitedBy,
-          createdAt: Date.now()
-        });
-        
-        // 4. تحديث حالة الدعوة إلى مستخدمة
-        await updateDoc(doc(db, 'invitations', inviteDoc.id), {
-          status: 'used'
-        });
-
-        await logActivity(user.uid, name, `تسجيل حساب جديد بنجاح برتبة (${inviteData.role})`, user.uid, name);
-      }
-    } catch (err: any) {
-      console.error(err);
-      let errMsg = err.message;
-      if (err.code === 'auth/email-already-in-use') errMsg = "هذا البريد مستخدم بالفعل.";
-      if (err.code === 'auth/weak-password') errMsg = "كلمة المرور ضعيفة جداً.";
-      setError(errMsg || 'تأكد من صحة البيانات المدخلة');
     } finally {
       setLoading(false);
     }
@@ -170,13 +94,11 @@ const Login: React.FC = () => {
             <div className="animate-fade-in">
               <div className="text-center mb-8">
                 <h2 className="text-xl font-black text-slate-800 dark:text-slate-200">
-                  {isLogin ? 'تسجيل الدخول' : 'إنشاء حساب موظف'}
+                  تسجيل الدخول للنظام
                 </h2>
-                {!isLogin && (
-                  <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase flex items-center justify-center gap-1">
-                    <AlertCircle size={10}/> مسموح فقط للإيميلات المضافة من قبل الإدارة
-                  </p>
-                )}
+                <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase flex items-center justify-center gap-1">
+                  <AlertCircle size={10}/> مسموح فقط للإيميلات المضافة من قبل الإدارة
+                </p>
               </div>
 
               {error && (
@@ -185,77 +107,28 @@ const Login: React.FC = () => {
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {!isLogin && (
-                  <div className="relative">
-                    <User className="absolute right-5 top-1/2 -translate-y-1/2 text-primary-500" size={18}/>
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full pr-14 pl-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-primary-500 outline-none font-bold text-sm"
-                      placeholder="الاسم الثنائي"
-                      required={!isLogin}
-                    />
-                  </div>
-                )}
-                
-                <div className="relative">
-                  <Mail className="absolute right-5 top-1/2 -translate-y-1/2 text-primary-500" size={18}/>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pr-14 pl-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-primary-500 outline-none font-bold text-sm"
-                    placeholder="البريد الإلكتروني"
-                    required
-                  />
-                </div>
-
-                <div className="relative">
-                  <Lock className="absolute right-5 top-1/2 -translate-y-1/2 text-primary-500" size={18}/>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pr-14 pl-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-primary-500 outline-none font-bold text-sm"
-                    placeholder="كلمة المرور"
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-5 rounded-3xl bg-primary-500 text-white font-black shadow-xl hover:bg-primary-600 transition-all flex items-center justify-center gap-2 mt-4 uppercase text-xs tracking-widest"
-                >
-                  {loading ? 'جاري التحقق...' : (isLogin ? 'دخول النظام' : 'تفعيل الحساب')}
-                </button>
-
-                <div className="relative py-4">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-slate-100 dark:border-slate-800"></div>
-                  </div>
-                  <div className="relative flex justify-center text-[10px] uppercase font-black">
-                    <span className="bg-white dark:bg-slate-900 px-4 text-slate-400">أو عبر جوجل</span>
-                  </div>
-                </div>
-
+              <div className="space-y-6">
                 <button
                   type="button"
                   onClick={handleGoogleLogin}
                   disabled={loading}
-                  className="w-full py-4 rounded-3xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-3 border border-slate-100 dark:border-slate-700 text-sm"
+                  className="w-full py-6 rounded-3xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-black shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-4 border border-slate-100 dark:border-slate-700 text-base"
                 >
-                  <Chrome className="text-rose-500" size={20} />
-                  الدخول عبر Gmail
+                  <Chrome className="text-rose-500" size={24} />
+                  {loading ? 'جاري التحقق...' : 'الدخول عبر Gmail'}
                 </button>
-              </form>
+
+                <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
+                  <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 text-center leading-relaxed">
+                    يرجى استخدام إيميل Google المعتمد الخاص بك. إذا لم تتمكن من الدخول، تأكد من أن الأدمن قد أضاف إيميلك في قائمة الوصول.
+                  </p>
+                </div>
+              </div>
 
               <div className="mt-8 text-center border-t border-slate-50 dark:border-slate-800 pt-6">
-                <button onClick={() => setIsLogin(!isLogin)} className="text-primary-500 font-black text-xs uppercase tracking-tighter">
-                  {isLogin ? 'موظف جديد؟ سجل حسابك هنا' : 'لديك حساب بالفعل؟ سجل دخولك'}
-                </button>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  Educational Excellence & Management
+                </p>
               </div>
             </div>
           </div>

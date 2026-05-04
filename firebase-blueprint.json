@@ -50,6 +50,7 @@
     "/labels/{id}": { "schema": "Label", "description": "Client labels/tags" },
     "/targets/{id}": { "schema": "Target", "description": "Daily targets for agents" },
     "/defaultTargets/{id}": { "schema": "DefaultTarget", "description": "Default targets for agents" },
-    "/transfers/{id}": { "schema": "ClientTransfer", "description": "Client transfer history" }
+    "/transfers/{id}": { "schema": "ClientTransfer", "description": "Client transfer history" },
+    "/bulk_transfers/{id}": { "schema": "BulkTransfer", "description": "Bulk client transfer operations" }
   }
 }

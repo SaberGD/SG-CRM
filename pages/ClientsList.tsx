@@ -6,11 +6,13 @@ import { db, logActivity, handleFirestoreError, OperationType } from '../firebas
 import { useAuth } from '../App';
 import { 
   Client, ClientStatus, StatusLabels, UserRole, Service, Label, 
-  ClientTransfer, CommMethod, CommMethodLabels, Gender, LaptopStatus, AttendanceMode 
+  ClientTransfer, BulkTransfer, CommMethod, CommMethodLabels, Gender, LaptopStatus, AttendanceMode,
+  ClientSource, SourceLabels
 } from '../types';
 import { 
   Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2, 
-  Phone, Calendar, MessageSquare, User, Laptop, Globe, Clock, X
+  Phone, Calendar, MessageSquare, User, Laptop, Globe, Clock, X,
+  ExternalLink, Layers, AlertTriangle
 } from 'lucide-react';
 
 const ARAB_COUNTRIES = [
@@ -25,15 +27,29 @@ const ARAB_COUNTRIES = [
   { name: 'أخرى', code: '' }
 ];
 
+// Global cache for clients to reduce reads
+const clientsCache: {
+  data: Client[];
+  lastVisible: firestore.DocumentData | null;
+  hasMore: boolean;
+  filters: string;
+} = {
+  data: [],
+  lastVisible: null,
+  hasMore: true,
+  filters: ''
+};
+
 const ClientsList: React.FC = () => {
   const { user, effectiveRole, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const [clients, setClients] = useState<Client[]>([]);
+  const [clients, setClients] = useState<Client[]>(clientsCache.data);
   const [services, setServices] = useState<Service[]>([]);
   const [allLabels, setAllLabels] = useState<Label[]>([]);
   const [salesAgents, setSalesAgents] = useState<{id: string, name: string}[]>([]);
   
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterService, setFilterService] = useState<string>('all');
   const [filterLabel, setFilterLabel] = useState<string>('all');
@@ -41,16 +57,30 @@ const ClientsList: React.FC = () => {
   const [filterMode, setFilterMode] = useState<string>('all');
   const [filterGender, setFilterGender] = useState<string>('all');
   const [filterBookedCourse, setFilterBookedCourse] = useState<string>('all');
+  const [filterSalesAgent, setFilterSalesAgent] = useState<string>('all');
   
+  // Pagination
+  const [lastVisible, setLastVisible] = useState<firestore.DocumentData | null>(clientsCache.lastVisible);
+  const [hasMore, setHasMore] = useState(clientsCache.hasMore);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [totalRead, setTotalRead] = useState(0);
+
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [isBulkTransferOpen, setIsBulkTransferOpen] = useState(false);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [transferAgentId, setTransferAgentId] = useState('');
   const [transferReason, setTransferReason] = useState('');
 
+  const [bulkTransferFrom, setBulkTransferFrom] = useState('');
+  const [bulkTransferTo, setBulkTransferTo] = useState('');
+  const [recentBulkTransfers, setRecentBulkTransfers] = useState<BulkTransfer[]>([]);
+  const [isUndoing, setIsUndoing] = useState(false);
+
   const [newClient, setNewClient] = useState({ 
     name: '', phone: '', status: ClientStatus.INTERESTED, 
+    source: ClientSource.WHATSAPP, profileLink: '',
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
     serviceId: '', customServiceName: '', country: 'مصر', countryCode: '+20', 
     labels: [] as string[],
@@ -72,23 +102,39 @@ const ClientsList: React.FC = () => {
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
   const canDelete = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
 
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   useEffect(() => {
     if (authLoading || !user) return;
     
-    const clientsRef = firestore.collection(db, 'clients');
-    let q;
-    
-    if (isHighRole) {
-      q = firestore.query(clientsRef, firestore.orderBy('createdAt', 'desc'), firestore.limit(500));
-    } else {
-      q = firestore.query(clientsRef, firestore.where('salesAgentId', '==', user.uid), firestore.orderBy('createdAt', 'desc'));
-    }
-    
-    const unsubClients = firestore.onSnapshot(q, (snapshot) => {
-      setClients(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-    }, (err) => {
-      console.error("ClientsList Clients Snapshot Error:", err);
+    // Create a key for the current combination of filters
+    const currentFiltersKey = JSON.stringify({
+      effectiveRole,
+      filterStatus,
+      filterService,
+      filterLabel,
+      filterLaptop,
+      filterMode,
+      filterGender,
+      filterBookedCourse,
+      filterSalesAgent,
+      debouncedSearch
     });
+
+    // If filters have changed, we MUST reset data unless it was already cached for these filters
+    if (clientsCache.filters !== currentFiltersKey) {
+      setClients([]);
+      setLastVisible(null);
+      setHasMore(true);
+      fetchClients(false, debouncedSearch);
+      clientsCache.filters = currentFiltersKey;
+    }
 
     const unsubServices = firestore.onSnapshot(firestore.query(firestore.collection(db, 'services'), firestore.where('isActive', '==', true)), snap => {
       setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
@@ -103,33 +149,124 @@ const ClientsList: React.FC = () => {
     });
 
     if (isHighRole) {
-      firestore.getDocs(firestore.query(firestore.collection(db, 'users'), firestore.where('role', 'in', [UserRole.SALES_AGENT, UserRole.TEAM_LEADER]))).then(snap => {
+      firestore.getDocs(firestore.query(firestore.collection(db, 'users'), firestore.where('role', 'in', [UserRole.SALES_AGENT, UserRole.TEAM_LEADER, UserRole.MANAGER]))).then(snap => {
         setSalesAgents(snap.docs.map(d => ({ id: d.id, name: d.data().name })));
       });
-    }
 
+      const unsubBulk = firestore.onSnapshot(
+        firestore.query(
+          firestore.collection(db, 'bulk_transfers'), 
+          firestore.orderBy('timestamp', 'desc'), 
+          firestore.limit(5)
+        ), 
+        snap => {
+          setRecentBulkTransfers(snap.docs.map(d => ({ id: d.id, ...d.data() } as BulkTransfer)));
+        }
+      );
+      return () => {
+        unsubBulk();
+        unsubServices();
+        unsubLabels();
+      };
+    }
+    
     return () => {
-      unsubClients();
       unsubServices();
       unsubLabels();
     };
-  }, [authLoading, user, effectiveRole]);
+  }, [authLoading, user, effectiveRole, filterStatus, filterService, filterLabel, filterLaptop, filterMode, filterGender, filterBookedCourse, filterSalesAgent, debouncedSearch]);
+
+  const fetchClients = async (isMore: boolean, searchOverride?: string) => {
+    if (!user || (!isMore && isLoadingMore)) return;
+    setIsLoadingMore(true);
+
+    const activeSearch = searchOverride !== undefined ? searchOverride : debouncedSearch;
+
+    try {
+      const clientsRef = firestore.collection(db, 'clients');
+      let constraints: firestore.QueryConstraint[] = [];
+
+      // Determine search method
+      const isSearchActive = activeSearch.trim().length > 0;
+      
+      if (isSearchActive) {
+        // If it's a numeric search (likely phone), try exact phone match
+        const isNumeric = /^[0-9+]+$/.test(activeSearch.trim());
+        if (isNumeric && activeSearch.length > 5) {
+          constraints.push(firestore.where('phone', '==', activeSearch.trim()));
+        } else {
+          // Name prefix search
+          // Note: Prefix search requires multiple constraints and doesn't play well with multiple 'where' filters easily without indexes
+          constraints.push(firestore.where('name', '>=', activeSearch));
+          constraints.push(firestore.where('name', '<=', activeSearch + '\uf8ff'));
+          constraints.push(firestore.orderBy('name'));
+        }
+      } else {
+        constraints.push(firestore.orderBy('createdAt', 'desc'));
+      }
+
+      // Role check
+      if (!isHighRole) {
+        constraints.push(firestore.where('salesAgentId', '==', user.uid));
+      } else if (filterSalesAgent !== 'all') {
+        constraints.push(firestore.where('salesAgentId', '==', filterSalesAgent));
+      }
+
+      // Filter checks
+      if (!isSearchActive) { // Some filters might collide with range search on Name in Firestore
+        if (filterStatus !== 'all') constraints.push(firestore.where('status', '==', filterStatus));
+        if (filterService !== 'all') constraints.push(firestore.where('serviceId', '==', filterService));
+        if (filterLaptop !== 'all') constraints.push(firestore.where('laptop', '==', filterLaptop));
+        if (filterMode !== 'all') constraints.push(firestore.where('mode', '==', filterMode));
+        if (filterGender !== 'all') constraints.push(firestore.where('gender', '==', filterGender));
+        if (filterBookedCourse !== 'all') constraints.push(firestore.where('bookedCourseId', '==', filterBookedCourse));
+        if (filterLabel !== 'all') constraints.push(firestore.where('labels', 'array-contains', filterLabel));
+      }
+
+      if (isMore && lastVisible) {
+        constraints.push(firestore.startAfter(lastVisible));
+      }
+
+      constraints.push(firestore.limit(30));
+
+      const q = firestore.query(clientsRef, ...constraints);
+      const snapshot = await firestore.getDocs(q);
+      
+      const newClients = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+      
+      let finalClients: Client[];
+      if (isMore) {
+        finalClients = [...clients, ...newClients];
+      } else {
+        finalClients = newClients;
+      }
+
+      setClients(finalClients);
+      const lastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+      setLastVisible(lastDoc);
+      const more = snapshot.docs.length === 30;
+      setHasMore(more);
+      setTotalRead(prev => prev + snapshot.docs.length);
+
+      // Update global cache
+      clientsCache.data = finalClients;
+      clientsCache.lastVisible = lastDoc;
+      clientsCache.hasMore = more;
+    } catch (err) {
+      console.error("Error fetching clients:", err);
+      // Optional: fallback to local search if query fails (maybe index missing)
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const filteredClients = useMemo(() => {
-    return clients.filter(c => {
-      const term = searchTerm.toLowerCase();
-      const matchesSearch = c.name.toLowerCase().includes(term) || c.phone.includes(term);
-      const matchesStatus = filterStatus === 'all' || c.status === filterStatus;
-      const matchesService = filterService === 'all' || c.serviceId === filterService;
-      const matchesLabel = filterLabel === 'all' || (c.labels && c.labels.includes(filterLabel));
-      const matchesLaptop = filterLaptop === 'all' || c.laptop === filterLaptop;
-      const matchesMode = filterMode === 'all' || c.mode === filterMode;
-      const matchesGender = filterGender === 'all' || c.gender === filterGender;
-      const matchesBookedCourse = filterBookedCourse === 'all' || c.bookedCourseId === filterBookedCourse;
-      
-      return matchesSearch && matchesStatus && matchesService && matchesLabel && matchesLaptop && matchesMode && matchesGender && matchesBookedCourse;
-    });
-  }, [clients, searchTerm, filterStatus, filterService, filterLabel, filterLaptop, filterMode, filterGender, filterBookedCourse]);
+    // When search is active, we rely on the server-side results
+    // But we can still do a secondary local filter for better feel
+    if (!debouncedSearch) return clients;
+    const term = debouncedSearch.toLowerCase();
+    return clients.filter(c => c.name.toLowerCase().includes(term) || c.phone.includes(term));
+  }, [clients, debouncedSearch]);
 
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,6 +297,13 @@ const ClientsList: React.FC = () => {
       }
 
       const { nextDate, nextTime, nextPeriod, scheduleNext, isBooked, bookedCourseId, bookedCourseName, totalPrice, paidAmount, remainingAmount, customServiceName, ...clientToSave } = newClient;
+      
+      // Validation for WhatsApp
+      if (newClient.source === ClientSource.WHATSAPP && !newClient.phone.trim()) {
+        setIsSubmitting(false);
+        return alert("رقم الموبايل إجباري عند اختيار واتساب");
+      }
+
       const dataToSave: any = { 
         ...clientToSave, 
         phone: phoneFull,
@@ -186,20 +330,13 @@ const ClientsList: React.FC = () => {
         dataToSave.status = ClientStatus.BOOKED;
       }
 
-      console.log("Attempting to add client with data:", dataToSave);
-      const docRef = await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
-      console.log("Client added successfully, ID:", docRef.id);
-      await logActivity(user.uid, user.name, `إضافة عميل جديد: ${newClient.name}`, docRef.id, newClient.name);
+      await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
+      console.log("Client added successfully");
+      await logActivity(user.uid, user.name, `إضافة عميل جديد (${newClient.source}): ${newClient.name}`, 'new', newClient.name);
       setIsAddModalOpen(false);
-      setNewClient({ 
-        name: '', phone: '', status: ClientStatus.INTERESTED, 
-        gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
-        serviceId: '', customServiceName: '', country: 'مصر', countryCode: '+20', 
-        labels: [], notes: '', preferredMethod: CommMethod.PHONE,
-        nextFollowUpMethod: CommMethod.PHONE,
-        scheduleNext: false,
-        nextDate: '', nextTime: '10:00', nextPeriod: 'AM' 
-      });
+      // Reset and Clear cache context so it reloads on next mount or manually reload
+      clientsCache.filters = ''; 
+      fetchClients(false);
     } catch (err) { 
       handleFirestoreError(err, OperationType.CREATE, 'clients');
       alert("حدث خطأ في الصلاحيات أثناء إضافة العميل. يرجى التأكد من إعدادات Firebase.");
@@ -218,23 +355,159 @@ const ClientsList: React.FC = () => {
     if (!newAgent) return;
 
     try {
-      await firestore.addDoc(firestore.collection(db, 'transfers'), {
+      const transferRecord: ClientTransfer = {
+        id: crypto.randomUUID(),
         clientId: selectedClient.id, clientName: selectedClient.name,
         oldAgentId: selectedClient.salesAgentId, oldAgentName: selectedClient.salesAgentName,
         newAgentId: newAgent.id, newAgentName: newAgent.name,
         reason: transferReason, timestamp: Date.now(),
         performedById: user!.uid, performedByName: user!.name
-      });
+      };
+
+      await firestore.addDoc(firestore.collection(db, 'transfers'), transferRecord);
+      
+      const updatedHistory = [...(selectedClient.transferHistory || []), transferRecord];
+
       await firestore.updateDoc(firestore.doc(db, 'clients', selectedClient.id), { 
         salesAgentId: newAgent.id, 
-        salesAgentName: newAgent.name 
+        salesAgentName: newAgent.name,
+        transferHistory: updatedHistory
       });
       await logActivity(user!.uid, user!.name, `تحويل العميل إلى ${newAgent.name}`, selectedClient.id, selectedClient.name);
       setIsTransferModalOpen(false);
       setSelectedClient(null);
+      // Refresh list to show change
+      setClients(clients.map(c => c.id === selectedClient.id ? { ...c, salesAgentId: newAgent.id, salesAgentName: newAgent.name, transferHistory: updatedHistory } : c));
     } catch (err) { 
       handleFirestoreError(err, OperationType.WRITE, 'clients/transfers');
-      alert("حدث خطأ في الصلاحيات أثناء تحويل العميل. يرجى التأكد من أنك تملك صلاحية Team Leader على الأقل.");
+      alert("حدث خطأ في الصلاحيات أثناء تحويل العميل.");
+    }
+  };
+
+  const handleBulkTransfer = async () => {
+    if (!bulkTransferFrom || !bulkTransferTo) return;
+    if (bulkTransferFrom === bulkTransferTo) return alert("لا يمكن التحويل لنفس الموظف");
+    
+    const fromAgent = salesAgents.find(a => a.id === bulkTransferFrom);
+    const toAgent = salesAgents.find(a => a.id === bulkTransferTo);
+    if (!fromAgent || !toAgent) return;
+
+    if (!window.confirm(`هل أنت متأكد من تحويل جميع عملاء (${fromAgent.name}) إلى (${toAgent.name})؟`)) return;
+
+    setIsSubmitting(true);
+    try {
+      const q = firestore.query(firestore.collection(db, 'clients'), firestore.where('salesAgentId', '==', fromAgent.id));
+      const snapshot = await firestore.getDocs(q);
+      
+      if (snapshot.empty) {
+        alert("هذا الموظف ليس لديه عملاء حالياً.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const batch = firestore.writeBatch(db);
+      const timestamp = Date.now();
+      const clientIds: string[] = [];
+      
+      snapshot.docs.forEach(docSnap => {
+        const clientData = docSnap.data() as Client;
+        clientIds.push(docSnap.id);
+        const transferRecord: ClientTransfer = {
+          id: crypto.randomUUID(),
+          clientId: docSnap.id, clientName: clientData.name,
+          oldAgentId: fromAgent.id, oldAgentName: fromAgent.name,
+          newAgentId: toAgent.id, newAgentName: toAgent.name,
+          reason: 'تحويل جماعي من قبل الإدارة', timestamp,
+          performedById: user!.uid, performedByName: user!.name
+        };
+        
+        batch.update(docSnap.ref, {
+          salesAgentId: toAgent.id,
+          salesAgentName: toAgent.name,
+          transferHistory: firestore.arrayUnion(transferRecord)
+        });
+      });
+
+      const bulkTransferRecord: Omit<BulkTransfer, 'id'> = {
+        fromAgentId: fromAgent.id,
+        fromAgentName: fromAgent.name,
+        toAgentId: toAgent.id,
+        toAgentName: toAgent.name,
+        clientCount: snapshot.size,
+        clientIds,
+        timestamp,
+        performedById: user!.uid,
+        performedByName: user!.name,
+        isUndone: false
+      };
+
+      await firestore.addDoc(firestore.collection(db, 'bulk_transfers'), bulkTransferRecord);
+      await batch.commit();
+      await logActivity(user!.uid, user!.name, `تحويل جماعي من ${fromAgent.name} إلى ${toAgent.name}`, 'bulk', `${snapshot.size} عميل`);
+      
+      alert(`تم تحويل ${snapshot.size} عميل بنجاح.`);
+      setIsBulkTransferOpen(false);
+      fetchClients(false); // Reload list
+    } catch (err) {
+      console.error(err);
+      alert("حدث خطأ أثناء التحويل الجماعي.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUndoBulkTransfer = async (bt: BulkTransfer) => {
+    if (bt.isUndone) return;
+    if (!window.confirm(`هل أنت متأكد من التراجع عن تحويل ${bt.clientCount} عميل من ${bt.toAgentName} وإعادتهم إلى ${bt.fromAgentName}؟`)) return;
+
+    setIsUndoing(true);
+    try {
+      const batch = firestore.writeBatch(db);
+      const timestamp = Date.now();
+
+      // We need to fetch the clients to make sure they still exist and are currently assigned to 'bt.toAgentId'
+      // Or we can just try to update them if they match.
+      // Better fetch for safety to avoid overwriting newer manual transfers if any occurred since then.
+      // But for "Comprehensive Undo", the user expects them to go back.
+      
+      for (const cid of bt.clientIds) {
+        const clientRef = firestore.doc(db, 'clients', cid);
+        const clientSnap = await firestore.getDoc(clientRef);
+        
+        if (clientSnap.exists()) {
+          const clientData = clientSnap.data() as Client;
+          
+          // Only undo if they are still with the agent we transferred them to
+          if (clientData.salesAgentId === bt.toAgentId) {
+            const transferRecord: ClientTransfer = {
+              id: crypto.randomUUID(),
+              clientId: cid, clientName: clientData.name,
+              oldAgentId: bt.toAgentId, oldAgentName: bt.toAgentName,
+              newAgentId: bt.fromAgentId, newAgentName: bt.fromAgentName,
+              reason: 'تراجع عن تحويل جماعي', timestamp,
+              performedById: user!.uid, performedByName: user!.name
+            };
+
+            batch.update(clientRef, {
+              salesAgentId: bt.fromAgentId,
+              salesAgentName: bt.fromAgentName,
+              transferHistory: firestore.arrayUnion(transferRecord)
+            });
+          }
+        }
+      }
+
+      batch.update(firestore.doc(db, 'bulk_transfers', bt.id), { isUndone: true });
+      await batch.commit();
+      await logActivity(user!.uid, user!.name, `تراجع عن تحويل جماعي (${bt.clientCount} عميل)`, bt.id, `من ${bt.toAgentName} إلى ${bt.fromAgentName}`);
+      
+      alert("تم التراجع عن التحويل بنجاح.");
+      fetchClients(false);
+    } catch (err) {
+      console.error(err);
+      alert("حدث خطأ أثناء التراجع عن التحويل.");
+    } finally {
+      setIsUndoing(false);
     }
   };
 
@@ -243,11 +516,18 @@ const ClientsList: React.FC = () => {
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">قائمة <span className="text-primary-500">العملاء</span></h1>
-          <p className="text-slate-500 font-bold mt-1">إدارة بيانات المتقدمين والمتابعات</p>
+          <p className="text-slate-500 font-bold mt-1">إدارة بيانات المتقدمين والمتابعات (المحمل: {clients.length})</p>
         </div>
-        <button onClick={() => setIsAddModalOpen(true)} className="bg-primary-500 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-primary-600 transition-all flex items-center gap-2">
-          <Plus size={18} /> إضافة عميل جديد
-        </button>
+        <div className="flex gap-2">
+          {canDelete && (
+            <button onClick={() => setIsBulkTransferOpen(true)} className="bg-amber-500 text-white px-6 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-amber-600 transition-all flex items-center gap-2">
+              <Layers size={18} /> تحويل جماعي
+            </button>
+          )}
+          <button onClick={() => setIsAddModalOpen(true)} className="bg-primary-500 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-primary-600 transition-all flex items-center gap-2">
+            <Plus size={18} /> إضافة عميل جديد
+          </button>
+        </div>
       </header>
 
       {/* Filters */}
@@ -269,6 +549,12 @@ const ClientsList: React.FC = () => {
               <option value="all">كل الخدمات المطلوبة</option>
               {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
+            {isHighRole && (
+               <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterSalesAgent} onChange={e => setFilterSalesAgent(e.target.value)}>
+               <option value="all">كل السيلز</option>
+               {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+             </select>
+            )}
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
@@ -329,10 +615,27 @@ const ClientsList: React.FC = () => {
               ) : filteredClients.map((client) => (
                 <tr key={client.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-all">
                   <td className="px-8 py-6">
-                    <p onClick={() => navigate(`/clients/${client.id}`)} className="font-black text-sm text-slate-900 dark:text-white cursor-pointer hover:text-primary-500">{client.name}</p>
-                    <p className="text-[9px] font-black text-slate-400 mt-1 flex items-center gap-1">
-                      <Clock size={10}/> {new Date(client.createdAt).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <div className="shrink-0 w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-primary-500">
+                        {client.source === ClientSource.WHATSAPP && <MessageCircle size={16}/>}
+                        {client.source === ClientSource.MESSENGER && <MessageSquare size={16}/>}
+                        {(client.source === ClientSource.FACEBOOK || client.source === ClientSource.TIKTOK) && <Globe size={16}/>}
+                        {client.source === ClientSource.OTHER && <Layers size={16}/>}
+                      </div>
+                      <div>
+                        <p onClick={() => navigate(`/clients/${client.id}`)} className="font-black text-sm text-slate-900 dark:text-white cursor-pointer hover:text-primary-500">{client.name}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-[9px] font-black text-slate-400 flex items-center gap-1">
+                            <Clock size={10}/> {new Date(client.createdAt).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                          {client.profileLink && (
+                            <a href={client.profileLink} target="_blank" className="text-blue-500 hover:underline flex items-center gap-0.5 text-[8px] font-black">
+                              <ExternalLink size={8}/> الرابط
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </td>
                   <td className="px-8 py-6">
                     <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${StatusLabels[client.status]?.color || ''}`}>
@@ -362,6 +665,9 @@ const ClientsList: React.FC = () => {
                             try {
                               await firestore.deleteDoc(firestore.doc(db, 'clients', client.id));
                               await logActivity(user!.uid, user!.name, `حذف العميل نهائياً: ${client.name}`, client.id, client.name);
+                              // Remove from local state and cache
+                              setClients(prev => prev.filter(c => c.id !== client.id));
+                              clientsCache.data = clientsCache.data.filter(c => c.id !== client.id);
                               alert("تم حذف العميل بنجاح");
                             } catch (error) {
                               console.error("Error deleting client:", error);
@@ -379,17 +685,44 @@ const ClientsList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        
+        {hasMore && (
+          <div className="p-8 flex justify-center bg-slate-50/50 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800">
+            <button 
+              onClick={() => fetchClients(true)} 
+              disabled={isLoadingMore}
+              className="bg-white dark:bg-slate-900 px-10 py-4 rounded-2xl font-black text-xs shadow-md hover:shadow-lg transition-all border border-slate-100 dark:border-slate-800 flex items-center gap-2"
+            >
+              {isLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد من العملاء'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Add Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-2xl p-10 my-4 sm:my-10 space-y-6 animate-fade-in shadow-2xl border border-slate-100 dark:border-slate-800">
+        <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-2xl p-6 sm:p-10 my-auto min-h-min space-y-6 animate-fade-in shadow-2xl border border-slate-100 dark:border-slate-800">
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-black flex items-center gap-3"><Plus className="text-primary-500" /> إضافة عميل جديد</h2>
               <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-900"><X size={24}/></button>
             </div>
             <form onSubmit={handleAddClient} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المنصة (Source)</label>
+                  <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.source} onChange={e => setNewClient({...newClient, source: e.target.value as ClientSource})}>
+                    {Object.entries(SourceLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
+                  </select>
+                </div>
+                {newClient.source !== ClientSource.WHATSAPP && (
+                  <div className="space-y-1.5 animate-fade-in">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رابط الحساب (Link)</label>
+                    <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" placeholder="https://facebook.com/..." value={newClient.profileLink} onChange={e => setNewClient({...newClient, profileLink: e.target.value})} />
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الاسم بالكامل</label>
@@ -457,10 +790,10 @@ const ClientsList: React.FC = () => {
                   </select>
                 </div>
                 <div className="flex-1 space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف (بدون كود الدولة)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف ({newClient.source === ClientSource.WHATSAPP ? 'إجباري' : 'اختياري'})</label>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400" dir="ltr">{newClient.countryCode}</span>
-                    <input required className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-right dark:text-white" dir="ltr" placeholder="01012345678" value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} />
+                    <input required={newClient.source === ClientSource.WHATSAPP} className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-right dark:text-white" dir="ltr" placeholder="01012345678" value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} />
                   </div>
                 </div>
               </div>
@@ -614,8 +947,8 @@ const ClientsList: React.FC = () => {
 
       {/* Transfer Modal */}
       {isTransferModalOpen && selectedClient && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 my-4 sm:my-20 space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
+        <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-lg p-6 sm:p-10 my-auto space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
             <h2 className="text-2xl font-black mb-4 flex items-center gap-2"><ArrowRightLeft className="text-amber-500"/> تحويل العميل</h2>
             <p className="text-sm font-bold text-slate-500">تحويل <span className="text-primary-500 font-black">{selectedClient.name}</span> لموظف آخر:</p>
             <div className="space-y-4">
@@ -627,6 +960,86 @@ const ClientsList: React.FC = () => {
               <button onClick={handleTransfer} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl">تأكيد التحويل</button>
               <button onClick={() => setIsTransferModalOpen(false)} className="w-full py-4 text-slate-400 font-bold uppercase text-[10px]">إلغاء</button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Bulk Transfer Modal */}
+      {isBulkTransferOpen && (
+        <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-lg p-6 sm:p-10 my-auto space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
+            <h2 className="text-2xl font-black mb-4 flex items-center gap-2"><Layers className="text-amber-500"/> تحويل جماعي للعملاء</h2>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تحويل من (الموظف الحالي)</label>
+                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={bulkTransferFrom} onChange={e => setBulkTransferFrom(e.target.value)}>
+                  <option value="">اختر الموظف...</option>
+                  {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+              
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تحويل إلى (الموظف الجديد)</label>
+                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={bulkTransferTo} onChange={e => setBulkTransferTo(e.target.value)}>
+                  <option value="">اختر الموظف...</option>
+                  {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+
+              <div className="p-4 bg-rose-50 dark:bg-rose-500/10 rounded-2xl border border-rose-100 dark:border-rose-500/20">
+                <p className="text-[10px] font-bold text-rose-600 text-center uppercase flex items-center justify-center gap-2">
+                  <AlertTriangle size={12}/> سيتم تحويل جميع عملاء هذا الموظف فوراً
+                </p>
+              </div>
+
+              <button 
+                onClick={handleBulkTransfer} 
+                className="w-full py-5 bg-amber-500 text-white rounded-3xl font-black shadow-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'جاري التحويل الجماعي...' : (
+                  <>
+                    <ArrowRightLeft size={20}/> تنفيذ التحويل الجماعي
+                  </>
+                )}
+              </button>
+              <button onClick={() => setIsBulkTransferOpen(false)} className="w-full py-4 text-slate-400 font-bold uppercase text-[10px]">إلغاء</button>
+            </div>
+
+            {recentBulkTransfers.length > 0 && (
+              <div className="pt-6 border-t border-slate-100 dark:border-slate-800 space-y-4">
+                <h3 className="text-sm font-black uppercase text-slate-400 flex items-center gap-2">
+                  <History size={14}/> آخر التحويلات الجماعية
+                </h3>
+                <div className="space-y-3">
+                  {recentBulkTransfers.map(bt => (
+                    <div key={bt.id} className={`p-4 rounded-2xl border ${bt.isUndone ? 'bg-slate-50 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800 opacity-60' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 shadow-sm'}`}>
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="text-[10px] font-black text-slate-400">
+                          {new Date(bt.timestamp).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                        {bt.isUndone ? (
+                          <span className="text-[9px] font-black text-slate-400 uppercase">تم التراجع</span>
+                        ) : (
+                          <button 
+                            onClick={() => handleUndoBulkTransfer(bt)}
+                            disabled={isUndoing}
+                            className="text-[9px] font-black text-rose-500 hover:text-rose-600 uppercase flex items-center gap-1"
+                          >
+                            <History size={10}/> تراجع الآن
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300">
+                        <span className="text-primary-500">{bt.fromAgentName}</span>
+                        <ArrowRightLeft size={10} className="text-slate-300"/>
+                        <span className="text-amber-500">{bt.toAgentName}</span>
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 mt-1">تم تحويل {bt.clientCount} عملاء</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -139,5 +139,10 @@ service cloud.firestore {
       allow read: if isTeamLeader() || resource.data.oldAgentId == request.auth.uid || resource.data.newAgentId == request.auth.uid;
       allow create: if isTeamLeader();
     }
+
+    match /bulk_transfers/{id} {
+      allow read: if isTeamLeader();
+      allow create, update: if isTeamLeader();
+    }
   }
 }

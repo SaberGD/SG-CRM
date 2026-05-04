@@ -30,6 +30,16 @@ export enum LaptopStatus {
   WITHOUT = 'without'
 }
 
+export enum ClientSource {
+  WHATSAPP = 'whatsapp',
+  MESSENGER = 'messenger',
+  FACEBOOK = 'facebook',
+  INSTAGRAM = 'instagram',
+  TIKTOK = 'tiktok',
+  GOOGLE = 'google',
+  OTHER = 'other'
+}
+
 export enum AttendanceMode {
   ONLINE = 'online',
   OFFLINE = 'offline'
@@ -47,6 +57,16 @@ export const CommMethodLabels: Record<CommMethod, { ar: string }> = {
   [CommMethod.WHATSAPP]: { ar: 'واتساب' },
   [CommMethod.MEETING]: { ar: 'مقابلة في المقر' },
   [CommMethod.OTHER]: { ar: 'أخرى' }
+};
+
+export const SourceLabels: Record<ClientSource, { ar: string }> = {
+  [ClientSource.WHATSAPP]: { ar: 'واتساب' },
+  [ClientSource.MESSENGER]: { ar: 'ماسينجر' },
+  [ClientSource.FACEBOOK]: { ar: 'فيسبوك' },
+  [ClientSource.INSTAGRAM]: { ar: 'انستجرام' },
+  [ClientSource.TIKTOK]: { ar: 'تيك توك' },
+  [ClientSource.GOOGLE]: { ar: 'جوجل' },
+  [ClientSource.OTHER]: { ar: 'أخرى' }
 };
 
 export interface Service {
@@ -113,6 +133,9 @@ export interface Client {
   remainingAmount?: number;
   bookingDate?: number;
   isBookedOnCreation?: boolean;
+  source?: ClientSource;
+  profileLink?: string;
+  transferHistory?: ClientTransfer[];
 }
 
 export interface FollowUp {
@@ -223,6 +246,20 @@ export interface DefaultTarget {
   bookings: number;
   followUps: number;
   income: number;
+}
+
+export interface BulkTransfer {
+  id: string;
+  fromAgentId: string;
+  fromAgentName: string;
+  toAgentId: string;
+  toAgentName: string;
+  clientCount: number;
+  clientIds: string[];
+  timestamp: number;
+  performedById: string;
+  performedByName: string;
+  isUndone?: boolean;
 }
 
 export interface ActivityLog {

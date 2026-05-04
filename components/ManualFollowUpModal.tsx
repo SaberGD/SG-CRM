@@ -140,8 +140,8 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
   };
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-start justify-center bg-slate-950/60 backdrop-blur-md p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-2xl my-4 sm:my-10 shadow-2xl border border-slate-100 dark:border-slate-800 animate-fade-in overflow-hidden">
+    <div className="fixed inset-0 z-[150] flex items-start sm:items-center justify-center bg-slate-950/60 backdrop-blur-md p-4 overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-2xl my-auto shadow-2xl border border-slate-100 dark:border-slate-800 animate-fade-in overflow-hidden">
         <div className="p-8 border-b border-slate-50 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-primary-500 text-white rounded-2xl shadow-lg shadow-primary-500/20">

@@ -6,12 +6,14 @@ import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { 
   Client, FollowUp, ClientStatus, CommMethod, StatusLabels, CommMethodLabels,
-  UserRole, ActivityLog, Gender, LaptopStatus, AttendanceMode, Service, Label 
+  UserRole, ActivityLog, Gender, LaptopStatus, AttendanceMode, Service, Label,
+  ClientSource, SourceLabels
 } from '../types';
 import { 
   Play, Square, Clock, Calendar, History, PhoneIncoming, Clock4, 
   MessageSquare, Edit2, X, Save, User, CalendarPlus, 
-  Download, FileText, UserCheck, Settings, Timer, LayoutList, History as HistoryIcon
+  Download, FileText, UserCheck, Settings, Timer, LayoutList, History as HistoryIcon,
+  MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers
 } from 'lucide-react';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
 
@@ -64,9 +66,10 @@ const ClientDetails: React.FC = () => {
 
   // Edit Client
   const [editClientData, setEditClientData] = useState({ 
-    name: '', phone: '', serviceName: '', status: ClientStatus.INTERESTED,
+    name: '', phone: '', serviceName: '', serviceId: '', customServiceName: '', status: ClientStatus.INTERESTED,
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
-    labels: [] as string[]
+    labels: [] as string[],
+    source: ClientSource.WHATSAPP, profileLink: ''
   });
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
@@ -82,11 +85,15 @@ const ClientDetails: React.FC = () => {
           name: data.name, 
           phone: data.phone, 
           serviceName: data.serviceName,
+          serviceId: data.serviceId || '',
+          customServiceName: data.serviceName, // simplified
           status: data.status,
           gender: data.gender || Gender.MALE,
           laptop: data.laptop || LaptopStatus.WITHOUT,
           mode: data.mode || AttendanceMode.OFFLINE,
-          labels: data.labels || []
+          labels: data.labels || [],
+          source: data.source || ClientSource.WHATSAPP,
+          profileLink: data.profileLink || ''
         });
         setStatus(data.status);
         setLabels(data.labels || []);
@@ -147,10 +154,11 @@ const ClientDetails: React.FC = () => {
   const unifiedTimeline = useMemo(() => {
     const items = [
       ...followUps.map(f => ({ ...f, type: 'followup' as const })),
-      ...activityLogs.map(l => ({ ...l, type: 'log' as const }))
+      ...activityLogs.map(l => ({ ...l, type: 'log' as const })),
+      ...(client?.transferHistory || []).map(t => ({ ...t, type: 'transfer' as const, timestamp: t.timestamp }))
     ];
     return items.sort((a, b) => b.timestamp - a.timestamp);
-  }, [followUps, activityLogs]);
+  }, [followUps, activityLogs, client?.transferHistory]);
 
   const handleStartCall = async (appointmentId?: string) => {
     if (!user || !client) return;
@@ -280,6 +288,17 @@ const ClientDetails: React.FC = () => {
             </div>
             <p className="text-primary-500 font-bold flex items-center gap-2 mt-1"><PhoneIncoming size={14}/> {client.phone}</p>
             <div className="flex flex-wrap gap-2 mt-3">
+              <span className="bg-primary-100 dark:bg-primary-500/10 text-primary-500 px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1">
+                {client.source === ClientSource.WHATSAPP && <MessageCircle size={10}/>}
+                {client.source === ClientSource.MESSENGER && <MessageSquare size={10}/>}
+                {(client.source === ClientSource.FACEBOOK || client.source === ClientSource.TIKTOK) && <Globe size={10}/>}
+                {SourceLabels[client.source || ClientSource.OTHER].ar}
+              </span>
+              {client.profileLink && (
+                <a href={client.profileLink} target="_blank" className="bg-blue-100 dark:bg-blue-500/10 text-blue-500 px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1 hover:underline">
+                  <ExternalLink size={10}/> رابط الحساب
+                </a>
+              )}
               <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.gender === Gender.MALE ? 'ذكر' : 'أنثى'}</span>
               <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : 'بدون لابتوب'}</span>
               <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : 'أوفلاين'}</span>
@@ -373,10 +392,33 @@ const ClientDetails: React.FC = () => {
                        <p className="text-xs text-slate-500 dark:text-slate-400 font-bold leading-relaxed">النتيجة: {item.result}</p>
                        <p className="text-[11px] text-slate-400 italic">ملاحظات: {item.note}</p>
                     </div>
+                  ) : item.type === 'transfer' ? (
+                    <div className="space-y-2 p-4 bg-amber-50 dark:bg-amber-500/5 rounded-2xl border border-amber-100 dark:border-amber-500/10">
+                      <p className="text-xs font-black text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                        <ArrowRightLeft size={14}/> إعادة تعيين المسؤول عن العميل
+                      </p>
+                      <div className="flex items-center gap-4 text-xs font-bold text-slate-600 dark:text-slate-300">
+                        <div className="text-center">
+                          <p className="text-[9px] text-slate-400 uppercase">من</p>
+                          <p className="px-3 py-1 bg-white dark:bg-slate-800 rounded-lg">{item.oldAgentName}</p>
+                        </div>
+                        <ArrowRightLeft size={12} className="text-slate-300"/>
+                        <div className="text-center">
+                          <p className="text-[9px] text-slate-400 uppercase">إلى</p>
+                          <p className="px-3 py-1 bg-primary-500 text-white rounded-lg">{item.newAgentName}</p>
+                        </div>
+                      </div>
+                      {item.reason && <p className="text-[10px] text-slate-500 mt-2 italic font-bold">السبب: {item.reason}</p>}
+                      <p className="text-[9px] text-slate-400 mt-2 font-black border-t border-amber-100 dark:border-amber-500/10 pt-2 flex items-center gap-2">
+                         بواسطة: {item.performedByName} <span className="bg-amber-100 dark:bg-amber-500/20 px-2 py-0.5 rounded text-[8px] uppercase">إجراء إداري</span>
+                      </p>
+                    </div>
                   ) : (
                     <p className="text-xs font-bold text-slate-600 dark:text-slate-300">{item.action}</p>
                   )}
-                  <div className="mt-4 pt-3 border-t border-slate-50 dark:border-slate-800 text-[9px] font-black text-slate-400">بواسطة: {item.type === 'followup' ? item.agentName : item.userName}</div>
+                  <div className="mt-4 pt-3 border-t border-slate-50 dark:border-slate-800 text-[9px] font-black text-slate-400">
+                    بواسطة: {item.type === 'followup' ? item.agentName : item.type === 'log' ? item.userName : item.performedByName}
+                  </div>
                 </div>
               </div>
             ))}
@@ -544,8 +586,8 @@ const ClientDetails: React.FC = () => {
 
       {/* Schedule Modal */}
       {isScheduleModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 my-4 sm:my-20 space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
+        <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-lg p-6 sm:p-10 my-auto space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
              <div className="flex justify-between items-center">
                <h2 className="text-2xl font-black flex items-center gap-3"><CalendarPlus className="text-amber-500"/> جدولة موعد</h2>
                <button onClick={() => setIsScheduleModalOpen(false)} className="text-slate-400"><X size={24}/></button>
@@ -575,14 +617,33 @@ const ClientDetails: React.FC = () => {
 
       {/* Edit Client Modal */}
       {isEditModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 my-4 sm:my-20 space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
+        <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-lg p-6 sm:p-10 my-auto space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
              <div className="flex justify-between items-center">
                <h2 className="text-2xl font-black">تعديل الملف</h2>
                <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400"><X size={24}/></button>
              </div>
              <div className="space-y-4">
-               <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white" value={editClientData.name} onChange={e => setEditClientData({...editClientData, name: e.target.value})} placeholder="الاسم" />
+               <div className="space-y-1.5 text-right">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المنصة (Source)</label>
+                  <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={editClientData.source} onChange={e => setEditClientData({...editClientData, source: e.target.value as ClientSource})}>
+                    {Object.entries(SourceLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
+                  </select>
+               </div>
+               
+               {editClientData.source !== ClientSource.WHATSAPP && (
+                 <div className="space-y-1.5 animate-fade-in text-right">
+                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رابط الحساب (Link)</label>
+                   <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" placeholder="https://facebook.com/..." value={editClientData.profileLink} onChange={e => setEditClientData({...editClientData, profileLink: e.target.value})} />
+                 </div>
+               )}
+
+               <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white text-right" value={editClientData.name} onChange={e => setEditClientData({...editClientData, name: e.target.value})} placeholder="الاسم" />
+               
+               <div className="space-y-1.5 text-right">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف</label>
+                  <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white text-right" dir="ltr" value={editClientData.phone} onChange={e => setEditClientData({...editClientData, phone: e.target.value})} />
+               </div>
                
                <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الخدمة المطلوبة</label>

@@ -126,13 +126,17 @@ const App: React.FC = () => {
                 console.log("User document created from invitation.");
               } else {
                 console.warn("No invitation found for:", firebaseUser.email);
-                setUser({ uid: firebaseUser.uid, email: firebaseUser.email || '', name: 'مستخدم غير مسجل', role: UserRole.SALES_AGENT });
+                const unregisteredUser = { uid: firebaseUser.uid, email: firebaseUser.email || '', name: 'مستخدم غير مسجل', role: UserRole.SALES_AGENT };
+                setUser(unregisteredUser);
+                setEffectiveRoleState(UserRole.SALES_AGENT);
               }
             }
           }
         } catch (error) {
           handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
-          setUser({ uid: firebaseUser.uid, email: firebaseUser.email || '', name: 'مستخدم (محدود)', role: UserRole.SALES_AGENT });
+          const fallbackUser = { uid: firebaseUser.uid, email: firebaseUser.email || '', name: 'مستخدم (محدود)', role: UserRole.SALES_AGENT };
+          setUser(fallbackUser);
+          setEffectiveRoleState(UserRole.SALES_AGENT);
         }
       } else { 
         setUser(null); 

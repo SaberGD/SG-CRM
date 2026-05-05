@@ -5,6 +5,7 @@ import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { Label } from '../types';
 import { Plus, Trash2, Tag, X, AlertTriangle, ShieldAlert } from 'lucide-react';
+import FloatingPanel from '../components/FloatingPanel';
 
 const COLORS = [
   'bg-blue-500', 'bg-emerald-500', 'bg-rose-500', 'bg-amber-500', 
@@ -59,7 +60,7 @@ const LabelsManager: React.FC = () => {
   };
 
   return (
-    <div className="space-y-10 animate-fade-in pb-20">
+    <div className="space-y-10 animate-fade-in pb-20 text-right">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
           <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">إدارة <span className="text-primary-500">التصنيفات</span></h1>
@@ -92,83 +93,80 @@ const LabelsManager: React.FC = () => {
         )}
       </div>
 
-      {/* Add Label Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-sm p-10 my-4 sm:my-20 space-y-8 animate-fade-in shadow-2xl border border-slate-100 dark:border-slate-800">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-black flex items-center gap-3">
-                <Plus className="text-primary-500" /> تصنيف جديد
-              </h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-900 transition-colors"><X size={28}/></button>
-            </div>
-            <form onSubmit={handleSubmit} className="space-y-8">
+      <FloatingPanel 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        title="تصنيف جديد"
+        icon={<Plus className="text-primary-500" />}
+      >
+            <form onSubmit={handleSubmit} className="space-y-8 pt-2">
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase text-slate-400 mr-2">نص التصنيف</label>
-                <input required placeholder="مثال: عميل VIP..." className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold border-2 border-transparent focus:border-primary-500/50" value={formData.text} onChange={e => setFormData({...formData, text: e.target.value})} />
+                <label className="text-[10px] font-black uppercase text-slate-400 mr-2 block">نص التصنيف</label>
+                <input required placeholder="مثال: عميل VIP..." className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-slate-900 dark:text-white border border-transparent focus:border-primary-500" value={formData.text} onChange={e => setFormData({...formData, text: e.target.value})} />
               </div>
               <div className="space-y-4">
-                <label className="text-[10px] font-black uppercase text-slate-400 mr-2">اختر لون التصنيف:</label>
+                <label className="text-[10px] font-black uppercase text-slate-400 mr-2 block">اختر لون التصنيف:</label>
                 <div className="grid grid-cols-4 gap-3">
                   {COLORS.map(c => (
                     <button key={c} type="button" onClick={() => setFormData({...formData, color: c})} className={`w-12 h-12 rounded-xl transition-all ${c} ${formData.color === c ? 'scale-110 ring-4 ring-primary-500/20 shadow-lg' : 'opacity-40 hover:opacity-100'}`}></button>
                   ))}
                 </div>
               </div>
-              <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all uppercase tracking-widest text-xs">
+              <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all uppercase tracking-widest text-xs active:scale-[0.98]">
                 إضافة التصنيف الآن
               </button>
             </form>
-          </div>
-        </div>
-      )}
+      </FloatingPanel>
 
-      {/* Delete Confirmation Modal */}
-      {labelToDelete && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 backdrop-blur-md p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-md p-10 space-y-8 animate-fade-in shadow-2xl border border-rose-500/20">
-            <div className="flex flex-col items-center text-center space-y-4">
-              <div className="w-20 h-20 bg-rose-50 dark:bg-rose-500/10 text-rose-500 rounded-3xl flex items-center justify-center shadow-inner">
-                <ShieldAlert size={40} className="animate-pulse" />
-              </div>
-              <h2 className="text-2xl font-black text-slate-900 dark:text-white">تأكيد الحذف النهائي</h2>
-              <p className="text-sm font-bold text-slate-500 leading-relaxed px-4">
-                أنت على وشك حذف التصنيف <span className="text-rose-500 font-black">[{labelToDelete.text}]</span>. سيتم إزالته من كافة العملاء المرتبطين به.
-              </p>
-            </div>
+      <FloatingPanel 
+        isOpen={!!labelToDelete} 
+        onClose={() => { setLabelToDelete(null); setDeleteConfirmText(''); }} 
+        title="تأكيد الحذف"
+        icon={<ShieldAlert className="text-rose-500" />}
+      >
+            {labelToDelete && (
+              <div className="space-y-8 pt-2">
+                <div className="flex flex-col items-center text-center space-y-4">
+                  <div className="w-20 h-20 bg-rose-50 dark:bg-rose-500/10 text-rose-500 rounded-3xl flex items-center justify-center shadow-inner">
+                    <Trash2 size={40} className="animate-pulse" />
+                  </div>
+                  <p className="text-sm font-bold text-slate-500 leading-relaxed px-4">
+                    أنت على وشك حذف التصنيف <span className="text-rose-500 font-black">[{labelToDelete.text}]</span>. سيتم إزالته من كافة العملاء المرتبطين به.
+                  </p>
+                </div>
 
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-rose-500 text-center block">اكتب كلمة <span className="underline">delete</span> للتأكيد</label>
-                <input 
-                  type="text" 
-                  autoFocus
-                  className="w-full p-5 bg-rose-50/50 dark:bg-rose-500/5 rounded-2xl outline-none font-black text-center border-2 border-rose-100 dark:border-rose-500/20 focus:border-rose-500 text-rose-600"
-                  placeholder="delete"
-                  value={deleteConfirmText}
-                  onChange={e => setDeleteConfirmText(e.target.value.toLowerCase())}
-                />
-              </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-rose-500 text-center block">اكتب كلمة <span className="underline font-black">delete</span> للتأكيد</label>
+                    <input 
+                      type="text" 
+                      autoFocus
+                      className="w-full p-5 bg-rose-50/50 dark:bg-rose-500/5 rounded-2xl outline-none font-black text-center border-2 border-rose-100 dark:border-rose-500/20 focus:border-rose-500 text-rose-600"
+                      placeholder="delete"
+                      value={deleteConfirmText}
+                      onChange={e => setDeleteConfirmText(e.target.value.toLowerCase())}
+                    />
+                  </div>
 
-              <div className="flex gap-4">
-                <button 
-                  onClick={confirmDelete}
-                  disabled={deleteConfirmText !== 'delete' || isDeleting}
-                  className="flex-1 py-5 bg-rose-500 text-white rounded-3xl font-black shadow-xl shadow-rose-500/20 hover:bg-rose-600 transition-all disabled:opacity-50 disabled:grayscale uppercase text-xs tracking-widest"
-                >
-                  {isDeleting ? 'جاري الحذف...' : 'حذف الآن'}
-                </button>
-                <button 
-                  onClick={() => { setLabelToDelete(null); setDeleteConfirmText(''); }} 
-                  className="px-8 py-5 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-3xl font-black text-xs uppercase"
-                >
-                  إلغاء
-                </button>
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={confirmDelete}
+                      disabled={deleteConfirmText !== 'delete' || isDeleting}
+                      className="flex-1 py-5 bg-rose-500 text-white rounded-3xl font-black shadow-xl shadow-rose-500/20 hover:bg-rose-600 transition-all disabled:opacity-50 disabled:grayscale uppercase text-[10px] tracking-widest active:scale-[0.98]"
+                    >
+                      {isDeleting ? 'جاري الحذف...' : 'حذف الآن'}
+                    </button>
+                    <button 
+                      onClick={() => { setLabelToDelete(null); setDeleteConfirmText(''); }} 
+                      className="px-8 py-5 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-3xl font-black text-[10px] uppercase hover:bg-slate-200 transition-all"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
+            )}
+      </FloatingPanel>
     </div>
   );
 };

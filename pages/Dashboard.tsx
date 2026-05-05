@@ -30,7 +30,7 @@ const Dashboard: React.FC = () => {
   }, [effectiveRole]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !effectiveRole) return;
     setLoading(true);
     setError(null);
     

@@ -15,6 +15,7 @@ import {
   Download, FileText, UserCheck, Settings, Timer, LayoutList, History as HistoryIcon,
   MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers
 } from 'lucide-react';
+import FloatingPanel from '../components/FloatingPanel';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
 
 const ClientDetails: React.FC = () => {
@@ -113,14 +114,14 @@ const ClientDetails: React.FC = () => {
       }
     );
 
-    const unsubLogs = firestore.onSnapshot(
+    const unsubLogs = isHighRole ? firestore.onSnapshot(
       firestore.query(firestore.collection(db, 'logs'), firestore.where('targetId', '==', id), firestore.orderBy('timestamp', 'desc')),
       (snap) => {
         setActivityLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as ActivityLog)));
       }, (err) => {
         console.error("ClientDetails Logs Snapshot Error:", err);
       }
-    );
+    ) : () => {};
 
     const unsubServices = firestore.onSnapshot(firestore.collection(db, 'services'), (snap) => {
       setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
@@ -284,7 +285,7 @@ const ClientDetails: React.FC = () => {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-black text-slate-900 dark:text-white">{client.name}</h1>
-              <button onClick={() => setIsEditModalOpen(true)} className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 hover:text-primary-500"><Edit2 size={16}/></button>
+              <button onClick={() => setIsEditModalOpen(true)} className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 hover:text-primary-500 transition-colors"><Edit2 size={16}/></button>
             </div>
             <p className="text-primary-500 font-bold flex items-center gap-2 mt-1"><PhoneIncoming size={14}/> {client.phone}</p>
             <div className="flex flex-wrap gap-2 mt-3">
@@ -343,7 +344,7 @@ const ClientDetails: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-5">
            <div className="w-14 h-14 bg-blue-50 dark:bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center"><Clock size={28}/></div>
-           <div><p className="text-[10px] font-black text-slate-400 uppercase">وقت التسجيل في النظام</p><p className="text-xs font-black">{new Date(client.createdAt).toLocaleString('ar-EG')}</p></div>
+           <div><p className="text-[10px] font-black text-slate-400 uppercase">وقت التسجيل في النظام</p><p className="text-xs font-black text-slate-900 dark:text-white">{new Date(client.createdAt).toLocaleString('ar-EG')}</p></div>
         </div>
         <div className={`p-8 rounded-[2.5rem] shadow-xl text-center flex flex-col items-center justify-center relative overflow-hidden ${client.nextFollowUpDate && client.nextFollowUpDate < Date.now() ? 'bg-rose-500 text-white' : 'bg-primary-500 text-white'}`}>
            <p className="text-[10px] font-black uppercase opacity-80 mb-2">الموعد المجدول القادم</p>
@@ -362,7 +363,7 @@ const ClientDetails: React.FC = () => {
         </div>
         <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-5">
            <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 rounded-2xl flex items-center justify-center"><UserCheck size={28}/></div>
-           <div><p className="text-[10px] font-black text-slate-400 uppercase">الحالة الحالية</p><p className="text-xs font-black">{StatusLabels[client.status].ar}</p></div>
+           <div><p className="text-[10px] font-black text-slate-400 uppercase">الحالة الحالية</p><p className="text-xs font-black text-slate-900 dark:text-white">{StatusLabels[client.status].ar}</p></div>
         </div>
       </div>
 
@@ -432,43 +433,43 @@ const ClientDetails: React.FC = () => {
               <form onSubmit={submitFollowUp} className="space-y-5">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل الحالي</label>
-                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white" value={method} onChange={e => setMethod(e.target.value as CommMethod)}>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm text-slate-900 dark:text-white" value={method} onChange={e => setMethod(e.target.value as CommMethod)}>
                     {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">موجز السيلز (خلاصة سريعة لما تم الوصول إليه)</label>
-                  <input required placeholder="مثال: مهتم بالعرض ويريد تفاصيل الحجز" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none border border-transparent focus:border-primary-500" value={salesBrief} onChange={e => setSalesBrief(e.target.value)} />
+                  <input required placeholder="مثال: مهتم بالعرض ويريد تفاصيل الحجز" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm text-slate-900 dark:text-white outline-none border border-transparent focus:border-primary-500" value={salesBrief} onChange={e => setSalesBrief(e.target.value)} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">النتيجة التفصيلية</label>
-                  <input required placeholder="سجل الرد النهائي للعميل..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none" value={result} onChange={e => setResult(e.target.value)} />
+                  <input required placeholder="سجل الرد النهائي للعميل..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm text-slate-900 dark:text-white outline-none focus:border-primary-500 border border-transparent" value={result} onChange={e => setResult(e.target.value)} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">ملاحظات داخلية</label>
-                  <textarea placeholder="أي ملاحظات فنية إضافية..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white outline-none h-24" value={note} onChange={e => setNote(e.target.value)} />
+                  <textarea placeholder="أي ملاحظات فنية إضافية..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm text-slate-900 dark:text-white outline-none h-24 focus:border-primary-500 border border-transparent" value={note} onChange={e => setNote(e.target.value)} />
                 </div>
                 
                 <div className="p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl space-y-3">
                    <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-black">تحديد موعد تواصل جديد؟</label>
+                      <label className="text-[11px] font-black text-slate-700 dark:text-slate-300">تحديد موعد تواصل جديد؟</label>
                       <input type="checkbox" checked={scheduleNext} onChange={e => setScheduleNext(e.target.checked)} className="w-5 h-5 accent-primary-500" />
                    </div>
                    {scheduleNext && (
                       <div className="space-y-3 animate-fade-in pt-2">
                         <div className="space-y-1">
                           <label className="text-[9px] font-black text-slate-400 uppercase">تاريخ المتابعة</label>
-                          <input type="date" className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextDate} onChange={e => setNextDate(e.target.value)} />
+                          <input type="date" className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" value={nextDate} onChange={e => setNextDate(e.target.value)} />
                         </div>
                         <div className="space-y-1">
                           <label className="text-[9px] font-black text-slate-400 uppercase">نوع التواصل القادم</label>
-                          <select className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextFollowUpMethod} onChange={e => setNextFollowUpMethod(e.target.value as CommMethod)}>
+                          <select className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" value={nextFollowUpMethod} onChange={e => setNextFollowUpMethod(e.target.value as CommMethod)}>
                             {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
                           </select>
                         </div>
                         <div className="flex gap-2">
-                          <input type="time" className="flex-1 p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextTime} onChange={e => setNextTime(e.target.value)} />
-                          <select className="p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextPeriod} onChange={e => setNextPeriod(e.target.value as any)}>
+                          <input type="time" className="flex-1 p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" value={nextTime} onChange={e => setNextTime(e.target.value)} />
+                          <select className="p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" value={nextPeriod} onChange={e => setNextPeriod(e.target.value as any)}>
                             <option value="AM">AM</option><option value="PM">PM</option>
                           </select>
                         </div>
@@ -478,7 +479,7 @@ const ClientDetails: React.FC = () => {
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تحديث حالة العميل</label>
-                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm dark:text-white" value={status} onChange={e => setStatus(e.target.value as ClientStatus)}>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm text-slate-900 dark:text-white" value={status} onChange={e => setStatus(e.target.value as ClientStatus)}>
                     {Object.entries(StatusLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
                   </select>
                 </div>
@@ -523,7 +524,7 @@ const ClientDetails: React.FC = () => {
                         <label className="text-[9px] font-black text-slate-400 uppercase">الكورس المحجوز</label>
                         <select 
                           required 
-                          className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                          className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
                           value={bookedCourseId} 
                           onChange={e => {
                             const s = services.find(srv => srv.id === e.target.value);
@@ -541,7 +542,7 @@ const ClientDetails: React.FC = () => {
                           <input 
                             type="number" 
                             required 
-                            className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                            className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
                             value={totalPrice} 
                             onChange={e => {
                               const val = parseFloat(e.target.value) || 0;
@@ -555,7 +556,7 @@ const ClientDetails: React.FC = () => {
                           <input 
                             type="number" 
                             required 
-                            className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                            className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
                             value={paidAmount} 
                             onChange={e => {
                               const val = parseFloat(e.target.value) || 0;
@@ -573,7 +574,7 @@ const ClientDetails: React.FC = () => {
                   )}
                 </div>
 
-                <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all">حفظ وإتمام المتابعة</button>
+                <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all active:scale-[0.98]">حفظ وإتمام المتابعة</button>
               </form>
             </div>
           ) : (
@@ -584,49 +585,43 @@ const ClientDetails: React.FC = () => {
         </aside>
       </div>
 
-      {/* Schedule Modal */}
-      {isScheduleModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-lg p-6 sm:p-10 my-auto space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
-             <div className="flex justify-between items-center">
-               <h2 className="text-2xl font-black flex items-center gap-3"><CalendarPlus className="text-amber-500"/> جدولة موعد</h2>
-               <button onClick={() => setIsScheduleModalOpen(false)} className="text-slate-400"><X size={24}/></button>
-             </div>
+      <FloatingPanel 
+        isOpen={isScheduleModalOpen} 
+        onClose={() => setIsScheduleModalOpen(false)} 
+        title="جدولة موعد"
+        icon={<CalendarPlus className="text-amber-500"/>}
+      >
              <div className="space-y-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تاريخ المتابعة</label>
-                  <input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white" value={nextDate} onChange={e => setNextDate(e.target.value)} />
+                  <input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white border border-transparent focus:border-primary-500 outline-none" value={nextDate} onChange={e => setNextDate(e.target.value)} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <input type="time" className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white" value={nextTime} onChange={e => setNextTime(e.target.value)} />
-                  <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white" value={nextPeriod} onChange={e => setNextPeriod(e.target.value as any)}>
+                  <input type="time" className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white border border-transparent focus:border-primary-500 outline-none" value={nextTime} onChange={e => setNextTime(e.target.value)} />
+                  <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white border border-transparent focus:border-primary-500 outline-none" value={nextPeriod} onChange={e => setNextPeriod(e.target.value as any)}>
                     <option value="AM">AM</option><option value="PM">PM</option>
                   </select>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل</label>
-                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white" value={nextFollowUpMethod} onChange={e => setNextFollowUpMethod(e.target.value as CommMethod)}>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white border border-transparent focus:border-primary-500 outline-none" value={nextFollowUpMethod} onChange={e => setNextFollowUpMethod(e.target.value as CommMethod)}>
                     {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
                   </select>
                 </div>
-                <button onClick={handleScheduleFollowUp} className="w-full py-5 bg-amber-500 text-white rounded-3xl font-black shadow-xl">تأكيد الجدولة</button>
+                <button onClick={handleScheduleFollowUp} className="w-full py-5 bg-amber-500 text-white rounded-3xl font-black shadow-xl hover:bg-amber-600 transition-all active:scale-[0.98]">تأكيد الجدولة</button>
              </div>
-          </div>
-        </div>
-      )}
+      </FloatingPanel>
 
-      {/* Edit Client Modal */}
-      {isEditModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-lg p-6 sm:p-10 my-auto space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
-             <div className="flex justify-between items-center">
-               <h2 className="text-2xl font-black">تعديل الملف</h2>
-               <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400"><X size={24}/></button>
-             </div>
-             <div className="space-y-4">
+      <FloatingPanel 
+        isOpen={isEditModalOpen} 
+        onClose={() => setIsEditModalOpen(false)} 
+        title="تعديل الملف"
+        icon={<Edit2 size={24} />}
+      >
+             <div className="space-y-4 px-1">
                <div className="space-y-1.5 text-right">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المنصة (Source)</label>
-                  <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={editClientData.source} onChange={e => setEditClientData({...editClientData, source: e.target.value as ClientSource})}>
+                  <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white" value={editClientData.source} onChange={e => setEditClientData({...editClientData, source: e.target.value as ClientSource})}>
                     {Object.entries(SourceLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
                   </select>
                </div>
@@ -634,20 +629,23 @@ const ClientDetails: React.FC = () => {
                {editClientData.source !== ClientSource.WHATSAPP && (
                  <div className="space-y-1.5 animate-fade-in text-right">
                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رابط الحساب (Link)</label>
-                   <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" placeholder="https://facebook.com/..." value={editClientData.profileLink} onChange={e => setEditClientData({...editClientData, profileLink: e.target.value})} />
+                   <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-slate-900 dark:text-white" placeholder="https://facebook.com/..." value={editClientData.profileLink} onChange={e => setEditClientData({...editClientData, profileLink: e.target.value})} />
                  </div>
                )}
 
-               <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white text-right" value={editClientData.name} onChange={e => setEditClientData({...editClientData, name: e.target.value})} placeholder="الاسم" />
+               <div className="space-y-1.5 text-right">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الاسم</label>
+                  <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-right" value={editClientData.name} onChange={e => setEditClientData({...editClientData, name: e.target.value})} placeholder="الاسم" />
+               </div>
                
                <div className="space-y-1.5 text-right">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف</label>
-                  <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white text-right" dir="ltr" value={editClientData.phone} onChange={e => setEditClientData({...editClientData, phone: e.target.value})} />
+                  <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white text-right" dir="ltr" value={editClientData.phone} onChange={e => setEditClientData({...editClientData, phone: e.target.value})} />
                </div>
                
                <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الخدمة المطلوبة</label>
-                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={editClientData.serviceId || ''} onChange={e => setEditClientData({...editClientData, serviceId: e.target.value})}>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white" value={editClientData.serviceId || ''} onChange={e => setEditClientData({...editClientData, serviceId: e.target.value})}>
                     <option value="">اختر الخدمة...</option>
                     {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     <option value="other">خدمة أخرى...</option>
@@ -656,19 +654,19 @@ const ClientDetails: React.FC = () => {
 
                {editClientData.serviceId === 'other' && (
                   <div className="space-y-1.5 animate-fade-in">
-                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">اسم الخدمة الأخرى</label>
-                    <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white border-2 border-primary-500/30" placeholder="أدخل اسم الخدمة..." value={editClientData.customServiceName || ''} onChange={e => setEditClientData({...editClientData, customServiceName: e.target.value})} />
+                     <label className="text-[10px] font-black text-slate-400 uppercase mr-2">اسم الخدمة الأخرى</label>
+                     <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-slate-900 dark:text-white border-2 border-primary-500/30" placeholder="أدخل اسم الخدمة..." value={editClientData.customServiceName || ''} onChange={e => setEditClientData({...editClientData, customServiceName: e.target.value})} />
                   </div>
                )}
 
                <div className="grid grid-cols-3 gap-3">
-                  <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white text-xs" value={editClientData.gender} onChange={e => setEditClientData({...editClientData, gender: e.target.value as Gender})}>
+                  <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-xs" value={editClientData.gender} onChange={e => setEditClientData({...editClientData, gender: e.target.value as Gender})}>
                     <option value={Gender.MALE}>ذكر</option><option value={Gender.FEMALE}>أنثى</option>
                   </select>
-                  <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white text-xs" value={editClientData.laptop} onChange={e => setEditClientData({...editClientData, laptop: e.target.value as LaptopStatus})}>
+                  <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-xs" value={editClientData.laptop} onChange={e => setEditClientData({...editClientData, laptop: e.target.value as LaptopStatus})}>
                     <option value={LaptopStatus.WITH}>لابتوب</option><option value={LaptopStatus.WITHOUT}>بدون</option>
                   </select>
-                  <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold dark:text-white text-xs" value={editClientData.mode} onChange={e => setEditClientData({...editClientData, mode: e.target.value as AttendanceMode})}>
+                  <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-xs" value={editClientData.mode} onChange={e => setEditClientData({...editClientData, mode: e.target.value as AttendanceMode})}>
                     <option value={AttendanceMode.OFFLINE}>أوفلاين</option><option value={AttendanceMode.ONLINE}>أونلاين</option>
                   </select>
                </div>
@@ -701,11 +699,9 @@ const ClientDetails: React.FC = () => {
                     })}
                   </div>
                 </div>
-               <button onClick={handleUpdateClient} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl">حفظ التغييرات</button>
+               <button onClick={handleUpdateClient} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all active:scale-[0.98]">حفظ التغييرات</button>
              </div>
-          </div>
-        </div>
-      )}
+      </FloatingPanel>
 
       {client && user && (
         <ManualFollowUpModal 

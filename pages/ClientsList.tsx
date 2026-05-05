@@ -9,6 +9,7 @@ import {
   ClientTransfer, BulkTransfer, CommMethod, CommMethodLabels, Gender, LaptopStatus, AttendanceMode,
   ClientSource, SourceLabels
 } from '../types';
+import FloatingPanel from '../components/FloatingPanel';
 import { 
   Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2, 
   Phone, Calendar, MessageSquare, User, Laptop, Globe, Clock, X,
@@ -111,7 +112,7 @@ const ClientsList: React.FC = () => {
   }, [searchTerm]);
 
   useEffect(() => {
-    if (authLoading || !user) return;
+    if (authLoading || !user || !effectiveRole) return;
     
     // Create a key for the current combination of filters
     const currentFiltersKey = JSON.stringify({
@@ -161,6 +162,8 @@ const ClientsList: React.FC = () => {
         ), 
         snap => {
           setRecentBulkTransfers(snap.docs.map(d => ({ id: d.id, ...d.data() } as BulkTransfer)));
+        }, (err) => {
+          console.error("ClientsList Bulk Transfers Snapshot Error:", err);
         }
       );
       return () => {
@@ -699,350 +702,360 @@ const ClientsList: React.FC = () => {
         )}
       </div>
 
-      {/* Add Modal */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-2xl p-6 sm:p-10 my-auto min-h-min space-y-6 animate-fade-in shadow-2xl border border-slate-100 dark:border-slate-800">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-black flex items-center gap-3"><Plus className="text-primary-500" /> إضافة عميل جديد</h2>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-900"><X size={24}/></button>
-            </div>
-            <form onSubmit={handleAddClient} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المنصة (Source)</label>
-                  <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.source} onChange={e => setNewClient({...newClient, source: e.target.value as ClientSource})}>
-                    {Object.entries(SourceLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
-                  </select>
-                </div>
-                {newClient.source !== ClientSource.WHATSAPP && (
-                  <div className="space-y-1.5 animate-fade-in">
-                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رابط الحساب (Link)</label>
-                    <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" placeholder="https://facebook.com/..." value={newClient.profileLink} onChange={e => setNewClient({...newClient, profileLink: e.target.value})} />
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الاسم بالكامل</label>
-                  <input required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" placeholder="أدخل الاسم..." value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">حالة العميل</label>
-                  <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.status} onChange={e => setNewClient({...newClient, status: e.target.value as ClientStatus})}>
-                    {(Object.entries(StatusLabels) as [ClientStatus, any][]).map(([k, v]) => (
-                      <option key={k} value={k}>{v.ar}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الخدمة المطلوبة</label>
-                   <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.serviceId} onChange={e => setNewClient({...newClient, serviceId: e.target.value})}>
-                    <option value="">اختر الخدمة...</option>
-                    {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    <option value="other">خدمة أخرى...</option>
-                  </select>
-                </div>
-                {newClient.serviceId === 'other' && (
-                  <div className="space-y-1.5 animate-fade-in">
-                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">اسم الخدمة الأخرى</label>
-                    <input required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white border-2 border-primary-500/30" placeholder="أدخل اسم الخدمة..." value={newClient.customServiceName} onChange={e => setNewClient({...newClient, customServiceName: e.target.value})} />
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الجنس</label>
-                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.gender} onChange={e => setNewClient({...newClient, gender: e.target.value as Gender})}>
-                    <option value={Gender.MALE}>ذكر</option>
-                    <option value={Gender.FEMALE}>أنثى</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">حالة اللابتوب</label>
-                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.laptop} onChange={e => setNewClient({...newClient, laptop: e.target.value as LaptopStatus})}>
-                    <option value={LaptopStatus.WITH}>مع لابتوب</option>
-                    <option value={LaptopStatus.WITHOUT}>بدون لابتوب</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نظام الحضور</label>
-                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.mode} onChange={e => setNewClient({...newClient, mode: e.target.value as AttendanceMode})}>
-                    <option value={AttendanceMode.OFFLINE}>أوفلاين (في المقر)</option>
-                    <option value={AttendanceMode.ONLINE}>أونلاين (عن بعد)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex gap-4">
-                <div className="w-1/3 space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الدولة</label>
-                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.country} onChange={e => {
-                    const country = ARAB_COUNTRIES.find(c => c.name === e.target.value);
-                    setNewClient({...newClient, country: e.target.value, countryCode: country?.code || ''});
-                  }}>
-                    {ARAB_COUNTRIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                  </select>
-                </div>
-                <div className="flex-1 space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف ({newClient.source === ClientSource.WHATSAPP ? 'إجباري' : 'اختياري'})</label>
-                  <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400" dir="ltr">{newClient.countryCode}</span>
-                    <input required={newClient.source === ClientSource.WHATSAPP} className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-right dark:text-white" dir="ltr" placeholder="01012345678" value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">التصنيفات (Labels) - اختياري</label>
-                <div className="flex flex-wrap gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl min-h-[60px]">
-                  {allLabels.map(label => {
-                    const isSelected = newClient.labels.includes(label.id);
-                    return (
-                      <button
-                        key={label.id}
-                        type="button"
-                        onClick={() => {
-                          const labels = isSelected
-                            ? newClient.labels.filter(id => id !== label.id)
-                            : [...newClient.labels, label.id];
-                          setNewClient({...newClient, labels});
-                        }}
-                        className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2`}
-                        style={{
-                          backgroundColor: isSelected ? label.color : 'transparent',
-                          borderColor: label.color,
-                          color: isSelected ? '#fff' : label.color,
-                        }}
-                      >
-                        {label.text}
-                        {isSelected && <X size={12} />}
-                      </button>
-                    );
-                  })}
-                  {allLabels.length === 0 && <p className="text-[10px] font-bold text-slate-400">لا توجد تصنيفات متاحة. يمكنك إضافتها من صفحة الإعدادات.</p>}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل المفضل</label>
-                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.preferredMethod} onChange={e => setNewClient({...newClient, preferredMethod: e.target.value as CommMethod})}>
-                    {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">ملاحظات إضافية</label>
-                  <textarea className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold h-14 dark:text-white" value={newClient.notes} onChange={e => setNewClient({...newClient, notes: e.target.value})} />
-                </div>
-              </div>
-
-              <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-[2rem] space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-black uppercase text-slate-400">جدولة أول متابعة</h3>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-400">تفعيل الجدولة</span>
-                    <input type="checkbox" checked={newClient.scheduleNext} onChange={e => setNewClient({...newClient, scheduleNext: e.target.checked})} className="w-5 h-5 accent-primary-500" />
-                  </div>
-                </div>
-                
-                {newClient.scheduleNext && (
-                  <div className="space-y-4 animate-fade-in">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تاريخ المتابعة</label>
-                        <input type="date" required className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextDate} onChange={e => setNewClient({...newClient, nextDate: e.target.value})} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل المجدول</label>
-                        <select className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextFollowUpMethod} onChange={e => setNewClient({...newClient, nextFollowUpMethod: e.target.value as CommMethod})}>
-                          {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    {newClient.nextDate && (
-                      <div className="flex gap-2 animate-fade-in">
-                        <input type="time" className="flex-1 p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextTime} onChange={e => setNewClient({...newClient, nextTime: e.target.value})} />
-                        <select className="p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextPeriod} onChange={e => setNewClient({...newClient, nextPeriod: e.target.value as any})}>
-                          <option value="AM">AM</option><option value="PM">PM</option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="p-6 bg-amber-50 dark:bg-amber-500/5 rounded-[2rem] border border-amber-200 dark:border-amber-500/20 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-black uppercase text-amber-600">تسجيل حجز فوري</h3>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-amber-600">العميل حجز بالفعل</span>
-                    <input type="checkbox" checked={newClient.isBooked} onChange={e => setNewClient({...newClient, isBooked: e.target.checked})} className="w-5 h-5 accent-amber-500" />
-                  </div>
-                </div>
-                
-                {newClient.isBooked && (
-                  <div className="space-y-4 animate-fade-in">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الكورس المحجوز</label>
-                      <select 
-                        required 
-                        className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
-                        value={newClient.bookedCourseId} 
-                        onChange={e => {
-                          const s = services.find(srv => srv.id === e.target.value);
-                          setNewClient({...newClient, bookedCourseId: e.target.value, bookedCourseName: s?.name || ''});
-                        }}
-                      >
-                        <option value="">اختر الكورس...</option>
-                        {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">السعر الإجمالي</label>
-                        <input 
-                          type="number" 
-                          required 
-                          className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
-                          value={newClient.totalPrice} 
-                          onChange={e => updateRemaining(parseFloat(e.target.value) || 0, newClient.paidAmount)} 
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المبلغ المدفوع</label>
-                        <input 
-                          type="number" 
-                          required 
-                          className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
-                          value={newClient.paidAmount} 
-                          onChange={e => updateRemaining(newClient.totalPrice, parseFloat(e.target.value) || 0)} 
-                        />
-                      </div>
-                    </div>
-                    <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-amber-100 dark:border-amber-500/10">
-                      <p className="text-[9px] font-black text-slate-400 uppercase">المبلغ المتبقي</p>
-                      <p className="text-sm font-black text-amber-600">{newClient.remainingAmount} ج.م</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <button 
-                type="submit" 
-                disabled={isSubmitting}
-                className={`w-full py-5 rounded-3xl font-black shadow-xl transition-all uppercase text-xs ${isSubmitting ? 'bg-slate-400 cursor-not-allowed' : 'bg-primary-500 hover:bg-primary-600 text-white'}`}
-              >
-                {isSubmitting ? 'جاري التسجيل...' : 'إضافة العميل وتوثيق وقت التسجيل'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Transfer Modal */}
-      {isTransferModalOpen && selectedClient && (
-        <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-lg p-6 sm:p-10 my-auto space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
-            <h2 className="text-2xl font-black mb-4 flex items-center gap-2"><ArrowRightLeft className="text-amber-500"/> تحويل العميل</h2>
-            <p className="text-sm font-bold text-slate-500">تحويل <span className="text-primary-500 font-black">{selectedClient.name}</span> لموظف آخر:</p>
-            <div className="space-y-4">
-              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={transferAgentId} onChange={e => setTransferAgentId(e.target.value)}>
-                <option value="">اختر الموظف...</option>
-                {salesAgents.filter(a => a.id !== selectedClient.salesAgentId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+      {/* Add Client Panel */}
+      <FloatingPanel 
+        isOpen={isAddModalOpen} 
+        onClose={() => setIsAddModalOpen(false)} 
+        title="إضافة عميل جديد"
+        icon={<Plus size={24} />}
+      >
+        <form onSubmit={handleAddClient} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المنصة (Source)</label>
+              <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.source} onChange={e => setNewClient({...newClient, source: e.target.value as ClientSource})}>
+                {Object.entries(SourceLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
               </select>
-              <textarea placeholder="سبب التحويل..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none h-24 dark:text-white" value={transferReason} onChange={e => setTransferReason(e.target.value)} />
-              <button onClick={handleTransfer} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl">تأكيد التحويل</button>
-              <button onClick={() => setIsTransferModalOpen(false)} className="w-full py-4 text-slate-400 font-bold uppercase text-[10px]">إلغاء</button>
+            </div>
+            {newClient.source !== ClientSource.WHATSAPP && (
+              <div className="space-y-1.5 animate-fade-in">
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رابط الحساب (Link)</label>
+                <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" placeholder="https://facebook.com/..." value={newClient.profileLink} onChange={e => setNewClient({...newClient, profileLink: e.target.value})} />
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الاسم بالكامل</label>
+              <input required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" placeholder="أدخل الاسم..." value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">حالة العميل</label>
+              <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.status} onChange={e => setNewClient({...newClient, status: e.target.value as ClientStatus})}>
+                {(Object.entries(StatusLabels) as [ClientStatus, any][]).map(([k, v]) => (
+                  <option key={k} value={k}>{v.ar}</option>
+                ))}
+              </select>
             </div>
           </div>
-        </div>
-      )}
-      {/* Bulk Transfer Modal */}
-      {isBulkTransferOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-lg p-6 sm:p-10 my-auto space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800">
-            <h2 className="text-2xl font-black mb-4 flex items-center gap-2"><Layers className="text-amber-500"/> تحويل جماعي للعملاء</h2>
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تحويل من (الموظف الحالي)</label>
-                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={bulkTransferFrom} onChange={e => setBulkTransferFrom(e.target.value)}>
-                  <option value="">اختر الموظف...</option>
-                  {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              </div>
-              
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تحويل إلى (الموظف الجديد)</label>
-                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={bulkTransferTo} onChange={e => setBulkTransferTo(e.target.value)}>
-                  <option value="">اختر الموظف...</option>
-                  {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              </div>
 
-              <div className="p-4 bg-rose-50 dark:bg-rose-500/10 rounded-2xl border border-rose-100 dark:border-rose-500/20">
-                <p className="text-[10px] font-bold text-rose-600 text-center uppercase flex items-center justify-center gap-2">
-                  <AlertTriangle size={12}/> سيتم تحويل جميع عملاء هذا الموظف فوراً
-                </p>
-              </div>
-
-              <button 
-                onClick={handleBulkTransfer} 
-                className="w-full py-5 bg-amber-500 text-white rounded-3xl font-black shadow-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? 'جاري التحويل الجماعي...' : (
-                  <>
-                    <ArrowRightLeft size={20}/> تنفيذ التحويل الجماعي
-                  </>
-                )}
-              </button>
-              <button onClick={() => setIsBulkTransferOpen(false)} className="w-full py-4 text-slate-400 font-bold uppercase text-[10px]">إلغاء</button>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الخدمة المطلوبة</label>
+               <select required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.serviceId} onChange={e => setNewClient({...newClient, serviceId: e.target.value})}>
+                <option value="">اختر الخدمة...</option>
+                {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                <option value="other">خدمة أخرى...</option>
+              </select>
             </div>
+            {newClient.serviceId === 'other' && (
+              <div className="space-y-1.5 animate-fade-in">
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">اسم الخدمة الأخرى</label>
+                <input required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white border-2 border-primary-500/30" placeholder="أدخل اسم الخدمة..." value={newClient.customServiceName} onChange={e => setNewClient({...newClient, customServiceName: e.target.value})} />
+              </div>
+            )}
+          </div>
 
-            {recentBulkTransfers.length > 0 && (
-              <div className="pt-6 border-t border-slate-100 dark:border-slate-800 space-y-4">
-                <h3 className="text-sm font-black uppercase text-slate-400 flex items-center gap-2">
-                  <History size={14}/> آخر التحويلات الجماعية
-                </h3>
-                <div className="space-y-3">
-                  {recentBulkTransfers.map(bt => (
-                    <div key={bt.id} className={`p-4 rounded-2xl border ${bt.isUndone ? 'bg-slate-50 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800 opacity-60' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 shadow-sm'}`}>
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="text-[10px] font-black text-slate-400">
-                          {new Date(bt.timestamp).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                        {bt.isUndone ? (
-                          <span className="text-[9px] font-black text-slate-400 uppercase">تم التراجع</span>
-                        ) : (
-                          <button 
-                            onClick={() => handleUndoBulkTransfer(bt)}
-                            disabled={isUndoing}
-                            className="text-[9px] font-black text-rose-500 hover:text-rose-600 uppercase flex items-center gap-1"
-                          >
-                            <History size={10}/> تراجع الآن
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300">
-                        <span className="text-primary-500">{bt.fromAgentName}</span>
-                        <ArrowRightLeft size={10} className="text-slate-300"/>
-                        <span className="text-amber-500">{bt.toAgentName}</span>
-                      </div>
-                      <p className="text-[10px] font-bold text-slate-400 mt-1">تم تحويل {bt.clientCount} عملاء</p>
-                    </div>
-                  ))}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الجنس</label>
+              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.gender} onChange={e => setNewClient({...newClient, gender: e.target.value as Gender})}>
+                <option value={Gender.MALE}>ذكر</option>
+                <option value={Gender.FEMALE}>أنثى</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">حالة اللابتوب</label>
+              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.laptop} onChange={e => setNewClient({...newClient, laptop: e.target.value as LaptopStatus})}>
+                <option value={LaptopStatus.WITH}>مع لابتوب</option>
+                <option value={LaptopStatus.WITHOUT}>بدون لابتوب</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نظام الحضور</label>
+              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.mode} onChange={e => setNewClient({...newClient, mode: e.target.value as AttendanceMode})}>
+                <option value={AttendanceMode.OFFLINE}>أوفلاين (في المقر)</option>
+                <option value={AttendanceMode.ONLINE}>أونلاين (عن بعد)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex gap-4">
+            <div className="w-1/3 space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الدولة</label>
+              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.country} onChange={e => {
+                const country = ARAB_COUNTRIES.find(c => c.name === e.target.value);
+                setNewClient({...newClient, country: e.target.value, countryCode: country?.code || ''});
+              }}>
+                {ARAB_COUNTRIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="flex-1 space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف ({newClient.source === ClientSource.WHATSAPP ? 'إجباري' : 'اختياري'})</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400" dir="ltr">{newClient.countryCode}</span>
+                <input required={newClient.source === ClientSource.WHATSAPP} className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-right dark:text-white" dir="ltr" placeholder="01012345678" value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black text-slate-400 uppercase mr-2">التصنيفات (Labels) - اختياري</label>
+            <div className="flex flex-wrap gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl min-h-[60px]">
+              {allLabels.map(label => {
+                const isSelected = newClient.labels.includes(label.id);
+                return (
+                  <button
+                    key={label.id}
+                    type="button"
+                    onClick={() => {
+                      const labels = isSelected
+                        ? newClient.labels.filter(id => id !== label.id)
+                        : [...newClient.labels, label.id];
+                      setNewClient({...newClient, labels});
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2`}
+                    style={{
+                      backgroundColor: isSelected ? label.color : 'transparent',
+                      borderColor: label.color,
+                      color: isSelected ? '#fff' : label.color,
+                    }}
+                  >
+                    {label.text}
+                    {isSelected && <X size={12} />}
+                  </button>
+                );
+              })}
+              {allLabels.length === 0 && <p className="text-[10px] font-bold text-slate-400">لا توجد تصنيفات متاحة. يمكنك إضافتها من صفحة الإعدادات.</p>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل المفضل</label>
+              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.preferredMethod} onChange={e => setNewClient({...newClient, preferredMethod: e.target.value as CommMethod})}>
+                {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">ملاحظات إضافية</label>
+              <textarea className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold h-14 dark:text-white" value={newClient.notes} onChange={e => setNewClient({...newClient, notes: e.target.value})} />
+            </div>
+          </div>
+
+          <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-[2rem] space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-black uppercase text-slate-400">جدولة أول متابعة</h3>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-slate-400">تفعيل الجدولة</span>
+                <input type="checkbox" checked={newClient.scheduleNext} onChange={e => setNewClient({...newClient, scheduleNext: e.target.checked})} className="w-5 h-5 accent-primary-500" />
+              </div>
+            </div>
+            
+            {newClient.scheduleNext && (
+              <div className="space-y-4 animate-fade-in">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تاريخ المتابعة</label>
+                    <input type="date" required className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextDate} onChange={e => setNewClient({...newClient, nextDate: e.target.value})} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل المجدول</label>
+                    <select className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextFollowUpMethod} onChange={e => setNewClient({...newClient, nextFollowUpMethod: e.target.value as CommMethod})}>
+                      {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {newClient.nextDate && (
+                  <div className="flex gap-2 animate-fade-in">
+                    <input type="time" className="flex-1 p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextTime} onChange={e => setNewClient({...newClient, nextTime: e.target.value})} />
+                    <select className="p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" value={newClient.nextPeriod} onChange={e => setNewClient({...newClient, nextPeriod: e.target.value as any})}>
+                      <option value="AM">AM</option><option value="PM">PM</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="p-6 bg-amber-50 dark:bg-amber-500/5 rounded-[2rem] border border-amber-200 dark:border-amber-500/20 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-black uppercase text-amber-600">تسجيل حجز فوري</h3>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-amber-600">العميل حجز بالفعل</span>
+                <input type="checkbox" checked={newClient.isBooked} onChange={e => setNewClient({...newClient, isBooked: e.target.checked})} className="w-5 h-5 accent-amber-500" />
+              </div>
+            </div>
+            
+            {newClient.isBooked && (
+              <div className="space-y-4 animate-fade-in">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الكورس المحجوز</label>
+                  <select 
+                    required 
+                    className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
+                    value={newClient.bookedCourseId} 
+                    onChange={e => {
+                      const s = services.find(srv => srv.id === e.target.value);
+                      setNewClient({...newClient, bookedCourseId: e.target.value, bookedCourseName: s?.name || ''});
+                    }}
+                  >
+                    <option value="">اختر الكورس...</option>
+                    {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">السعر الإجمالي</label>
+                    <input 
+                      type="number" 
+                      required 
+                      className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
+                      value={newClient.totalPrice} 
+                      onChange={e => updateRemaining(parseFloat(e.target.value) || 0, newClient.paidAmount)} 
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المبلغ المدفوع</label>
+                    <input 
+                      type="number" 
+                      required 
+                      className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
+                      value={newClient.paidAmount} 
+                      onChange={e => updateRemaining(newClient.totalPrice, parseFloat(e.target.value) || 0)} 
+                    />
+                  </div>
+                </div>
+                <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-amber-100 dark:border-amber-500/10">
+                  <p className="text-[9px] font-black text-slate-400 uppercase">المبلغ المتبقي</p>
+                  <p className="text-sm font-black text-amber-600">{newClient.remainingAmount} ج.م</p>
                 </div>
               </div>
             )}
           </div>
+
+          <button 
+            type="submit" 
+            disabled={isSubmitting}
+            className={`w-full py-5 rounded-3xl font-black shadow-xl transition-all uppercase text-xs ${isSubmitting ? 'bg-slate-400 cursor-not-allowed' : 'bg-primary-500 hover:bg-primary-600 text-white'}`}
+          >
+            {isSubmitting ? 'جاري التسجيل...' : 'إضافة العميل وتوثيق وقت التسجيل'}
+          </button>
+        </form>
+      </FloatingPanel>
+
+      {/* Transfer Panel */}
+      <FloatingPanel
+        isOpen={isTransferModalOpen && !!selectedClient}
+        onClose={() => { setIsTransferModalOpen(false); setSelectedClient(null); }}
+        title="تحويل العميل"
+        icon={<ArrowRightLeft className="text-amber-500"/>}
+        width="max-w-lg"
+      >
+        {selectedClient && (
+          <div className="space-y-6">
+            <p className="text-sm font-bold text-slate-500 leading-relaxed">تحويل <span className="text-primary-500 font-black">{selectedClient.name}</span> لموظف آخر ليتمكن من متابعته:</p>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">اختر الموظف الجديد</label>
+                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={transferAgentId} onChange={e => setTransferAgentId(e.target.value)}>
+                  <option value="">اختر الموظف...</option>
+                  {salesAgents.filter(a => a.id !== selectedClient.salesAgentId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">سبب التحويل</label>
+                <textarea placeholder="اكتب هنا سبب التحويل (مثال: العميل طلب التواصل مع شخص معين)..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none h-32 dark:text-white" value={transferReason} onChange={e => setTransferReason(e.target.value)} />
+              </div>
+              <button onClick={handleTransfer} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:shadow-primary-500/20 active:scale-95 transition-all">تأكيد التحويل الآن</button>
+            </div>
+          </div>
+        )}
+      </FloatingPanel>
+
+      {/* Bulk Transfer Panel */}
+      <FloatingPanel
+        isOpen={isBulkTransferOpen}
+        onClose={() => setIsBulkTransferOpen(false)}
+        title="تحويل جماعي للعملاء"
+        icon={<Layers className="text-amber-500"/>}
+        width="max-w-xl"
+      >
+        <div className="space-y-6">
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تحويل من (الموظف الحالي)</label>
+              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={bulkTransferFrom} onChange={e => setBulkTransferFrom(e.target.value)}>
+                <option value="">اختر الموظف الذي لديه العملاء حالياً...</option>
+                {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+            
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تحويل إلى (الموظف الجديد)</label>
+              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={bulkTransferTo} onChange={e => setBulkTransferTo(e.target.value)}>
+                <option value="">اختر الموظف الذي سيستلم العملاء...</option>
+                {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+
+            <div className="p-5 bg-rose-50 dark:bg-rose-500/10 rounded-2xl border border-rose-100 dark:border-rose-500/20">
+              <p className="text-[10px] font-black text-rose-600 text-center uppercase flex items-center justify-center gap-2">
+                <AlertTriangle size={14}/> تنبيه: سيتم تحويل جميع عملاء هذا الموظف فوراً وبشكل جماعي.
+              </p>
+            </div>
+
+            <button 
+              onClick={handleBulkTransfer} 
+              className="w-full py-5 bg-amber-500 text-white rounded-3xl font-black shadow-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2 active:scale-95"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'جاري التحويل الجماعي...' : (
+                <>
+                  <ArrowRightLeft size={20}/> تنفيذ التحويل الجماعي
+                </>
+              )}
+            </button>
+          </div>
+
+          {recentBulkTransfers.length > 0 && (
+            <div className="pt-8 border-t border-slate-100 dark:border-slate-800 space-y-4">
+              <h3 className="text-xs font-black uppercase text-slate-400 flex items-center gap-2 tracking-widest">
+                <History size={14}/> آخر التحويلات الجماعية المنفذة
+              </h3>
+              <div className="space-y-4">
+                {recentBulkTransfers.map(bt => (
+                  <div key={bt.id} className={`p-5 rounded-[1.5rem] border ${bt.isUndone ? 'bg-slate-50 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800 opacity-60' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 shadow-sm'}`}>
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="text-[10px] font-black text-slate-400">
+                        {new Date(bt.timestamp).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                      {bt.isUndone ? (
+                        <span className="text-[8px] font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full uppercase">تم التراجع</span>
+                      ) : (
+                        <button 
+                          onClick={() => handleUndoBulkTransfer(bt)}
+                          disabled={isUndoing}
+                          className="text-[9px] font-black text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 px-2 py-1 rounded-lg uppercase flex items-center gap-1 transition-all"
+                        >
+                          <History size={10}/> تراجع عن العملية
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-sm font-black text-slate-600 dark:text-slate-300">
+                      <span className="text-primary-500">{bt.fromAgentName}</span>
+                      <ArrowRightLeft size={12} className="text-slate-300"/>
+                      <span className="text-amber-500">{bt.toAgentName}</span>
+                    </div>
+                    <p className="text-[10px] font-bold text-slate-400 mt-2">تم تحويل <span className="text-slate-600 dark:text-slate-200">{bt.clientCount}</span> عميل بواسطة {bt.performedByName}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </FloatingPanel>
     </div>
   );
 };

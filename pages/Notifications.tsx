@@ -5,6 +5,7 @@ import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { Client, User, UserRole, Service } from '../types';
 import { Calendar, CheckCircle, Clock, BellRing, Filter, BookOpen, User as UserIcon, PhoneCall, CalendarPlus, AlertCircle, X, Search, Clock4, Timer, Hash, UserCheck } from 'lucide-react';
+import FloatingPanel from '../components/FloatingPanel';
 import { useNavigate } from 'react-router-dom';
 
 const Notifications: React.FC = () => {
@@ -48,7 +49,7 @@ const Notifications: React.FC = () => {
   }, [isHighRole]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !effectiveRole) return;
     setLoading(true);
     
     const clientsRef = collection(db, 'clients');
@@ -130,11 +131,11 @@ const Notifications: React.FC = () => {
       <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase mr-2 flex items-center gap-1"><Calendar size={12}/> التاريخ</label>
-          <input type="date" className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-xs outline-none" value={filterDate} onChange={e => setFilterDate(e.target.value)} />
+          <input type="date" className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-xs outline-none text-slate-900 dark:text-white" value={filterDate} onChange={e => setFilterDate(e.target.value)} />
         </div>
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase mr-2 flex items-center gap-1"><BookOpen size={12}/> الخدمة</label>
-          <select className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-xs outline-none" value={filterServiceId} onChange={e => setFilterServiceId(e.target.value)}>
+          <select className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-xs outline-none text-slate-900 dark:text-white" value={filterServiceId} onChange={e => setFilterServiceId(e.target.value)}>
             <option value="all">كل الخدمات</option>
             {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
@@ -142,7 +143,7 @@ const Notifications: React.FC = () => {
         {isHighRole && (
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 uppercase mr-2 flex items-center gap-1"><UserIcon size={12}/> الموظف</label>
-            <select className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-xs outline-none" value={filterAgentId} onChange={e => setFilterAgentId(e.target.value)}>
+            <select className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-xs outline-none text-slate-900 dark:text-white" value={filterAgentId} onChange={e => setFilterAgentId(e.target.value)}>
               <option value="all">كل الموظفين</option>
               {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
@@ -209,35 +210,32 @@ const Notifications: React.FC = () => {
         </section>
       </div>
 
-      {rescheduleClient && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-md p-10 space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800 animate-fade-in">
-             <div className="flex justify-between items-center">
-               <h2 className="text-2xl font-black">إعادة جدولة سريعة</h2>
-               <button onClick={() => setRescheduleClient(null)} className="text-slate-400"><X size={24}/></button>
-             </div>
-             <div className="space-y-4">
+      <FloatingPanel 
+        isOpen={!!rescheduleClient} 
+        onClose={() => setRescheduleClient(null)} 
+        title="إعادة جدولة سريعة"
+        icon={<CalendarPlus size={24} className="text-amber-500" />}
+      >
+             <div className="space-y-4 pt-2">
                <div className="space-y-1">
                  <label className="text-[10px] font-black uppercase text-slate-400">التاريخ الجديد</label>
-                 <input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none" value={newDate} onChange={e => setNewDate(e.target.value)} />
+                 <input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white border border-transparent focus:border-primary-500" value={newDate} onChange={e => setNewDate(e.target.value)} />
                </div>
                <div className="flex gap-3">
                  <div className="flex-1 space-y-1">
                    <label className="text-[10px] font-black uppercase text-slate-400">الوقت</label>
-                   <input type="time" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none" value={newTime} onChange={e => setNewTime(e.target.value)} />
+                   <input type="time" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white border border-transparent focus:border-primary-500" value={newTime} onChange={e => setNewTime(e.target.value)} />
                  </div>
                  <div className="w-32 space-y-1">
                    <label className="text-[10px] font-black uppercase text-slate-400">الفترة</label>
-                   <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none" value={newPeriod} onChange={e => setNewPeriod(e.target.value as any)}>
+                   <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white border border-transparent focus:border-primary-500" value={newPeriod} onChange={e => setNewPeriod(e.target.value as any)}>
                      <option value="AM">AM</option><option value="PM">PM</option>
                    </select>
                  </div>
                </div>
-               <button onClick={handleReschedule} disabled={loading} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all">تحديث الموعد</button>
+               <button onClick={handleReschedule} disabled={loading} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all active:scale-[0.98] disabled:opacity-50">تحديث الموعد</button>
              </div>
-          </div>
-        </div>
-      )}
+      </FloatingPanel>
     </div>
   );
 };

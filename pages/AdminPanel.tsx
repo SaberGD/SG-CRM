@@ -12,6 +12,7 @@ import {
   X, Check, Users, Calendar, BarChart, Phone, Eye, ArrowLeft,
   FileText, Activity, AlertCircle
 } from 'lucide-react';
+import FloatingPanel from '../components/FloatingPanel';
 
 const AdminPanel: React.FC = () => {
   const { user } = useAuth();
@@ -31,13 +32,18 @@ const AdminPanel: React.FC = () => {
   const [editFormData, setEditFormData] = useState({ name: '', email: '', role: UserRole.SALES_AGENT });
 
   useEffect(() => {
-    // جلب كافة المستخدمين بدون أي فلترة أو ترتيب من جهة السيرفر لضمان ظهور الجميع
+    if (!user?.uid || !user?.role) return;
+    
+    // CRITICAL: Block listeners if not admin
+    if (user.role !== UserRole.ADMIN) {
+      setLoading(false);
+      return;
+    }
+
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       const allUsers = snap.docs.map(d => ({ uid: d.id, ...d.data() } as User));
       
-      // الترتيب برمجياً هنا لضمان عدم اختفاء أي مستخدم
       const sorted = allUsers.sort((a, b) => {
-        // نضع المستخدم الحالي أولاً للسهولة
         if (a.uid === user?.uid) return -1;
         if (b.uid === user?.uid) return 1;
         const nameA = a.name || a.email || '';
@@ -259,78 +265,68 @@ const AdminPanel: React.FC = () => {
       </div>
       
       {/* Edit User Modal */}
-      {isEditModalOpen && selectedUser && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 my-4 sm:my-20 space-y-6 shadow-2xl border border-slate-100 dark:border-slate-800 animate-fade-in">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-black flex items-center gap-3"><UserCog className="text-primary-500" /> تعديل الموظف</h2>
-              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-900"><X size={24}/></button>
-            </div>
-            <form onSubmit={handleUpdateUser} className="space-y-4">
+      <FloatingPanel 
+        isOpen={isEditModalOpen} 
+        onClose={() => setIsEditModalOpen(false)} 
+        title="تعديل الموظف"
+        icon={<UserCog className="text-primary-500" />}
+      >
+            <form onSubmit={handleUpdateUser} className="space-y-4 pt-2">
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الاسم</label>
-                <input required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} />
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2 text-right block">الاسم</label>
+                <input required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-slate-900 dark:text-white border border-transparent focus:border-primary-500" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">البريد الإلكتروني</label>
-                <input required type="email" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" value={editFormData.email} onChange={e => setEditFormData({...editFormData, email: e.target.value})} />
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2 text-right block">البريد الإلكتروني</label>
+                <input required type="email" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-slate-900 dark:text-white border border-transparent focus:border-primary-500" value={editFormData.email} onChange={e => setEditFormData({...editFormData, email: e.target.value})} />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الصلاحية</label>
-                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={editFormData.role} onChange={e => setEditFormData({...editFormData, role: e.target.value as UserRole})}>
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2 text-right block">الصلاحية</label>
+                <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white border border-transparent focus:border-primary-500" value={editFormData.role} onChange={e => setEditFormData({...editFormData, role: e.target.value as UserRole})}>
                   {Object.values(UserRole).map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
-              <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all">حفظ التعديلات</button>
+              <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all active:scale-[0.98]">حفظ التعديلات</button>
             </form>
-          </div>
-        </div>
-      )}
+      </FloatingPanel>
 
       {/* Details Modal */}
-      {isDetailsModalOpen && selectedUser && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-2xl p-10 my-4 sm:my-10 space-y-8 shadow-2xl border border-slate-100 dark:border-slate-800 animate-fade-in">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-primary-500 text-white rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg shadow-primary-500/20">
-                  {(selectedUser.name || selectedUser.email || '?')[0]}
-                </div>
-                <div>
-                  <h2 className="text-2xl font-black">{selectedUser.name || 'موظف'}</h2>
-                  <p className="text-xs font-bold text-slate-400">{selectedUser.email}</p>
-                </div>
-              </div>
-              <button onClick={() => setIsDetailsModalOpen(false)} className="text-slate-400 hover:text-slate-900"><X size={24}/></button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl text-center">
-                <p className="text-[10px] font-black text-slate-400 uppercase mb-1">إجمالي العملاء</p>
-                <p className="text-2xl font-black text-primary-500">{userStats[selectedUser.uid]?.totalClients || 0}</p>
-              </div>
-              <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl text-center">
-                <p className="text-[10px] font-black text-slate-400 uppercase mb-1">متابعات نشطة</p>
-                <p className="text-2xl font-black text-amber-500">{userStats[selectedUser.uid]?.pendingFollowups || 0}</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-tighter"><Activity size={18} className="text-primary-500" /> آخر النشاطات</h3>
-              <div className="space-y-3">
-                {userLogs.length === 0 ? (
-                  <p className="text-center py-10 text-slate-400 font-bold italic text-xs">لا توجد نشاطات مسجلة مؤخراً</p>
-                ) : userLogs.map(log => (
-                  <div key={log.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex justify-between items-center">
-                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{log.action}</p>
-                    <span className="text-[9px] font-black text-slate-400">{new Date(log.timestamp).toLocaleString('ar-EG')}</span>
+      <FloatingPanel 
+        isOpen={isDetailsModalOpen} 
+        onClose={() => setIsDetailsModalOpen(false)} 
+        title={selectedUser?.name || 'تفاصيل الموظف'}
+        icon={<Eye size={24} className="text-primary-500" />}
+        width="max-w-2xl"
+      >
+            {selectedUser && (
+              <div className="space-y-8 pt-2">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl text-center border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1">إجمالي العملاء</p>
+                    <p className="text-2xl font-black text-primary-500">{userStats[selectedUser.uid]?.totalClients || 0}</p>
                   </div>
-                ))}
+                  <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl text-center border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1">متابعات نشطة</p>
+                    <p className="text-2xl font-black text-amber-500">{userStats[selectedUser.uid]?.pendingFollowups || 0}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-tighter text-slate-900 dark:text-white"><Activity size={18} className="text-primary-500" /> آخر النشاطات</h3>
+                  <div className="space-y-3">
+                    {userLogs.length === 0 ? (
+                      <p className="text-center py-10 text-slate-400 font-bold italic text-xs">لا توجد نشاطات مسجلة مؤخراً</p>
+                    ) : userLogs.map(log => (
+                      <div key={log.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex justify-between items-center border border-slate-100 dark:border-slate-700/50">
+                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{log.action}</p>
+                        <span className="text-[9px] font-black text-slate-400">{new Date(log.timestamp).toLocaleString('ar-EG')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
+            )}
+      </FloatingPanel>
     </div>
   );
 };

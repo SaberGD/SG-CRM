@@ -21,7 +21,7 @@ const AlarmManager: React.FC<{ user: any }> = ({ user }) => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !user.uid) return;
     const clientsRef = collection(db, 'clients');
     // Only listen for clients that have a follow-up scheduled and belong to the user
     const q = query(
@@ -131,6 +131,7 @@ const Layout: React.FC = () => {
   const [liveNotification, setLiveNotification] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!effectiveRole) return;
     if (effectiveRole === UserRole.TEAM_LEADER || effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER) {
       const q = query(collection(db, 'logs'), where('action', '==', 'بدء مكالمة'));
       const unsubscribe = onSnapshot(q, (snapshot) => {

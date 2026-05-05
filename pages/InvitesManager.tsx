@@ -4,7 +4,8 @@ import { collection, query, orderBy, onSnapshot, addDoc, doc, updateDoc, deleteD
 import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { Invitation, UserRole } from '../types';
-import { UserPlus, Mail, Shield, Trash2, Clock, UserCheck } from 'lucide-react';
+import { UserPlus, Mail, Shield, Trash2, Clock, UserCheck, X } from 'lucide-react';
+import FloatingPanel from '../components/FloatingPanel';
 
 const InvitesManager: React.FC = () => {
   const { user, effectiveRole } = useAuth();
@@ -21,7 +22,7 @@ const InvitesManager: React.FC = () => {
   const isHighRole = isAdmin || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !effectiveRole) return;
     const q = isAdmin 
       ? query(collection(db, 'invitations'), orderBy('timestamp', 'desc'))
       : query(collection(db, 'invitations'), where('invitedBy', '==', user.uid), orderBy('timestamp', 'desc'));
@@ -134,29 +135,28 @@ const InvitesManager: React.FC = () => {
         </div>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 my-4 sm:my-20 space-y-6 animate-fade-in shadow-2xl border border-slate-100 dark:border-slate-800">
-             <div className="flex justify-between items-center">
-               <h2 className="text-2xl font-black flex items-center gap-3"><Mail className="text-primary-500" /> إضافة إيميل جديد</h2>
-               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-900 transition-colors"><Trash2 size={24}/></button>
-             </div>
-             <form onSubmit={handleSendInvite} className="space-y-6">
+      <FloatingPanel 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        title="إضافة إيميل جديد"
+        icon={<Mail className="text-primary-500" />}
+      >
+             <form onSubmit={handleSendInvite} className="space-y-6 pt-2">
                <div className="space-y-1.5">
-                 <label className="text-[10px] font-black uppercase text-slate-400 mr-2">البريد الإلكتروني المسموح له بالتسجيل</label>
+                 <label className="text-[10px] font-black uppercase text-slate-400 mr-2 block text-right">البريد الإلكتروني المسموح له بالتسجيل</label>
                  <input 
                    required 
                    type="email"
-                   className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none border border-transparent focus:border-primary-500/50" 
+                   className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none border border-transparent focus:border-primary-500/50 text-slate-900 dark:text-white" 
                    placeholder="example@academy.com" 
                    value={email} 
                    onChange={e => setEmail(e.target.value)} 
                  />
                </div>
                <div className="space-y-1.5">
-                 <label className="text-[10px] font-black uppercase text-slate-400 mr-2 flex items-center gap-1"><Shield size={12}/> تحديد الرتبة الوظيفية</label>
+                 <label className="text-[10px] font-black uppercase text-slate-400 mr-2 flex items-center gap-1 justify-end"><Shield size={12}/> تحديد الرتبة الوظيفية</label>
                  <select 
-                   className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none border border-transparent focus:border-primary-500/50" 
+                   className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none border border-transparent focus:border-primary-500/50 text-slate-900 dark:text-white" 
                    value={role} 
                    onChange={e => setRole(e.target.value as UserRole)}
                  >
@@ -171,21 +171,19 @@ const InvitesManager: React.FC = () => {
                  </select>
                </div>
                <div className="p-5 bg-primary-50/50 dark:bg-primary-500/5 rounded-2xl border border-primary-100 dark:border-primary-500/10">
-                 <p className="text-[10px] font-bold text-slate-500 leading-relaxed">
+                 <p className="text-[10px] font-bold text-slate-500 leading-relaxed text-right">
                    بمجرد إضافة هذا الإيميل، سيتمكن الموظف من الدخول للنظام والقيام بـ "إنشاء حساب" ببريده الشخصي فوراً دون الحاجة لأكواد إضافية.
                  </p>
                </div>
                <button 
                  type="submit" 
                  disabled={isSubmitting}
-                 className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all flex items-center justify-center gap-2"
+                 className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
                >
                  {isSubmitting ? 'جاري الإضافة...' : 'إضافة للقائمة الموثوقة'}
                </button>
              </form>
-          </div>
-        </div>
-      )}
+      </FloatingPanel>
     </div>
   );
 };

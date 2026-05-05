@@ -62,10 +62,22 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  // We don't throw here to avoid crashing the whole app, but we log it clearly.
-  return errInfo;
+  const errorMessage = JSON.stringify(errInfo);
+  console.error('Firestore Error: ', errorMessage);
+  throw new Error(errorMessage);
 }
+
+// CRITICAL: Connection test
+async function testConnection() {
+  try {
+    await firestore.getDocFromServer(firestore.doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration. The client appears to be offline.");
+    }
+  }
+}
+testConnection();
 
 /**
  * تسجيل النشاطات مع حماية ضد القيم undefined التي تسبب توقف Firestore SDK.

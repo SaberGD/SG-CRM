@@ -4,14 +4,18 @@ import { collection, query, onSnapshot, addDoc, updateDoc, doc, deleteDoc } from
 import { db } from '../firebase';
 import { Service } from '../types';
 import { Plus, Edit3, Trash2, CheckCircle2, XCircle } from 'lucide-react';
+import FloatingPanel from '../components/FloatingPanel';
+import { useAuth } from '../App';
 
 const ServicesManager: React.FC = () => {
+  const { user, effectiveRole } = useAuth();
   const [services, setServices] = useState<Service[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [formData, setFormData] = useState({ name: '', description: '', category: '', isActive: true });
 
   useEffect(() => {
+    if (!user || !effectiveRole) return;
     const unsub = onSnapshot(collection(db, 'services'), snap => {
       setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
     }, (err) => {
@@ -75,26 +79,25 @@ const ServicesManager: React.FC = () => {
         ))}
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-lg p-10 my-4 sm:my-20 space-y-6 animate-fade-in shadow-2xl">
-            <h2 className="text-2xl font-black mb-6">{editingService ? 'تعديل خدمة' : 'إضافة خدمة جديدة'}</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <input required placeholder="اسم الخدمة / الكورس" className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-              <input required placeholder="التصنيف (مثال: لغات، برمجة...)" className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} />
-              <textarea placeholder="وصف الخدمة..." className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold h-32" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
-              <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl">
-                <label className="text-xs font-black">حالة الخدمة:</label>
-                <button type="button" onClick={() => setFormData({...formData, isActive: !formData.isActive})} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black ${formData.isActive ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+      <FloatingPanel 
+        isOpen={isModalOpen} 
+        onClose={() => { setIsModalOpen(false); setEditingService(null); }} 
+        title={editingService ? 'تعديل خدمة' : 'إضافة خدمة جديدة'}
+        icon={editingService ? <Edit3 className="text-primary-500" /> : <Plus className="text-primary-500" />}
+      >
+            <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+              <input required placeholder="اسم الخدمة / الكورس" className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-slate-900 dark:text-white border border-transparent focus:border-primary-500" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+              <input required placeholder="التصنيف (مثال: لغات، برمجة...)" className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-slate-900 dark:text-white border border-transparent focus:border-primary-500" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} />
+              <textarea placeholder="وصف الخدمة..." className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold h-32 text-slate-900 dark:text-white border border-transparent focus:border-primary-500" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
+              <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/50">
+                <label className="text-xs font-black text-slate-400 uppercase">حالة الخدمة:</label>
+                <button type="button" onClick={() => setFormData({...formData, isActive: !formData.isActive})} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black ${formData.isActive ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white shadow-lg'}`}>
                   {formData.isActive ? <CheckCircle2 size={14}/> : <XCircle size={14}/>} {formData.isActive ? 'نشطة' : 'متوقفة'}
                 </button>
               </div>
-              <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl">حفظ</button>
-              <button type="button" onClick={() => setIsModalOpen(false)} className="w-full py-5 text-slate-400 font-bold">إلغاء</button>
+              <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all active:scale-[0.98]">حفظ وتأكيد</button>
             </form>
-          </div>
-        </div>
-      )}
+      </FloatingPanel>
     </div>
   );
 };

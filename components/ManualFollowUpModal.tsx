@@ -5,6 +5,8 @@ import { Client, ClientStatus, CommMethod, StatusLabels, CommMethodLabels } from
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 
+import FloatingPanel from './FloatingPanel';
+
 interface ManualFollowUpModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -51,8 +53,6 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
     });
     return unsub;
   }, [isOpen]);
-
-  if (!isOpen) return null;
 
   const calculateTimestamp = (d: string, t: string, p?: string) => {
     if (!d) return 0;
@@ -140,44 +140,33 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
   };
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-start sm:items-center justify-center bg-slate-950/60 backdrop-blur-md p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 rounded-[2rem] sm:rounded-[3rem] w-full max-w-2xl my-auto shadow-2xl border border-slate-100 dark:border-slate-800 animate-fade-in overflow-hidden">
-        <div className="p-8 border-b border-slate-50 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-primary-500 text-white rounded-2xl shadow-lg shadow-primary-500/20">
-              <Clock size={24} />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-900 dark:text-white">تسجيل متابعة خارجية</h2>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">توثيق تواصل تم خارج النظام</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors text-slate-400">
-            <X size={24} />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-8 space-y-6">
+    <FloatingPanel 
+      isOpen={isOpen} 
+      onClose={onClose} 
+      title="تسجيل متابعة خارجية"
+      icon={<Clock size={24} />}
+    >
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تاريخ التواصل</label>
               <div className="relative">
                 <Calendar size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input type="date" required className="w-full p-4 pr-10 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500" value={date} onChange={e => setDate(e.target.value)} />
+                <input type="date" required className="w-full p-4 pr-10 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500 text-slate-900 dark:text-white" value={date} onChange={e => setDate(e.target.value)} />
               </div>
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">وقت التواصل</label>
               <div className="relative">
                 <Clock size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input type="time" required className="w-full p-4 pr-10 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500" value={time} onChange={e => setTime(e.target.value)} />
+                <input type="time" required className="w-full p-4 pr-10 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500 text-slate-900 dark:text-white" value={time} onChange={e => setTime(e.target.value)} />
               </div>
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المدة (بالدقائق)</label>
               <div className="relative">
                 <Timer size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input type="number" required min="1" className="w-full p-4 pr-10 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500" value={duration} onChange={e => setDuration(e.target.value)} />
+                <input type="number" required min="1" className="w-full p-4 pr-10 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500 text-slate-900 dark:text-white" value={duration} onChange={e => setDuration(e.target.value)} />
               </div>
             </div>
           </div>
@@ -185,41 +174,41 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل</label>
-              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500" value={method} onChange={e => setMethod(e.target.value as CommMethod)}>
+              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500 text-slate-900 dark:text-white" value={method} onChange={e => setMethod(e.target.value as CommMethod)}>
                 {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
               </select>
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">موجز السيلز (الخلاصة)</label>
-              <input required placeholder="مثال: تم الاتفاق على موعد تجربة" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500" value={salesBrief} onChange={e => setSalesBrief(e.target.value)} />
+              <input required placeholder="مثال: تم الاتفاق على موعد تجربة" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none border border-transparent focus:border-primary-500 text-slate-900 dark:text-white" value={salesBrief} onChange={e => setSalesBrief(e.target.value)} />
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">النتيجة التفصيلية</label>
-              <textarea required placeholder="ماذا حدث في المكالمة بالتفصيل..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none h-24" value={result} onChange={e => setResult(e.target.value)} />
+              <textarea required placeholder="ماذا حدث في المكالمة بالتفصيل..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none h-40 text-slate-900 dark:text-white" value={result} onChange={e => setResult(e.target.value)} />
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-[2rem] space-y-4">
+            <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-[2rem] space-y-4 border border-slate-100 dark:border-slate-700/50">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-black">جدولة موعد قادم؟</label>
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300">جدولة موعد قادم؟</label>
                 <input type="checkbox" checked={scheduleNext} onChange={e => setScheduleNext(e.target.checked)} className="w-5 h-5 accent-primary-500" />
               </div>
               {scheduleNext && (
                 <div className="space-y-3 animate-fade-in">
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-slate-400 uppercase">تاريخ المتابعة</label>
-                    <input type="date" required className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextDate} onChange={e => setNextDate(e.target.value)} />
+                    <input type="date" required className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" value={nextDate} onChange={e => setNextDate(e.target.value)} />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-slate-400 uppercase">نوع التواصل القادم</label>
-                    <select className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextFollowUpMethod} onChange={e => setNextFollowUpMethod(e.target.value as CommMethod)}>
+                    <select className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" value={nextFollowUpMethod} onChange={e => setNextFollowUpMethod(e.target.value as CommMethod)}>
                       {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
                     </select>
                   </div>
                   <div className="flex gap-2">
-                    <input type="time" required className="flex-1 p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextTime} onChange={e => setNextTime(e.target.value)} />
-                    <select className="p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" value={nextPeriod} onChange={e => setNextPeriod(e.target.value as any)}>
+                    <input type="time" required className="flex-1 p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" value={nextTime} onChange={e => setNextTime(e.target.value)} />
+                    <select className="p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" value={nextPeriod} onChange={e => setNextPeriod(e.target.value as any)}>
                       <option value="AM">AM</option><option value="PM">PM</option>
                     </select>
                   </div>
@@ -229,7 +218,7 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
 
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تحديث حالة العميل</label>
-              <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-[2rem] font-bold text-sm" value={status} onChange={e => setStatus(e.target.value as ClientStatus)}>
+              <select className="w-full p-5 bg-slate-50 dark:bg-slate-800 rounded-[2rem] font-bold text-sm text-slate-900 dark:text-white border border-slate-100 dark:border-slate-700/50" value={status} onChange={e => setStatus(e.target.value as ClientStatus)}>
                 {Object.entries(StatusLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
               </select>
             </div>
@@ -248,7 +237,7 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
                   <label className="text-[9px] font-black text-slate-400 uppercase">الكورس المحجوز</label>
                   <select 
                     required 
-                    className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                    className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
                     value={bookedCourseId} 
                     onChange={e => {
                       const s = services.find(srv => srv.id === e.target.value);
@@ -266,7 +255,7 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
                     <input 
                       type="number" 
                       required 
-                      className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                      className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
                       value={totalPrice} 
                       onChange={e => {
                         const val = parseFloat(e.target.value) || 0;
@@ -280,7 +269,7 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
                     <input 
                       type="number" 
                       required 
-                      className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs" 
+                      className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
                       value={paidAmount} 
                       onChange={e => {
                         const val = parseFloat(e.target.value) || 0;
@@ -298,12 +287,11 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
             )}
           </div>
 
-          <button type="submit" disabled={loading} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
+          <button type="submit" disabled={loading} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all flex items-center justify-center gap-3 disabled:opacity-50 active:scale-[0.98]">
             {loading ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><Save size={20}/> حفظ المتابعة</>}
           </button>
         </form>
-      </div>
-    </div>
+    </FloatingPanel>
   );
 };
 

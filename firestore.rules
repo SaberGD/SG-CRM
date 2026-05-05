@@ -1,148 +1,169 @@
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: users
-    // Fields: name (string), email (string), role (string), createdAt (number)
-    //
-    // Collection: clients
-    // Fields: name (string), phone (string), status (string), salesAgentId (string), salesAgentName (string)
-    //
-    // Collection: reports
-    // Fields: userId (string), userName (string), date (string), submittedAt (number)
-    //
-    // ===============================================================
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
 
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
+    // --- Helpers ---
     
-    function isAuthenticated() {
+    function isSignedIn() {
       return request.auth != null;
     }
-    
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
     }
-    
-    function userExists() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
-    
-    function isAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.email == "saber.gd.fl@gmail.com" ||
-        (userExists() && getUserData().get('role', '') in ['admin', 'administrator'])
-      );
+
+    function incoming() {
+      return request.resource.data;
     }
-    
-    function isManager() {
-      return isAdmin() || (userExists() && getUserData().get('role', '') in ['manager', 'supervisor']);
-    }
-    
-    function isTeamLeader() {
-      return isManager() || (userExists() && getUserData().get('role', '') in ['team_leader', 'leader']);
+
+    function existing() {
+      return resource.data;
     }
 
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isSignedIn() && request.auth.uid == userId;
     }
 
-    function hasRequiredFields(fields) {
-      return request.resource.data.keys().hasAll(fields);
+    // Role lookups - Using exists() and get() safely
+    function hasRole(role) {
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && exists(userPath) && get(userPath).data.role == role;
     }
 
-    // ===============================================================
-    // Domain Validators
-    // ===============================================================
-
-    function isValidReport(data) {
-      return hasRequiredFields(['userId', 'userName', 'date', 'submittedAt']) &&
-             (data.userId == request.auth.uid || isManager()) &&
-             data.date is string && data.submittedAt is number;
+    function isAdmin() {
+      return isSignedIn() && (request.auth.token.email == "saber.gd.fl@gmail.com" || hasRole('admin'));
     }
 
-    // ===============================================================
-    // Rules
-    // ===============================================================
+    function isManager() {
+      return isAdmin() || hasRole('manager');
+    }
 
-    // قواعد مجموعة المستخدمين
+    function isTeamLeader() {
+      return isManager() || hasRole('team_leader');
+    }
+
+    function isSalesAgent() {
+      return hasRole('sales_agent');
+    }
+
+    // --- Entity Validations ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'name', 'role', 'createdAt']) &&
+             data.email is string && data.email.size() <= 100 &&
+             data.name is string && data.name.size() <= 100 &&
+             data.role in ['admin', 'manager', 'team_leader', 'sales_agent'] &&
+             data.createdAt is int;
+    }
+
+    function isValidClient(data) {
+       return data.keys().hasAll(['name', 'phone', 'serviceName', 'status', 'salesAgentId', 'salesAgentName', 'createdAt']) &&
+              data.name is string && data.name.size() <= 100 &&
+              data.phone is string && data.phone.size() <= 20 &&
+              data.serviceName is string && data.serviceName.size() <= 100 &&
+              data.status is string &&
+              data.salesAgentId is string &&
+              data.salesAgentName is string &&
+              data.createdAt is int;
+    }
+
+    // --- Collections ---
+
+    // USERS
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow get: if isSignedIn();
+      allow list: if isTeamLeader() || isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming()) && incoming().role == 'sales_agent';
+      allow update: if (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoUrl', 'updatedAt'])) ||
+                    (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'name', 'email']));
       allow delete: if isAdmin();
     }
-    
-    // قواعد العملاء
+
+    // CLIENTS
     match /clients/{clientId} {
-      allow read: if isAuthenticated(); 
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (isTeamLeader() || resource.data.salesAgentId == request.auth.uid);
+      allow get: if isSignedIn() && (isTeamLeader() || existing().salesAgentId == request.auth.uid);
+      allow list: if isSignedIn() && (isTeamLeader() || resource.data.salesAgentId == request.auth.uid);
+      allow create: if isSignedIn() && isValidClient(incoming()) && (incoming().salesAgentId == request.auth.uid || isTeamLeader());
+      allow update: if isSignedIn() && (isTeamLeader() || existing().salesAgentId == request.auth.uid) && 
+                    (isAdmin() || incoming().diff(existing()).affectedKeys().size() > 0); 
+      allow delete: if isAdmin();
+    }
+
+    // FOLLOWUPS
+    match /followups/{id} {
+      allow read: if isSignedIn() && (isTeamLeader() || resource.data.agentId == request.auth.uid);
+      allow create: if isSignedIn() && incoming().agentId == request.auth.uid;
+      allow delete: if isAdmin();
+    }
+
+    // LOGS
+    match /logs/{id} {
+      allow read: if isTeamLeader();
+      allow create: if isSignedIn();
+    }
+
+    // REPORTS
+    match /reports/{id} {
+      allow read: if isTeamLeader() || resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update: if (isOwner(existing().userId) || isManager()) && incoming().userId == existing().userId;
+      allow delete: if isAdmin();
+    }
+
+    // SERVICES
+    match /services/{id} {
+      allow read: if isSignedIn();
+      allow write: if isManager();
+    }
+
+    // LABELS
+    match /labels/{id} {
+      allow read: if isSignedIn();
+      allow write: if isManager();
+    }
+
+    // INVITATIONS
+    match /invitations/{id} {
+      function canReadInvite() {
+        return isTeamLeader() || (request.auth.token.email.lower() == resource.data.email.lower());
+      }
+      allow read: if isSignedIn() && canReadInvite();
+      allow create: if isManager();
+      allow update: if isSignedIn() && (isManager() || (request.auth.token.email.lower() == existing().email.lower() && incoming().diff(existing()).affectedKeys().hasOnly(['status'])));
       allow delete: if isManager();
     }
-    
-    // قواعد المتابعات
-    match /followups/{id} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update, delete: if isManager();
-    }
-    
-    // قواعد الدعوات
-    match /invitations/{id} {
-      allow read: if true; 
-      allow create, delete: if isTeamLeader();
-      allow update: if isTeamLeader() || (isAuthenticated() && request.auth.token.email == resource.data.email);
-    }
-    
-    // قواعد السجلات
-    match /logs/{id} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-    }
-    
-    // قواعد الخدمات والتصنيفات
-    match /services/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isManager();
-    }
-    
-    match /labels/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isManager();
-    }
-    
-    // قواعد التقارير والتحويلات
-    match /reports/{id} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidReport(request.resource.data);
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isManager());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isManager());
-    }
-    
+
+    // TARGETS
     match /targets/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isTeamLeader();
+      allow read: if isSignedIn() && (isTeamLeader() || id.startsWith(request.auth.uid));
+      allow write: if isManager();
     }
-    
+
     match /defaultTargets/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isTeamLeader();
+      allow read: if isSignedIn();
+      allow write: if isManager();
     }
-    
+
+    // TRANSFERS
     match /transfers/{id} {
       allow read: if isTeamLeader() || resource.data.oldAgentId == request.auth.uid || resource.data.newAgentId == request.auth.uid;
       allow create: if isTeamLeader();
     }
 
+    // BULK TRANSFERS
     match /bulk_transfers/{id} {
       allow read: if isTeamLeader();
-      allow create, update: if isTeamLeader();
+      allow create: if isManager();
+      allow update: if isManager();
     }
   }
 }

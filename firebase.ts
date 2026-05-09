@@ -67,6 +67,39 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(errorMessage);
 }
 
+/**
+ * تنظيف رقم الهاتف من المسافات وكود الدولة المكرر
+ */
+export function cleanPhoneNumber(input: string, countryCode: string): string {
+  if (!input) return '';
+  
+  // 1. إزالة كافة المسافات والرموز غير الرقمية (إلا علامة + في البداية)
+  let cleaned = input.replace(/[\s\-\(\)]/g, '');
+  
+  // 2. استخراج الأرقام فقط من كود الدولة (مثال: +20 تصبح 20)
+  const codeDigits = countryCode.replace(/\D/g, '');
+  
+  if (codeDigits) {
+     const plusPrefix = '+' + codeDigits;
+     const doubleZeroPrefix = '00' + codeDigits;
+     
+     // إذا كان الرقم يبدأ بكود الدولة مسبوقاً بـ + أو 00
+     if (cleaned.startsWith(plusPrefix)) {
+       cleaned = cleaned.substring(plusPrefix.length);
+     } else if (cleaned.startsWith(doubleZeroPrefix)) {
+       cleaned = cleaned.substring(doubleZeroPrefix.length);
+     } else if (cleaned.startsWith(codeDigits) && !cleaned.startsWith('0')) {
+       // تجنب الخلط بين رقم يبدأ بـ 0 وكود دولة يبدأ بنفس الأرقام
+       cleaned = cleaned.substring(codeDigits.length);
+     }
+  }
+  
+  // 3. إزالة أي أصفار في البداية (مثل 010 تصبح 10) ليتم إضافتها عبر الكود الموحد في النظام
+  cleaned = cleaned.replace(/^0+/, '');
+  
+  return cleaned;
+}
+
 // CRITICAL: Connection test
 async function testConnection() {
   try {

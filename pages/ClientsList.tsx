@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
-import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
+import { db, logActivity, handleFirestoreError, OperationType, cleanPhoneNumber } from '../firebase';
 import { useAuth } from '../App';
 import { 
   Client, ClientStatus, StatusLabels, UserRole, Service, Label, 
@@ -15,6 +15,7 @@ import {
   Phone, Calendar, MessageSquare, User, Laptop, Globe, Clock, X,
   ExternalLink, Layers, AlertTriangle
 } from 'lucide-react';
+import ContactButtons from '../components/ContactButtons';
 
 const ARAB_COUNTRIES = [
   { name: 'مصر', code: '+20' },
@@ -163,7 +164,7 @@ const ClientsList: React.FC = () => {
         snap => {
           setRecentBulkTransfers(snap.docs.map(d => ({ id: d.id, ...d.data() } as BulkTransfer)));
         }, (err) => {
-          console.error("ClientsList Bulk Transfers Snapshot Error:", err);
+          handleFirestoreError(err, OperationType.LIST, 'bulk_transfers');
         }
       );
       return () => {
@@ -276,7 +277,9 @@ const ClientsList: React.FC = () => {
     if (!user || isSubmitting) return;
     setIsSubmitting(true);
     
-    const phoneFull = newClient.countryCode + newClient.phone.replace(/^0+/, '').trim();
+    // تنظيف الرقم وإزالة كود الدولة إذا كان مكرراً
+    const cleanedPartial = cleanPhoneNumber(newClient.phone, newClient.countryCode);
+    const phoneFull = newClient.countryCode + cleanedPartial;
     
     // منع التكرار
     try {
@@ -535,7 +538,7 @@ const ClientsList: React.FC = () => {
 
       {/* Filters */}
       <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="relative">
               <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
@@ -552,19 +555,23 @@ const ClientsList: React.FC = () => {
               <option value="all">كل الخدمات المطلوبة</option>
               {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-            {isHighRole && (
-               <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterSalesAgent} onChange={e => setFilterSalesAgent(e.target.value)}>
-               <option value="all">كل السيلز</option>
-               {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-             </select>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
+            <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
               <option value="all">كل التصنيفات (Labels)</option>
               {allLabels.map(l => <option key={l.id} value={l.id}>{l.text}</option>)}
             </select>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+            {isHighRole ? (
+               <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterSalesAgent} onChange={e => setFilterSalesAgent(e.target.value)}>
+                <option value="all">كل السيلز</option>
+                {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            ) : (
+              <div className="bg-slate-50/50 dark:bg-slate-800/50 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-400 flex items-center justify-center">
+                فلترة متقدمة
+              </div>
+            )}
             
             <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterBookedCourse} onChange={e => setFilterBookedCourse(e.target.value)}>
               <option value="all">الكورس المحجوز</option>
@@ -652,11 +659,28 @@ const ClientsList: React.FC = () => {
                       <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : 'بدون لابتوب'}</span>
                       <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : 'أوفلاين'}</span>
                     </div>
+                    {client.labels && client.labels.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {client.labels.map(labelId => {
+                          const label = allLabels.find(l => l.id === labelId);
+                          if (!label) return null;
+                          return (
+                            <span 
+                              key={labelId} 
+                              className="px-2 py-0.5 rounded text-[7px] font-black"
+                              style={{ backgroundColor: `${label.color}20`, color: label.color, border: `1px solid ${label.color}40` }}
+                            >
+                              {label.text}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                   </td>
                   <td className="px-8 py-6 text-center text-[10px] text-slate-500 font-bold italic">{client.salesAgentName}</td>
                   <td className="px-8 py-6">
                     <div className="flex justify-center gap-2">
-                      <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="p-2.5 bg-emerald-50 text-emerald-500 rounded-xl hover:scale-110 transition-all dark:bg-emerald-500/10"><MessageCircle size={16} /></a>
+                      <ContactButtons phone={client.phone} iconSize={16} />
                       <button onClick={() => navigate(`/clients/${client.id}`)} title="عرض السجل والمتابعة" className="p-2.5 bg-primary-50 text-primary-500 rounded-xl hover:scale-110 transition-all dark:bg-primary-500/10"><History size={16} /></button>
                       {isHighRole && (
                         <button onClick={() => { setSelectedClient(client); setIsTransferModalOpen(true); }} title="تحويل العميل لموظف آخر" className="p-2.5 bg-amber-50 text-amber-500 rounded-xl hover:scale-110 transition-all dark:bg-amber-500/10"><ArrowRightLeft size={16} /></button>

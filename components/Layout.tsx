@@ -240,7 +240,7 @@ const Layout: React.FC = () => {
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-[60] lg:hidden" onClick={() => setIsSidebarOpen(false)}></div>
       )}
 
-      <aside className={`fixed inset-y-0 right-0 z-[70] w-72 bg-white dark:bg-slate-900 border-l border-slate-100 dark:border-slate-800 transition-transform lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 right-0 z-[70] w-72 bg-white dark:bg-slate-900 border-l border-slate-100 dark:border-slate-800 transition-transform lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800 ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="flex flex-col h-full p-8">
           <div className="flex justify-between items-center mb-12 text-right">
             <div>

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
+import ContactButtons from '../components/ContactButtons';
 
 const Dashboard: React.FC = () => {
   const { user, effectiveRole } = useAuth();
@@ -227,6 +228,7 @@ const Dashboard: React.FC = () => {
                   </p>
                   <div className="flex items-center gap-2 justify-end">
                     <span className="text-[10px] font-black uppercase text-slate-400">بواسطة: {task.salesAgentName}</span>
+                    <ContactButtons phone={task.phone} iconSize={14} />
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -314,9 +316,7 @@ const TaskCard: React.FC<{ task: Client, type: 'emergency' | 'today', onManualLo
                  >
                    <History size={18} />
                  </button>
-                 <div className={`p-3 rounded-2xl transition-all shadow-lg ${isEmergency ? 'bg-rose-50 text-rose-500 group-hover:bg-rose-500 group-hover:text-white shadow-rose-500/10' : 'bg-emerald-50 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white shadow-emerald-500/10'}`}>
-                   <PhoneCall size={18} />
-                 </div>
+                 <ContactButtons phone={task.phone} iconSize={18} />
                </div>
             </div>
           </div>

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
-import { db, logActivity } from '../firebase';
+import { db, logActivity, cleanPhoneNumber } from '../firebase';
 import { useAuth } from '../App';
 import { 
   Client, FollowUp, ClientStatus, CommMethod, StatusLabels, CommMethodLabels,
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
+import ContactButtons from '../components/ContactButtons';
 
 const ClientDetails: React.FC = () => {
   const { id } = useParams();
@@ -261,6 +262,11 @@ const ClientDetails: React.FC = () => {
     if (!client || !user) return;
     try {
       const finalData = { ...editClientData };
+      
+      // التنظيف التلقائي للرقم
+      const cleanedPartial = cleanPhoneNumber(finalData.phone, client.countryCode || '+20');
+      finalData.phone = (client.countryCode || '+20') + cleanedPartial;
+
       if (finalData.serviceId === 'other' && finalData.customServiceName) {
         finalData.serviceName = finalData.customServiceName;
       } else if (finalData.serviceId) {
@@ -288,6 +294,7 @@ const ClientDetails: React.FC = () => {
               <button onClick={() => setIsEditModalOpen(true)} className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 hover:text-primary-500 transition-colors"><Edit2 size={16}/></button>
             </div>
             <p className="text-primary-500 font-bold flex items-center gap-2 mt-1"><PhoneIncoming size={14}/> {client.phone}</p>
+            <ContactButtons phone={client.phone} className="mt-2" iconSize={14} />
             <div className="flex flex-wrap gap-2 mt-3">
               <span className="bg-primary-100 dark:bg-primary-500/10 text-primary-500 px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1">
                 {client.source === ClientSource.WHATSAPP && <MessageCircle size={10}/>}

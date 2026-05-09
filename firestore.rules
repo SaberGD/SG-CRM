@@ -40,7 +40,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && (request.auth.token.email == "saber.gd.fl@gmail.com" || hasRole('admin'));
+      return isSignedIn() && (request.auth.token.email.lower() == "saber.gd.fl@gmail.com" || hasRole('admin'));
     }
 
     function isManager() {
@@ -161,7 +161,7 @@ service cloud.firestore {
 
     // BULK TRANSFERS
     match /bulk_transfers/{id} {
-      allow read: if isTeamLeader();
+      allow read: if isSignedIn() && (request.auth.token.email.lower() == "saber.gd.fl@gmail.com" || isTeamLeader());
       allow create: if isManager();
       allow update: if isManager();
     }

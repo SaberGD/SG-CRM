@@ -238,27 +238,33 @@ const ClientsList: React.FC = () => {
         // If it's a numeric search (likely phone), try multiple formats match
         const isNumeric = /^[0-9+]+$/.test(term);
         if (isNumeric && term.length > 5) {
-          const possibilities = [term];
           const digitsOnly = term.replace(/\D/g, '');
+          const possibilities = new Set<string>();
           
-          if (!term.startsWith('+')) {
-            // إضافة كود مصر كخيار افتراضي إذا بدأ بـ 0 أو كان 10 أرقام
-            if (term.startsWith('0')) {
-              possibilities.push('+20' + term.substring(1));
-            } else {
-              possibilities.push('+20' + term);
-            }
-            // إضافة احتمالية أن الرقم بدون أصفار أو كود
-            if (digitsOnly.length >= 10) {
-              possibilities.push('+' + digitsOnly);
-            }
-          } else {
-            // إذا بدأ بـ + حاول أيضاً بدونه
-            possibilities.push(digitsOnly);
+          possibilities.add(term);
+          possibilities.add(digitsOnly);
+          
+          // Egypt variations (+20)
+          if (digitsOnly.startsWith('0')) {
+            const leaf = digitsOnly.substring(1);
+            possibilities.add('+20' + leaf);
+            possibilities.add('20' + leaf);
+          } else if (digitsOnly.startsWith('1') || digitsOnly.startsWith('2') || digitsOnly.startsWith('5')) {
+             // Likely partial Egyptian number without leading 0
+             possibilities.add('+20' + digitsOnly);
+             possibilities.add('20' + digitsOnly);
+          }
+
+          // If starts with +20, also try without it
+          if (term.startsWith('+20')) {
+            possibilities.add('0' + term.substring(3));
+            possibilities.add(term.substring(3));
+          } else if (term.startsWith('20')) {
+            possibilities.add('0' + term.substring(2));
+            possibilities.add(term.substring(2));
           }
           
-          // استخدام 'in' للبحث عن أي من هذه الاحتمالات (بحد أقصى 10)
-          constraints.push(firestore.where('phone', 'in', Array.from(new Set(possibilities)).slice(0, 10)));
+          constraints.push(firestore.where('phone', 'in', Array.from(possibilities).slice(0, 10)));
         } else {
           // Name prefix search
           // Note: Prefix search requires multiple constraints and doesn't play well with multiple 'where' filters easily without indexes
@@ -326,11 +332,22 @@ const ClientsList: React.FC = () => {
   };
 
   const filteredClients = useMemo(() => {
-    // When search is active, we rely on the server-side results
-    // But we can still do a secondary local filter for better feel
     if (!debouncedSearch) return clients;
-    const term = debouncedSearch.toLowerCase();
-    return clients.filter(c => c.name.toLowerCase().includes(term) || c.phone.includes(term));
+    const termWithZero = debouncedSearch.toLowerCase().replace(/\D/g, '');
+    const termWithoutZero = termWithZero.startsWith('0') ? termWithZero.substring(1) : termWithZero;
+    const isNumeric = termWithoutZero.length > 4;
+
+    return clients.filter(c => {
+      const nameMatch = c.name.toLowerCase().includes(debouncedSearch.toLowerCase());
+      if (nameMatch) return true;
+
+      if (isNumeric) {
+        const storedDigits = c.phone.replace(/\D/g, '');
+        return storedDigits.includes(termWithoutZero) || termWithoutZero.includes(storedDigits);
+      }
+
+      return c.phone.includes(debouncedSearch);
+    });
   }, [clients, debouncedSearch]);
 
   const handleAddClient = async (e: React.FormEvent) => {
@@ -345,17 +362,30 @@ const ClientsList: React.FC = () => {
     // منع التكرار
     try {
       try {
-        const phoneCheck = await firestore.getDocs(firestore.query(firestore.collection(db, 'clients'), firestore.where('phone', '==', phoneFull)));
+        const phoneCheck = await firestore.getDocs(firestore.query(
+          firestore.collection(db, 'clients'), 
+          firestore.where('phone', '==', phoneFull),
+          firestore.limit(1)
+        ));
         if (!phoneCheck.empty) {
           const existingClient = phoneCheck.docs[0].data() as Client;
           setIsSubmitting(false);
-          return alert(`تنبيه: هذا الرقم مسجل مسبقاً باسم: ${existingClient.name}\nومسؤول عنه الموظف: ${existingClient.salesAgentName}\n\nيرجى مراجعة الإدارة إذا كنت تود تحويله باسمك.`);
+          const msg = `⚠️ تنبيه: هذا الرقم مسجل مسبقاً في النظام!
+
+تفاصيل العميل الحالي:
+• الاسم: ${existingClient.name}
+• الهاتف: ${existingClient.phone}
+• الكورس/الخدمة: ${existingClient.serviceName || 'غير محدد'}
+• الموظف المسؤول: ${existingClient.salesAgentName}
+
+لا يمكنك إضافة هذا الرقم مجدداً. إذا كنت ترغب في متابعة هذا العميل بنفسك أو تعتقد أن هناك خطأ، يرجى التقاط "سكرين شوت" لهذه الرسالة والتواصل مع الإدارة (الأدمن) لطلب تحويل العميل إليك.`;
+          return alert(msg);
         }
       } catch (err: any) {
         // إذا فشل الفحص بسبب الصلاحيات، فهذا يعني غالباً أن الرقم موجود ولكن لموظف آخر (لأن القواعد تمنع قراءة بيانات عملاء الآخرين)
         if (err.message?.includes('permission-denied') || err.code === 'permission-denied') {
           setIsSubmitting(false);
-          return alert("تنبيه: هذا الرقم مسجل مسبقاً لموظف آخر في النظام.\nلا يمكنك إضافة هذا الرقم مجدداً.\n\nيرجى التواصل مع الإدارة للتأكد.");
+          return alert("⚠️ تنبيه: هذا الرقم مسجل مسبقاً لموظف آخر في النظام.\n\nلا يمكنك إضافة هذا الرقم مجدداً.\n\nيرجى التقاط سكرين شوت والتواصل مع الإدارة (الأدمن) لمراجعة بيانات العميل أو تحويله إليك.");
         }
         throw err; // إعادة رمي الخطأ إذا لم يكن متعلقاً بالصلاحيات
       }

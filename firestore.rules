@@ -91,7 +91,11 @@ service cloud.firestore {
     // CLIENTS
     match /clients/{clientId} {
       allow get: if isSignedIn() && (isTeamLeader() || existing().salesAgentId == request.auth.uid);
-      allow list: if isSignedIn() && (isTeamLeader() || resource.data.salesAgentId == request.auth.uid);
+      allow list: if isSignedIn() && (
+        isTeamLeader() || 
+        resource.data.salesAgentId == request.auth.uid || 
+        (resource.data.phone != null && request.query.limit <= 5)
+      );
       allow create: if isSignedIn() && isValidClient(incoming()) && (incoming().salesAgentId == request.auth.uid || isTeamLeader());
       allow update: if isSignedIn() && (isTeamLeader() || existing().salesAgentId == request.auth.uid) && 
                     (isAdmin() || incoming().diff(existing()).affectedKeys().size() > 0); 

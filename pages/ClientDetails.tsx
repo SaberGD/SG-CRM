@@ -314,8 +314,33 @@ const ClientDetails: React.FC = () => {
       const finalData = { ...editClientData };
       
       // التنظيف التلقائي للرقم
-      const cleanedPartial = cleanPhoneNumber(finalData.phone, client.countryCode || '+20');
-      finalData.phone = (client.countryCode || '+20') + cleanedPartial;
+      const currentCode = editClientData.countryCode || client.countryCode || '+20';
+      const cleanedPartial = cleanPhoneNumber(finalData.phone, currentCode);
+      const phoneFull = currentCode + cleanedPartial;
+      finalData.phone = phoneFull;
+
+      // Duplicate check if phone changed
+      if (phoneFull !== client.phone) {
+        const q = firestore.query(
+          firestore.collection(db, 'clients'), 
+          firestore.where('phone', '==', phoneFull),
+          firestore.limit(1)
+        );
+        const dupCheck = await firestore.getDocs(q);
+        if (!dupCheck.empty) {
+          const existing = dupCheck.docs[0].data() as Client;
+          const msg = `⚠️ تنبيه: هذا الرقم مسجل مسبقاً في النظام!
+
+تفاصيل العميل الحالي:
+• الاسم: ${existing.name}
+• الهاتف: ${existing.phone}
+• الكورس/الخدمة: ${existing.serviceName || 'غير محدد'}
+• الموظف المسؤول: ${existing.salesAgentName}
+
+لا يمكنك استخدام هذا الرقم. إذا كنت ترغب في تحويل العميل إليك، يرجى التواصل مع الإدارة.`;
+          return alert(msg);
+        }
+      }
 
       if (finalData.serviceId === 'other' && finalData.customServiceName) {
         finalData.serviceName = finalData.customServiceName;
@@ -327,7 +352,10 @@ const ClientDetails: React.FC = () => {
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), finalData);
       await logActivity(user.uid, user.name, `تحديث بيانات العميل`, client.id, client.name);
       setIsEditModalOpen(false);
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error(err);
+      alert("حدث خطأ أثناء التحديث.");
+    }
   };
 
   if (loading) return <div className="text-center py-40 animate-pulse font-black text-primary-500">جاري تحميل السجل...</div>;

@@ -7,7 +7,7 @@ import { useAuth } from '../App';
 import { 
   Client, ClientStatus, StatusLabels, UserRole, Service, Label, 
   ClientTransfer, BulkTransfer, CommMethod, CommMethodLabels, Gender, LaptopStatus, AttendanceMode,
-  ClientSource, SourceLabels
+  ClientSource, SourceLabels, ARAB_COUNTRIES
 } from '../types';
 import FloatingPanel from '../components/FloatingPanel';
 import { 
@@ -16,18 +16,6 @@ import {
   ExternalLink, Layers, AlertTriangle
 } from 'lucide-react';
 import ContactButtons from '../components/ContactButtons';
-
-const ARAB_COUNTRIES = [
-  { name: 'مصر', code: '+20' },
-  { name: 'السعودية', code: '+966' },
-  { name: 'الإمارات', code: '+971' },
-  { name: 'الكويت', code: '+965' },
-  { name: 'قطر', code: '+974' },
-  { name: 'الأردن', code: '+962' },
-  { name: 'عمان', code: '+968' },
-  { name: 'البحرين', code: '+973' },
-  { name: 'أخرى', code: '' }
-];
 
 // Global cache for clients to reduce reads
 const clientsCache: {
@@ -80,11 +68,12 @@ const ClientsList: React.FC = () => {
   const [recentBulkTransfers, setRecentBulkTransfers] = useState<BulkTransfer[]>([]);
   const [isUndoing, setIsUndoing] = useState(false);
 
+  const [showCountrySelector, setShowCountrySelector] = useState(false);
   const [newClient, setNewClient] = useState({ 
     name: '', phone: '', status: ClientStatus.INTERESTED, 
     source: ClientSource.WHATSAPP, profileLink: '',
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
-    serviceId: '', customServiceName: '', country: 'مصر', countryCode: '+20', 
+    serviceId: '', customServiceName: '', country: '', countryCode: '', 
     labels: [] as string[],
     notes: '',
     preferredMethod: CommMethod.PHONE,
@@ -100,6 +89,57 @@ const ClientsList: React.FC = () => {
     paidAmount: 0,
     remainingAmount: 0
   });
+
+  const handlePhoneChange = (val: string) => {
+    // إزالة المسافات وكافة الرموز غير الرقمية (إلا علامة + في البداية)
+    let cleaned = val.replace(/[^\d+]/g, '');
+    
+    // إذا بدأ بـ + فربما تم لصق كود الدولة
+    let detected = false;
+    if (cleaned.startsWith('+')) {
+      for (const c of ARAB_COUNTRIES) {
+        if (c.code && cleaned.startsWith(c.code)) {
+          // إذا وجد تطابق، نحدث الدولة والرمز والجزء المتبقي من الرقم
+          const rest = cleaned.substring(c.code.length).replace(/^0+/, '');
+          setNewClient(prev => ({
+            ...prev,
+            country: c.name,
+            countryCode: c.code,
+            phone: rest
+          }));
+          setShowCountrySelector(false);
+          detected = true;
+          break;
+        }
+      }
+    } else if (cleaned.startsWith('00')) {
+      // التعامل مع صيغة 00 بدلاً من +
+      const digits = cleaned.substring(2);
+      for (const c of ARAB_COUNTRIES) {
+        const codeDigits = c.code.replace(/\D/g, '');
+        if (codeDigits && digits.startsWith(codeDigits)) {
+          const rest = digits.substring(codeDigits.length).replace(/^0+/, '');
+          setNewClient(prev => ({
+            ...prev,
+            country: c.name,
+            countryCode: c.code,
+            phone: rest
+          }));
+          setShowCountrySelector(false);
+          detected = true;
+          break;
+        }
+      }
+    }
+    
+    if (!detected) {
+      setNewClient(prev => ({...prev, phone: cleaned}));
+      // إظهار اختيار الدولة إذا تم إدخال رقم بدون كود
+      if (cleaned.length > 0) {
+        setShowCountrySelector(true);
+      }
+    }
+  };
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
   const canDelete = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
@@ -194,15 +234,36 @@ const ClientsList: React.FC = () => {
       const isSearchActive = activeSearch.trim().length > 0;
       
       if (isSearchActive) {
-        // If it's a numeric search (likely phone), try exact phone match
-        const isNumeric = /^[0-9+]+$/.test(activeSearch.trim());
-        if (isNumeric && activeSearch.length > 5) {
-          constraints.push(firestore.where('phone', '==', activeSearch.trim()));
+        const term = activeSearch.trim();
+        // If it's a numeric search (likely phone), try multiple formats match
+        const isNumeric = /^[0-9+]+$/.test(term);
+        if (isNumeric && term.length > 5) {
+          const possibilities = [term];
+          const digitsOnly = term.replace(/\D/g, '');
+          
+          if (!term.startsWith('+')) {
+            // إضافة كود مصر كخيار افتراضي إذا بدأ بـ 0 أو كان 10 أرقام
+            if (term.startsWith('0')) {
+              possibilities.push('+20' + term.substring(1));
+            } else {
+              possibilities.push('+20' + term);
+            }
+            // إضافة احتمالية أن الرقم بدون أصفار أو كود
+            if (digitsOnly.length >= 10) {
+              possibilities.push('+' + digitsOnly);
+            }
+          } else {
+            // إذا بدأ بـ + حاول أيضاً بدونه
+            possibilities.push(digitsOnly);
+          }
+          
+          // استخدام 'in' للبحث عن أي من هذه الاحتمالات (بحد أقصى 10)
+          constraints.push(firestore.where('phone', 'in', Array.from(new Set(possibilities)).slice(0, 10)));
         } else {
           // Name prefix search
           // Note: Prefix search requires multiple constraints and doesn't play well with multiple 'where' filters easily without indexes
-          constraints.push(firestore.where('name', '>=', activeSearch));
-          constraints.push(firestore.where('name', '<=', activeSearch + '\uf8ff'));
+          constraints.push(firestore.where('name', '>=', term));
+          constraints.push(firestore.where('name', '<=', term + '\uf8ff'));
           constraints.push(firestore.orderBy('name'));
         }
       } else {
@@ -283,11 +344,20 @@ const ClientsList: React.FC = () => {
     
     // منع التكرار
     try {
-      const phoneCheck = await firestore.getDocs(firestore.query(firestore.collection(db, 'clients'), firestore.where('phone', '==', phoneFull)));
-      if (!phoneCheck.empty) {
-        const existingClient = phoneCheck.docs[0].data() as Client;
-        setIsSubmitting(false);
-        return alert(`هذا الرقم مسجل مسبقاً باسم: ${existingClient.name}\nومسؤول عنه الموظف: ${existingClient.salesAgentName}\n\nيرجى مراجعة الإدارة إذا كنت تود تحويله باسمك.`);
+      try {
+        const phoneCheck = await firestore.getDocs(firestore.query(firestore.collection(db, 'clients'), firestore.where('phone', '==', phoneFull)));
+        if (!phoneCheck.empty) {
+          const existingClient = phoneCheck.docs[0].data() as Client;
+          setIsSubmitting(false);
+          return alert(`تنبيه: هذا الرقم مسجل مسبقاً باسم: ${existingClient.name}\nومسؤول عنه الموظف: ${existingClient.salesAgentName}\n\nيرجى مراجعة الإدارة إذا كنت تود تحويله باسمك.`);
+        }
+      } catch (err: any) {
+        // إذا فشل الفحص بسبب الصلاحيات، فهذا يعني غالباً أن الرقم موجود ولكن لموظف آخر (لأن القواعد تمنع قراءة بيانات عملاء الآخرين)
+        if (err.message?.includes('permission-denied') || err.code === 'permission-denied') {
+          setIsSubmitting(false);
+          return alert("تنبيه: هذا الرقم مسجل مسبقاً لموظف آخر في النظام.\nلا يمكنك إضافة هذا الرقم مجدداً.\n\nيرجى التواصل مع الإدارة للتأكد.");
+        }
+        throw err; // إعادة رمي الخطأ إذا لم يكن متعلقاً بالصلاحيات
       }
 
       const isOtherService = newClient.serviceId === 'other';
@@ -337,15 +407,23 @@ const ClientsList: React.FC = () => {
       }
 
       await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
-      console.log("Client added successfully");
+      
       await logActivity(user.uid, user.name, `إضافة عميل جديد (${newClient.source}): ${newClient.name}`, 'new', newClient.name);
+      
+      setIsSubmitting(false); // تأكيد إغلاق حالة التحميل قبل تغيير الواجهة
       setIsAddModalOpen(false);
+      
       // Reset and Clear cache context so it reloads on next mount or manually reload
       clientsCache.filters = ''; 
-      fetchClients(false);
+      await fetchClients(false);
+      alert("تمت إضافة العميل بنجاح!");
     } catch (err) { 
-      handleFirestoreError(err, OperationType.CREATE, 'clients');
-      alert("حدث خطأ في الصلاحيات أثناء إضافة العميل. يرجى التأكد من إعدادات Firebase.");
+      console.error("Add Client Error:", err);
+      try {
+        handleFirestoreError(err, OperationType.CREATE, 'clients');
+      } catch (finalErr) {
+        alert("حدث خطأ أثناء إضافة العميل: " + (err instanceof Error ? err.message : String(err)));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -805,23 +883,55 @@ const ClientsList: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex gap-4">
-            <div className="w-1/3 space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الدولة</label>
-              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.country} onChange={e => {
-                const country = ARAB_COUNTRIES.find(c => c.name === e.target.value);
-                setNewClient({...newClient, country: e.target.value, countryCode: country?.code || ''});
-              }}>
-                {ARAB_COUNTRIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-              </select>
-            </div>
-            <div className="flex-1 space-y-1.5">
+          <div className="space-y-4">
+            <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف ({newClient.source === ClientSource.WHATSAPP ? 'إجباري' : 'اختياري'})</label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400" dir="ltr">{newClient.countryCode}</span>
-                <input required={newClient.source === ClientSource.WHATSAPP} className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-right dark:text-white" dir="ltr" placeholder="01012345678" value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} />
+              <div className="relative group">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400 transition-colors group-focus-within:text-primary-500" dir="ltr">
+                  {newClient.countryCode || <Globe size={14} className="opacity-50"/>}
+                </span>
+                <input 
+                  required={newClient.source === ClientSource.WHATSAPP} 
+                  className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-right dark:text-white border-2 border-transparent focus:border-primary-500/20 transition-all" 
+                  dir="ltr" 
+                  type="tel"
+                  placeholder="مثال: 01012345678 أو +2010..." 
+                  value={newClient.phone} 
+                  onChange={e => handlePhoneChange(e.target.value)} 
+                  onPaste={(e) => {
+                    setTimeout(() => {
+                      const input = e.target as HTMLInputElement;
+                      handlePhoneChange(input.value);
+                    }, 0);
+                  }}
+                />
               </div>
+              {newClient.country && !showCountrySelector && (
+                <p className="text-[10px] font-bold text-primary-500 mt-1 mr-2 animate-fade-in flex items-center gap-1">
+                  <Globe size={10}/> دولة العميل: {newClient.country} ({newClient.countryCode})
+                  <button type="button" onClick={() => setShowCountrySelector(true)} className="mr-2 text-slate-400 underline hover:text-slate-600 transition-colors">تغيير</button>
+                </p>
+              )}
             </div>
+
+            {showCountrySelector && (
+              <div className="space-y-1.5 animate-fade-in">
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">اختر الدولة (لإضافة كود الدولة تلقائياً)</label>
+                <div className="flex gap-2">
+                  <select className="flex-1 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white border-2 border-primary-500/10" value={newClient.country} onChange={e => {
+                    const country = ARAB_COUNTRIES.find(c => c.name === e.target.value);
+                    setNewClient({...newClient, country: e.target.value, countryCode: country?.code || ''});
+                    setShowCountrySelector(false);
+                  }}>
+                    <option value="">اختر الدولة...</option>
+                    {ARAB_COUNTRIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                  </select>
+                  <button type="button" onClick={() => setShowCountrySelector(false)} className="p-4 text-slate-400 hover:text-rose-500 transition-colors">
+                    <X size={20}/>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">

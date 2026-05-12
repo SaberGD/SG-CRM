@@ -133,7 +133,12 @@ const App: React.FC = () => {
             }
           }
         } catch (error) {
-          handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
+          console.error("Auth initialization error:", error);
+          try {
+            handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
+          } catch (e) {
+            // Error logged, now set fallback
+          }
           const fallbackUser = { uid: firebaseUser.uid, email: firebaseUser.email || '', name: 'مستخدم (محدود)', role: UserRole.SALES_AGENT };
           setUser(fallbackUser);
           setEffectiveRoleState(UserRole.SALES_AGENT);

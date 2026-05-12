@@ -69,6 +69,18 @@ export const SourceLabels: Record<ClientSource, { ar: string }> = {
   [ClientSource.OTHER]: { ar: 'أخرى' }
 };
 
+export const ARAB_COUNTRIES = [
+  { name: 'مصر', code: '+20' },
+  { name: 'السعودية', code: '+966' },
+  { name: 'الإمارات', code: '+971' },
+  { name: 'الكويت', code: '+965' },
+  { name: 'قطر', code: '+974' },
+  { name: 'الأردن', code: '+962' },
+  { name: 'عمان', code: '+968' },
+  { name: 'البحرين', code: '+973' },
+  { name: 'أخرى', code: '' }
+];
+
 export interface Service {
   id: string;
   name: string;

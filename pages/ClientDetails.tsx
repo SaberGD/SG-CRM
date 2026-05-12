@@ -7,7 +7,7 @@ import { useAuth } from '../App';
 import { 
   Client, FollowUp, ClientStatus, CommMethod, StatusLabels, CommMethodLabels,
   UserRole, ActivityLog, Gender, LaptopStatus, AttendanceMode, Service, Label,
-  ClientSource, SourceLabels
+  ClientSource, SourceLabels, ARAB_COUNTRIES
 } from '../types';
 import { 
   Play, Square, Clock, Calendar, History, PhoneIncoming, Clock4, 
@@ -38,6 +38,7 @@ const ClientDetails: React.FC = () => {
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
 
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
+  const [showCountrySelector, setShowCountrySelector] = useState(false);
 
   // Form States
   const [note, setNote] = useState('');
@@ -71,7 +72,8 @@ const ClientDetails: React.FC = () => {
     name: '', phone: '', serviceName: '', serviceId: '', customServiceName: '', status: ClientStatus.INTERESTED,
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
     labels: [] as string[],
-    source: ClientSource.WHATSAPP, profileLink: ''
+    source: ClientSource.WHATSAPP, profileLink: '',
+    country: 'مصر', countryCode: '+20'
   });
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
@@ -95,7 +97,9 @@ const ClientDetails: React.FC = () => {
           mode: data.mode || AttendanceMode.OFFLINE,
           labels: data.labels || [],
           source: data.source || ClientSource.WHATSAPP,
-          profileLink: data.profileLink || ''
+          profileLink: data.profileLink || '',
+          country: data.country || 'مصر',
+          countryCode: data.countryCode || '+20'
         });
         setStatus(data.status);
         setLabels(data.labels || []);
@@ -256,6 +260,52 @@ const ClientDetails: React.FC = () => {
       setIsScheduleModalOpen(false);
       setNextDate('');
     } catch (err) { console.error(err); }
+  };
+
+  const handleEditPhoneChange = (value: string) => {
+    let cleaned = value.replace(/[^\d+]/g, ''); 
+    
+    let detected = false;
+    if (cleaned.startsWith('+')) {
+      for (const country of ARAB_COUNTRIES) {
+        if (country.code && cleaned.startsWith(country.code)) {
+          const rest = cleaned.substring(country.code.length).replace(/^0+/, '');
+          setEditClientData(prev => ({
+            ...prev,
+            phone: rest,
+            country: country.name,
+            countryCode: country.code
+          }));
+          setShowCountrySelector(false);
+          detected = true;
+          break;
+        }
+      }
+    } else if (cleaned.startsWith('00')) {
+      const digits = cleaned.substring(2);
+      for (const c of ARAB_COUNTRIES) {
+        const codeDigits = c.code.replace(/\D/g, '');
+        if (codeDigits && digits.startsWith(codeDigits)) {
+          const rest = digits.substring(codeDigits.length).replace(/^0+/, '');
+          setEditClientData(prev => ({
+            ...prev,
+            phone: rest,
+            country: c.name,
+            countryCode: c.code
+          }));
+          setShowCountrySelector(false);
+          detected = true;
+          break;
+        }
+      }
+    }
+
+    if (!detected) {
+      setEditClientData(prev => ({ ...prev, phone: cleaned }));
+      if (cleaned.length > 0) {
+        setShowCountrySelector(true);
+      }
+    }
   };
 
   const handleUpdateClient = async () => {
@@ -645,9 +695,54 @@ const ClientDetails: React.FC = () => {
                   <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-right" value={editClientData.name} onChange={e => setEditClientData({...editClientData, name: e.target.value})} placeholder="الاسم" />
                </div>
                
-               <div className="space-y-1.5 text-right">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف</label>
-                  <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white text-right" dir="ltr" value={editClientData.phone} onChange={e => setEditClientData({...editClientData, phone: e.target.value})} />
+               <div className="space-y-4">
+                 <div className="space-y-1.5 text-right">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف</label>
+                    <div className="relative group">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400 transition-colors group-focus-within:text-primary-500" dir="ltr">
+                        {editClientData.countryCode || <Globe size={14} className="opacity-50"/>}
+                      </span>
+                      <input 
+                        className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white text-right border-2 border-transparent focus:border-primary-500/20 transition-all" 
+                        dir="ltr" 
+                        type="tel"
+                        placeholder="مثال: 01012345678 أو +2010..." 
+                        value={editClientData.phone} 
+                        onChange={e => handleEditPhoneChange(e.target.value)} 
+                        onPaste={(e) => {
+                          setTimeout(() => {
+                            const input = e.target as HTMLInputElement;
+                            handleEditPhoneChange(input.value);
+                          }, 0);
+                        }}
+                      />
+                    </div>
+                    {editClientData.country && !showCountrySelector && (
+                      <p className="text-[10px] font-bold text-primary-500 mt-1 mr-2 animate-fade-in flex items-center gap-1">
+                        <Globe size={10}/> دولة العميل: {editClientData.country} ({editClientData.countryCode})
+                        <button type="button" onClick={() => setShowCountrySelector(true)} className="mr-2 text-slate-400 underline hover:text-slate-600 transition-colors">تغيير</button>
+                      </p>
+                    )}
+                 </div>
+
+                 {showCountrySelector && (
+                   <div className="space-y-1.5 animate-fade-in text-right">
+                      <label className="text-[10px] font-black text-slate-400 uppercase mr-2">اختر الدولة (لإضافة كود الدولة تلقائياً)</label>
+                      <div className="flex gap-2">
+                        <select className="flex-1 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white border-2 border-primary-500/10" value={editClientData.country} onChange={e => {
+                          const country = ARAB_COUNTRIES.find(c => c.name === e.target.value);
+                          setEditClientData({...editClientData, country: e.target.value, countryCode: country?.code || ''});
+                          setShowCountrySelector(false);
+                        }}>
+                          <option value="">اختر الدولة...</option>
+                          {ARAB_COUNTRIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                        </select>
+                        <button type="button" onClick={() => setShowCountrySelector(false)} className="p-4 text-slate-400 hover:text-rose-500 transition-colors">
+                          <X size={20}/>
+                        </button>
+                      </div>
+                   </div>
+                 )}
                </div>
                
                <div className="space-y-1.5">

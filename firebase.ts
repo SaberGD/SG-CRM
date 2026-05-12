@@ -73,8 +73,8 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 export function cleanPhoneNumber(input: string, countryCode: string): string {
   if (!input) return '';
   
-  // 1. إزالة كافة المسافات والرموز غير الرقمية (إلا علامة + في البداية)
-  let cleaned = input.replace(/[\s\-\(\)]/g, '');
+  // 1. إزالة كافة الرموز غير الرقمية (إلا علامة + في البداية إذا وجدت ولكننا سنركز على الأرقام للتنظيف)
+  let cleaned = input.replace(/[^\d+]/g, '');
   
   // 2. استخراج الأرقام فقط من كود الدولة (مثال: +20 تصبح 20)
   const codeDigits = countryCode.replace(/\D/g, '');

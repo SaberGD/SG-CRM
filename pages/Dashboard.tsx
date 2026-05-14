@@ -5,18 +5,16 @@ import { db } from '../firebase';
 import { useAuth } from '../App';
 import { Client, User, UserRole } from '../types';
 import { 
-  Users, Calendar, PhoneCall, Clock, CalendarDays, AlertTriangle, Filter, ArrowRightLeft, Timer, ChevronLeft, BellRing, Clock4, History, Search
+  Users, Calendar, PhoneCall, Clock, CalendarDays, AlertTriangle, Filter, ArrowRightLeft, Timer, ChevronLeft, BellRing, Clock4, History
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
-import ContactButtons from '../components/ContactButtons';
 
 const Dashboard: React.FC = () => {
   const { user, effectiveRole } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState({ total: 0, today: 0, upcoming: 0, overdue: 0, transfersToday: 0 });
   const [clients, setClients] = useState<Client[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
   const [salesAgents, setSalesAgents] = useState<User[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'today' | '3days' | 'upcoming' | 'overdue'>('today');
@@ -32,7 +30,7 @@ const Dashboard: React.FC = () => {
   }, [effectiveRole]);
 
   useEffect(() => {
-    if (!user || !effectiveRole) return;
+    if (!user) return;
     setLoading(true);
     setError(null);
     
@@ -110,22 +108,8 @@ const Dashboard: React.FC = () => {
   }, [clients]);
 
   const filteredTasks = useMemo(() => {
-    const term = searchTerm.toLowerCase().trim();
-    
     return clients.filter(c => {
       if (!c.nextFollowUpDate) return false;
-      
-      // Search filter
-      if (term) {
-        const nameMatch = c.name.toLowerCase().includes(term);
-        const termDigits = term.replace(/\D/g, '');
-        const phoneMatch = termDigits 
-          ? c.phone.replace(/\D/g, '').includes(termDigits) 
-          : c.phone.includes(term);
-        
-        if (!nameMatch && !phoneMatch) return false;
-      }
-
       const now = Date.now();
       const todayStart = new Date().setHours(0,0,0,0);
       const todayEnd = new Date().setHours(23,59,59,999);
@@ -135,7 +119,7 @@ const Dashboard: React.FC = () => {
       if (activeTab === '3days') return c.nextFollowUpDate > now && c.nextFollowUpDate <= (now + 3 * 24 * 60 * 60 * 1000);
       return c.nextFollowUpDate > todayEnd;
     }).sort((a,b) => (a.nextFollowUpDate || 0) - (b.nextFollowUpDate || 0));
-  }, [clients, activeTab, searchTerm]);
+  }, [clients, activeTab]);
 
   if (loading) return <div className="text-center py-40 animate-pulse font-black text-primary-500 uppercase tracking-widest">جاري تحميل البيانات الذكية...</div>;
 
@@ -210,24 +194,11 @@ const Dashboard: React.FC = () => {
       </div>
 
       <div id="tasks-table" className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 border border-slate-100 dark:border-slate-800 shadow-xl relative">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 border-b border-slate-50 dark:border-slate-800 pb-8">
-          <div className="flex flex-wrap gap-4 overflow-x-auto no-scrollbar py-2">
-            <TabBtn active={activeTab === 'today'} onClick={() => setActiveTab('today')} label="متابعات اليوم" count={stats.today} icon={Calendar} />
-            <TabBtn active={activeTab === 'overdue'} onClick={() => setActiveTab('overdue')} label="المتأخرات" count={stats.overdue} icon={AlertTriangle} danger={stats.overdue > 0} />
-            <TabBtn active={activeTab === '3days'} onClick={() => setActiveTab('3days')} label="قادمة (3 أيام)" icon={CalendarDays} />
-            <TabBtn active={activeTab === 'upcoming'} onClick={() => setActiveTab('upcoming')} label="الكل" icon={Clock} />
-          </div>
-
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input 
-              type="text"
-              placeholder="بحث بالاسم أو رقم الهاتف..."
-              className="w-full pl-6 pr-12 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-xs font-black outline-none border-2 border-transparent focus:border-primary-500/20 transition-all text-right"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+        <div className="flex flex-wrap gap-4 mb-10 border-b border-slate-50 dark:border-slate-800 pb-6 overflow-x-auto no-scrollbar">
+          <TabBtn active={activeTab === 'today'} onClick={() => setActiveTab('today')} label="متابعات اليوم الكاملة" count={stats.today} icon={Calendar} />
+          <TabBtn active={activeTab === 'overdue'} onClick={() => setActiveTab('overdue')} label="كل المتأخرات" count={stats.overdue} icon={AlertTriangle} danger={stats.overdue > 0} />
+          <TabBtn active={activeTab === '3days'} onClick={() => setActiveTab('3days')} label="قادمة (3 أيام)" icon={CalendarDays} />
+          <TabBtn active={activeTab === 'upcoming'} onClick={() => setActiveTab('upcoming')} label="الجدول الزمني الكامل" icon={Clock} />
         </div>
         
         <div className="space-y-4">
@@ -256,7 +227,6 @@ const Dashboard: React.FC = () => {
                   </p>
                   <div className="flex items-center gap-2 justify-end">
                     <span className="text-[10px] font-black uppercase text-slate-400">بواسطة: {task.salesAgentName}</span>
-                    <ContactButtons phone={task.phone} iconSize={14} />
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -344,7 +314,9 @@ const TaskCard: React.FC<{ task: Client, type: 'emergency' | 'today', onManualLo
                  >
                    <History size={18} />
                  </button>
-                 <ContactButtons phone={task.phone} iconSize={18} />
+                 <div className={`p-3 rounded-2xl transition-all shadow-lg ${isEmergency ? 'bg-rose-50 text-rose-500 group-hover:bg-rose-500 group-hover:text-white shadow-rose-500/10' : 'bg-emerald-50 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white shadow-emerald-500/10'}`}>
+                   <PhoneCall size={18} />
+                 </div>
                </div>
             </div>
           </div>

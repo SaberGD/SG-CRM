@@ -22,7 +22,7 @@ const InvitesManager: React.FC = () => {
   const isHighRole = isAdmin || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
 
   useEffect(() => {
-    if (!user || !effectiveRole) return;
+    if (!user) return;
     const q = isAdmin 
       ? query(collection(db, 'invitations'), orderBy('timestamp', 'desc'))
       : query(collection(db, 'invitations'), where('invitedBy', '==', user.uid), orderBy('timestamp', 'desc'));

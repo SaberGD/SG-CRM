@@ -5,17 +5,14 @@ import { db } from '../firebase';
 import { Service } from '../types';
 import { Plus, Edit3, Trash2, CheckCircle2, XCircle } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
-import { useAuth } from '../App';
 
 const ServicesManager: React.FC = () => {
-  const { user, effectiveRole } = useAuth();
   const [services, setServices] = useState<Service[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [formData, setFormData] = useState({ name: '', description: '', category: '', isActive: true });
 
   useEffect(() => {
-    if (!user || !effectiveRole) return;
     const unsub = onSnapshot(collection(db, 'services'), snap => {
       setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
     }, (err) => {

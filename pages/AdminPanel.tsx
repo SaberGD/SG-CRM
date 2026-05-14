@@ -3,14 +3,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 // Added missing import for useNavigate
 import { useNavigate } from 'react-router-dom';
 // Added limit to firebase/firestore imports
-import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy, getDocs, where, limit, writeBatch } from 'firebase/firestore';
-import { db, logActivity, cleanPhoneNumber } from '../firebase';
+import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy, getDocs, where, limit } from 'firebase/firestore';
+import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { User, UserRole, Client, FollowUp, ActivityLog } from '../types';
 import { 
   ShieldCheck, UserCog, Mail, ShieldAlert, Trash2, Search, Edit3, 
   X, Check, Users, Calendar, BarChart, Phone, Eye, ArrowLeft,
-  FileText, Activity, AlertCircle, RefreshCcw, Database
+  FileText, Activity, AlertCircle
 } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
 
@@ -22,7 +22,6 @@ const AdminPanel: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
-  const [isFixingPhones, setIsFixingPhones] = useState(false);
   
   // Modal States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -33,18 +32,13 @@ const AdminPanel: React.FC = () => {
   const [editFormData, setEditFormData] = useState({ name: '', email: '', role: UserRole.SALES_AGENT });
 
   useEffect(() => {
-    if (!user?.uid || !user?.role) return;
-    
-    // CRITICAL: Block listeners if not admin
-    if (user.role !== UserRole.ADMIN) {
-      setLoading(false);
-      return;
-    }
-
+    // جلب كافة المستخدمين بدون أي فلترة أو ترتيب من جهة السيرفر لضمان ظهور الجميع
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       const allUsers = snap.docs.map(d => ({ uid: d.id, ...d.data() } as User));
       
+      // الترتيب برمجياً هنا لضمان عدم اختفاء أي مستخدم
       const sorted = allUsers.sort((a, b) => {
+        // نضع المستخدم الحالي أولاً للسهولة
         if (a.uid === user?.uid) return -1;
         if (b.uid === user?.uid) return 1;
         const nameA = a.name || a.email || '';
@@ -149,43 +143,6 @@ const AdminPanel: React.FC = () => {
     }
   };
 
-  const handleFixPhones = async () => {
-    if (isFixingPhones) return;
-    if (!window.confirm("سيقوم هذا الإجراء بفحص كافة العملاء وتصحيح أرقام الهاتف (إزالة المسافات، معالجة كود الدولة المكرر). هل تود الاستمرار؟")) return;
-    
-    setIsFixingPhones(true);
-    try {
-      const snap = await getDocs(collection(db, 'clients'));
-      const batch = writeBatch(db);
-      let count = 0;
-      
-      snap.docs.forEach(d => {
-        const data = d.data() as Client;
-        const cCode = data.countryCode || '+20';
-        const cleanedPartial = cleanPhoneNumber(data.phone, cCode);
-        const expectedFull = cCode + cleanedPartial;
-        
-        if (data.phone !== expectedFull) {
-          batch.update(d.ref, { phone: expectedFull });
-          count++;
-        }
-      });
-      
-      if (count > 0) {
-        await batch.commit();
-        alert(`تم تصحيح ${count} رقم هاتف بنجاح!`);
-        await logActivity(user!.uid, user!.name, `تصحيح أرقام الهاتف جماعياً`, 'system', `${count} عميل`);
-      } else {
-        alert("كافة الأرقام سليمة بالفعل.");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("حدث خطأ أثناء التصحيح الجماعي.");
-    } finally {
-      setIsFixingPhones(false);
-    }
-  };
-
   const filteredUsers = users.filter(u => 
     (u.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
     (u.email || '').toLowerCase().includes(searchTerm.toLowerCase())
@@ -213,36 +170,23 @@ const AdminPanel: React.FC = () => {
           </h1>
           <p className="text-slate-500 font-bold mt-1">عرض والتحكم في كافة مستخدمي وصلاحيات النظام</p>
         </div>
-        <div className="flex gap-2">
-           <div className="relative w-full md:w-80">
-            <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input 
-              type="text" 
-              placeholder="بحث عن اسم أو بريد..." 
-              className="w-full pr-12 pl-4 py-4 bg-white dark:bg-slate-900 rounded-2xl outline-none font-bold text-sm border border-slate-100 dark:border-slate-800 shadow-sm focus:border-primary-500/50 transition-all"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+        <div className="relative w-full md:w-80">
+          <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input 
+            type="text" 
+            placeholder="بحث عن اسم أو بريد..." 
+            className="w-full pr-12 pl-4 py-4 bg-white dark:bg-slate-900 rounded-2xl outline-none font-bold text-sm border border-slate-100 dark:border-slate-800 shadow-sm focus:border-primary-500/50 transition-all"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
       </header>
 
       {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <QuickSummary icon={Users} label="إجمالي الفريق" value={users.length} color="bg-primary-500" />
         <QuickSummary icon={UserCog} label="المسؤولين" value={users.filter(u => u.role !== UserRole.SALES_AGENT).length} color="bg-amber-500" />
         <QuickSummary icon={Activity} label="المبيعات والوكلاء" value={users.filter(u => u.role === UserRole.SALES_AGENT).length} color="bg-emerald-500" />
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-center items-center text-center gap-2 group hover:shadow-xl transition-all">
-           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">إدارة قواعد البيانات</p>
-           <button 
-             onClick={handleFixPhones}
-             disabled={isFixingPhones}
-             className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-[10px] font-black text-slate-600 dark:text-slate-300 hover:bg-primary-500 hover:text-white transition-all disabled:opacity-50"
-           >
-             {isFixingPhones ? <RefreshCcw className="animate-spin" size={14}/> : <Database size={14}/>}
-             تصحيح أرقام الهواتف
-           </button>
-        </div>
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">

@@ -2,23 +2,14 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ActivityLog, UserRole } from '../types';
+import { ActivityLog } from '../types';
 import { Clock, User, UserPlus, Edit3, PhoneIncoming } from 'lucide-react';
-import { useAuth } from '../App';
 
 const ActivityLogs: React.FC = () => {
-  const { user, effectiveRole } = useAuth();
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
-
   useEffect(() => {
-    if (!isHighRole) {
-      setLoading(false);
-      return;
-    }
-    
     const q = query(collection(db, 'logs'), orderBy('timestamp', 'desc'), limit(50));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivityLog)));

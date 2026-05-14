@@ -49,7 +49,7 @@ const Notifications: React.FC = () => {
   }, [isHighRole]);
 
   useEffect(() => {
-    if (!user || !effectiveRole) return;
+    if (!user) return;
     setLoading(true);
     
     const clientsRef = collection(db, 'clients');

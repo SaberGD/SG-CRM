@@ -2,12 +2,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
-import { db, logActivity, handleFirestoreError, OperationType, cleanPhoneNumber } from '../firebase';
+import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../App';
 import { 
   Client, ClientStatus, StatusLabels, UserRole, Service, Label, 
   ClientTransfer, BulkTransfer, CommMethod, CommMethodLabels, Gender, LaptopStatus, AttendanceMode,
-  ClientSource, SourceLabels, ARAB_COUNTRIES
+  ClientSource, SourceLabels
 } from '../types';
 import FloatingPanel from '../components/FloatingPanel';
 import { 
@@ -15,7 +15,18 @@ import {
   Phone, Calendar, MessageSquare, User, Laptop, Globe, Clock, X,
   ExternalLink, Layers, AlertTriangle
 } from 'lucide-react';
-import ContactButtons from '../components/ContactButtons';
+
+const ARAB_COUNTRIES = [
+  { name: 'مصر', code: '+20' },
+  { name: 'السعودية', code: '+966' },
+  { name: 'الإمارات', code: '+971' },
+  { name: 'الكويت', code: '+965' },
+  { name: 'قطر', code: '+974' },
+  { name: 'الأردن', code: '+962' },
+  { name: 'عمان', code: '+968' },
+  { name: 'البحرين', code: '+973' },
+  { name: 'أخرى', code: '' }
+];
 
 // Global cache for clients to reduce reads
 const clientsCache: {
@@ -68,12 +79,11 @@ const ClientsList: React.FC = () => {
   const [recentBulkTransfers, setRecentBulkTransfers] = useState<BulkTransfer[]>([]);
   const [isUndoing, setIsUndoing] = useState(false);
 
-  const [showCountrySelector, setShowCountrySelector] = useState(false);
   const [newClient, setNewClient] = useState({ 
     name: '', phone: '', status: ClientStatus.INTERESTED, 
     source: ClientSource.WHATSAPP, profileLink: '',
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
-    serviceId: '', customServiceName: '', country: '', countryCode: '', 
+    serviceId: '', customServiceName: '', country: 'مصر', countryCode: '+20', 
     labels: [] as string[],
     notes: '',
     preferredMethod: CommMethod.PHONE,
@@ -90,57 +100,6 @@ const ClientsList: React.FC = () => {
     remainingAmount: 0
   });
 
-  const handlePhoneChange = (val: string) => {
-    // إزالة المسافات وكافة الرموز غير الرقمية (إلا علامة + في البداية)
-    let cleaned = val.replace(/[^\d+]/g, '');
-    
-    // إذا بدأ بـ + فربما تم لصق كود الدولة
-    let detected = false;
-    if (cleaned.startsWith('+')) {
-      for (const c of ARAB_COUNTRIES) {
-        if (c.code && cleaned.startsWith(c.code)) {
-          // إذا وجد تطابق، نحدث الدولة والرمز والجزء المتبقي من الرقم
-          const rest = cleaned.substring(c.code.length).replace(/^0+/, '');
-          setNewClient(prev => ({
-            ...prev,
-            country: c.name,
-            countryCode: c.code,
-            phone: rest
-          }));
-          setShowCountrySelector(false);
-          detected = true;
-          break;
-        }
-      }
-    } else if (cleaned.startsWith('00')) {
-      // التعامل مع صيغة 00 بدلاً من +
-      const digits = cleaned.substring(2);
-      for (const c of ARAB_COUNTRIES) {
-        const codeDigits = c.code.replace(/\D/g, '');
-        if (codeDigits && digits.startsWith(codeDigits)) {
-          const rest = digits.substring(codeDigits.length).replace(/^0+/, '');
-          setNewClient(prev => ({
-            ...prev,
-            country: c.name,
-            countryCode: c.code,
-            phone: rest
-          }));
-          setShowCountrySelector(false);
-          detected = true;
-          break;
-        }
-      }
-    }
-    
-    if (!detected) {
-      setNewClient(prev => ({...prev, phone: cleaned}));
-      // إظهار اختيار الدولة إذا تم إدخال رقم بدون كود
-      if (cleaned.length > 0) {
-        setShowCountrySelector(true);
-      }
-    }
-  };
-
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
   const canDelete = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
 
@@ -153,7 +112,7 @@ const ClientsList: React.FC = () => {
   }, [searchTerm]);
 
   useEffect(() => {
-    if (authLoading || !user || !effectiveRole) return;
+    if (authLoading || !user) return;
     
     // Create a key for the current combination of filters
     const currentFiltersKey = JSON.stringify({
@@ -203,8 +162,6 @@ const ClientsList: React.FC = () => {
         ), 
         snap => {
           setRecentBulkTransfers(snap.docs.map(d => ({ id: d.id, ...d.data() } as BulkTransfer)));
-        }, (err) => {
-          handleFirestoreError(err, OperationType.LIST, 'bulk_transfers');
         }
       );
       return () => {
@@ -234,42 +191,15 @@ const ClientsList: React.FC = () => {
       const isSearchActive = activeSearch.trim().length > 0;
       
       if (isSearchActive) {
-        const term = activeSearch.trim();
-        // If it's a numeric search (likely phone), try multiple formats match
-        const isNumeric = /^[0-9+]+$/.test(term);
-        if (isNumeric && term.length > 5) {
-          const digitsOnly = term.replace(/\D/g, '');
-          const possibilities = new Set<string>();
-          
-          possibilities.add(term);
-          possibilities.add(digitsOnly);
-          
-          // Egypt variations (+20)
-          if (digitsOnly.startsWith('0')) {
-            const leaf = digitsOnly.substring(1);
-            possibilities.add('+20' + leaf);
-            possibilities.add('20' + leaf);
-          } else if (digitsOnly.startsWith('1') || digitsOnly.startsWith('2') || digitsOnly.startsWith('5')) {
-             // Likely partial Egyptian number without leading 0
-             possibilities.add('+20' + digitsOnly);
-             possibilities.add('20' + digitsOnly);
-          }
-
-          // If starts with +20, also try without it
-          if (term.startsWith('+20')) {
-            possibilities.add('0' + term.substring(3));
-            possibilities.add(term.substring(3));
-          } else if (term.startsWith('20')) {
-            possibilities.add('0' + term.substring(2));
-            possibilities.add(term.substring(2));
-          }
-          
-          constraints.push(firestore.where('phone', 'in', Array.from(possibilities).slice(0, 10)));
+        // If it's a numeric search (likely phone), try exact phone match
+        const isNumeric = /^[0-9+]+$/.test(activeSearch.trim());
+        if (isNumeric && activeSearch.length > 5) {
+          constraints.push(firestore.where('phone', '==', activeSearch.trim()));
         } else {
           // Name prefix search
           // Note: Prefix search requires multiple constraints and doesn't play well with multiple 'where' filters easily without indexes
-          constraints.push(firestore.where('name', '>=', term));
-          constraints.push(firestore.where('name', '<=', term + '\uf8ff'));
+          constraints.push(firestore.where('name', '>=', activeSearch));
+          constraints.push(firestore.where('name', '<=', activeSearch + '\uf8ff'));
           constraints.push(firestore.orderBy('name'));
         }
       } else {
@@ -332,22 +262,11 @@ const ClientsList: React.FC = () => {
   };
 
   const filteredClients = useMemo(() => {
+    // When search is active, we rely on the server-side results
+    // But we can still do a secondary local filter for better feel
     if (!debouncedSearch) return clients;
-    const termWithZero = debouncedSearch.toLowerCase().replace(/\D/g, '');
-    const termWithoutZero = termWithZero.startsWith('0') ? termWithZero.substring(1) : termWithZero;
-    const isNumeric = termWithoutZero.length > 4;
-
-    return clients.filter(c => {
-      const nameMatch = c.name.toLowerCase().includes(debouncedSearch.toLowerCase());
-      if (nameMatch) return true;
-
-      if (isNumeric) {
-        const storedDigits = c.phone.replace(/\D/g, '');
-        return storedDigits.includes(termWithoutZero) || termWithoutZero.includes(storedDigits);
-      }
-
-      return c.phone.includes(debouncedSearch);
-    });
+    const term = debouncedSearch.toLowerCase();
+    return clients.filter(c => c.name.toLowerCase().includes(term) || c.phone.includes(term));
   }, [clients, debouncedSearch]);
 
   const handleAddClient = async (e: React.FormEvent) => {
@@ -355,39 +274,15 @@ const ClientsList: React.FC = () => {
     if (!user || isSubmitting) return;
     setIsSubmitting(true);
     
-    // تنظيف الرقم وإزالة كود الدولة إذا كان مكرراً
-    const cleanedPartial = cleanPhoneNumber(newClient.phone, newClient.countryCode);
-    const phoneFull = newClient.countryCode + cleanedPartial;
+    const phoneFull = newClient.countryCode + newClient.phone.replace(/^0+/, '').trim();
     
     // منع التكرار
     try {
-      try {
-        const phoneCheck = await firestore.getDocs(firestore.query(
-          firestore.collection(db, 'clients'), 
-          firestore.where('phone', '==', phoneFull),
-          firestore.limit(1)
-        ));
-        if (!phoneCheck.empty) {
-          const existingClient = phoneCheck.docs[0].data() as Client;
-          setIsSubmitting(false);
-          const msg = `⚠️ تنبيه: هذا الرقم مسجل مسبقاً في النظام!
-
-تفاصيل العميل الحالي:
-• الاسم: ${existingClient.name}
-• الهاتف: ${existingClient.phone}
-• الكورس/الخدمة: ${existingClient.serviceName || 'غير محدد'}
-• الموظف المسؤول: ${existingClient.salesAgentName}
-
-لا يمكنك إضافة هذا الرقم مجدداً. إذا كنت ترغب في متابعة هذا العميل بنفسك أو تعتقد أن هناك خطأ، يرجى التقاط "سكرين شوت" لهذه الرسالة والتواصل مع الإدارة (الأدمن) لطلب تحويل العميل إليك.`;
-          return alert(msg);
-        }
-      } catch (err: any) {
-        // إذا فشل الفحص بسبب الصلاحيات، فهذا يعني غالباً أن الرقم موجود ولكن لموظف آخر (لأن القواعد تمنع قراءة بيانات عملاء الآخرين)
-        if (err.message?.includes('permission-denied') || err.code === 'permission-denied') {
-          setIsSubmitting(false);
-          return alert("⚠️ تنبيه: هذا الرقم مسجل مسبقاً لموظف آخر في النظام.\n\nلا يمكنك إضافة هذا الرقم مجدداً.\n\nيرجى التقاط سكرين شوت والتواصل مع الإدارة (الأدمن) لمراجعة بيانات العميل أو تحويله إليك.");
-        }
-        throw err; // إعادة رمي الخطأ إذا لم يكن متعلقاً بالصلاحيات
+      const phoneCheck = await firestore.getDocs(firestore.query(firestore.collection(db, 'clients'), firestore.where('phone', '==', phoneFull)));
+      if (!phoneCheck.empty) {
+        const existingClient = phoneCheck.docs[0].data() as Client;
+        setIsSubmitting(false);
+        return alert(`هذا الرقم مسجل مسبقاً باسم: ${existingClient.name}\nومسؤول عنه الموظف: ${existingClient.salesAgentName}\n\nيرجى مراجعة الإدارة إذا كنت تود تحويله باسمك.`);
       }
 
       const isOtherService = newClient.serviceId === 'other';
@@ -437,23 +332,15 @@ const ClientsList: React.FC = () => {
       }
 
       await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
-      
+      console.log("Client added successfully");
       await logActivity(user.uid, user.name, `إضافة عميل جديد (${newClient.source}): ${newClient.name}`, 'new', newClient.name);
-      
-      setIsSubmitting(false); // تأكيد إغلاق حالة التحميل قبل تغيير الواجهة
       setIsAddModalOpen(false);
-      
       // Reset and Clear cache context so it reloads on next mount or manually reload
       clientsCache.filters = ''; 
-      await fetchClients(false);
-      alert("تمت إضافة العميل بنجاح!");
+      fetchClients(false);
     } catch (err) { 
-      console.error("Add Client Error:", err);
-      try {
-        handleFirestoreError(err, OperationType.CREATE, 'clients');
-      } catch (finalErr) {
-        alert("حدث خطأ أثناء إضافة العميل: " + (err instanceof Error ? err.message : String(err)));
-      }
+      handleFirestoreError(err, OperationType.CREATE, 'clients');
+      alert("حدث خطأ في الصلاحيات أثناء إضافة العميل. يرجى التأكد من إعدادات Firebase.");
     } finally {
       setIsSubmitting(false);
     }
@@ -646,7 +533,7 @@ const ClientsList: React.FC = () => {
 
       {/* Filters */}
       <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="relative">
               <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
@@ -663,23 +550,19 @@ const ClientsList: React.FC = () => {
               <option value="all">كل الخدمات المطلوبة</option>
               {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-            <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
-              <option value="all">كل التصنيفات (Labels)</option>
-              {allLabels.map(l => <option key={l.id} value={l.id}>{l.text}</option>)}
-            </select>
+            {isHighRole && (
+               <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterSalesAgent} onChange={e => setFilterSalesAgent(e.target.value)}>
+               <option value="all">كل السيلز</option>
+               {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+             </select>
+            )}
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-            {isHighRole ? (
-               <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterSalesAgent} onChange={e => setFilterSalesAgent(e.target.value)}>
-                <option value="all">كل السيلز</option>
-                {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            ) : (
-              <div className="bg-slate-50/50 dark:bg-slate-800/50 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-400 flex items-center justify-center">
-                فلترة متقدمة
-              </div>
-            )}
+            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
+              <option value="all">كل التصنيفات (Labels)</option>
+              {allLabels.map(l => <option key={l.id} value={l.id}>{l.text}</option>)}
+            </select>
             
             <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterBookedCourse} onChange={e => setFilterBookedCourse(e.target.value)}>
               <option value="all">الكورس المحجوز</option>
@@ -767,28 +650,11 @@ const ClientsList: React.FC = () => {
                       <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : 'بدون لابتوب'}</span>
                       <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : 'أوفلاين'}</span>
                     </div>
-                    {client.labels && client.labels.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {client.labels.map(labelId => {
-                          const label = allLabels.find(l => l.id === labelId);
-                          if (!label) return null;
-                          return (
-                            <span 
-                              key={labelId} 
-                              className="px-2 py-0.5 rounded text-[7px] font-black"
-                              style={{ backgroundColor: `${label.color}20`, color: label.color, border: `1px solid ${label.color}40` }}
-                            >
-                              {label.text}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
                   </td>
                   <td className="px-8 py-6 text-center text-[10px] text-slate-500 font-bold italic">{client.salesAgentName}</td>
                   <td className="px-8 py-6">
                     <div className="flex justify-center gap-2">
-                      <ContactButtons phone={client.phone} iconSize={16} />
+                      <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="p-2.5 bg-emerald-50 text-emerald-500 rounded-xl hover:scale-110 transition-all dark:bg-emerald-500/10"><MessageCircle size={16} /></a>
                       <button onClick={() => navigate(`/clients/${client.id}`)} title="عرض السجل والمتابعة" className="p-2.5 bg-primary-50 text-primary-500 rounded-xl hover:scale-110 transition-all dark:bg-primary-500/10"><History size={16} /></button>
                       {isHighRole && (
                         <button onClick={() => { setSelectedClient(client); setIsTransferModalOpen(true); }} title="تحويل العميل لموظف آخر" className="p-2.5 bg-amber-50 text-amber-500 rounded-xl hover:scale-110 transition-all dark:bg-amber-500/10"><ArrowRightLeft size={16} /></button>
@@ -913,55 +779,23 @@ const ClientsList: React.FC = () => {
             </div>
           </div>
 
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف ({newClient.source === ClientSource.WHATSAPP ? 'إجباري' : 'اختياري'})</label>
-              <div className="relative group">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400 transition-colors group-focus-within:text-primary-500" dir="ltr">
-                  {newClient.countryCode || <Globe size={14} className="opacity-50"/>}
-                </span>
-                <input 
-                  required={newClient.source === ClientSource.WHATSAPP} 
-                  className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-right dark:text-white border-2 border-transparent focus:border-primary-500/20 transition-all" 
-                  dir="ltr" 
-                  type="tel"
-                  placeholder="مثال: 01012345678 أو +2010..." 
-                  value={newClient.phone} 
-                  onChange={e => handlePhoneChange(e.target.value)} 
-                  onPaste={(e) => {
-                    setTimeout(() => {
-                      const input = e.target as HTMLInputElement;
-                      handlePhoneChange(input.value);
-                    }, 0);
-                  }}
-                />
-              </div>
-              {newClient.country && !showCountrySelector && (
-                <p className="text-[10px] font-bold text-primary-500 mt-1 mr-2 animate-fade-in flex items-center gap-1">
-                  <Globe size={10}/> دولة العميل: {newClient.country} ({newClient.countryCode})
-                  <button type="button" onClick={() => setShowCountrySelector(true)} className="mr-2 text-slate-400 underline hover:text-slate-600 transition-colors">تغيير</button>
-                </p>
-              )}
+          <div className="flex gap-4">
+            <div className="w-1/3 space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الدولة</label>
+              <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.country} onChange={e => {
+                const country = ARAB_COUNTRIES.find(c => c.name === e.target.value);
+                setNewClient({...newClient, country: e.target.value, countryCode: country?.code || ''});
+              }}>
+                {ARAB_COUNTRIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+              </select>
             </div>
-
-            {showCountrySelector && (
-              <div className="space-y-1.5 animate-fade-in">
-                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">اختر الدولة (لإضافة كود الدولة تلقائياً)</label>
-                <div className="flex gap-2">
-                  <select className="flex-1 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white border-2 border-primary-500/10" value={newClient.country} onChange={e => {
-                    const country = ARAB_COUNTRIES.find(c => c.name === e.target.value);
-                    setNewClient({...newClient, country: e.target.value, countryCode: country?.code || ''});
-                    setShowCountrySelector(false);
-                  }}>
-                    <option value="">اختر الدولة...</option>
-                    {ARAB_COUNTRIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                  </select>
-                  <button type="button" onClick={() => setShowCountrySelector(false)} className="p-4 text-slate-400 hover:text-rose-500 transition-colors">
-                    <X size={20}/>
-                  </button>
-                </div>
+            <div className="flex-1 space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف ({newClient.source === ClientSource.WHATSAPP ? 'إجباري' : 'اختياري'})</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400" dir="ltr">{newClient.countryCode}</span>
+                <input required={newClient.source === ClientSource.WHATSAPP} className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-right dark:text-white" dir="ltr" placeholder="01012345678" value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} />
               </div>
-            )}
+            </div>
           </div>
 
           <div className="space-y-1.5">

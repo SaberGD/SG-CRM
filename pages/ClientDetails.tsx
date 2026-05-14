@@ -2,12 +2,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
-import { db, logActivity, cleanPhoneNumber } from '../firebase';
+import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { 
   Client, FollowUp, ClientStatus, CommMethod, StatusLabels, CommMethodLabels,
   UserRole, ActivityLog, Gender, LaptopStatus, AttendanceMode, Service, Label,
-  ClientSource, SourceLabels, ARAB_COUNTRIES
+  ClientSource, SourceLabels
 } from '../types';
 import { 
   Play, Square, Clock, Calendar, History, PhoneIncoming, Clock4, 
@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
-import ContactButtons from '../components/ContactButtons';
 
 const ClientDetails: React.FC = () => {
   const { id } = useParams();
@@ -38,7 +37,6 @@ const ClientDetails: React.FC = () => {
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
 
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
-  const [showCountrySelector, setShowCountrySelector] = useState(false);
 
   // Form States
   const [note, setNote] = useState('');
@@ -72,8 +70,7 @@ const ClientDetails: React.FC = () => {
     name: '', phone: '', serviceName: '', serviceId: '', customServiceName: '', status: ClientStatus.INTERESTED,
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
     labels: [] as string[],
-    source: ClientSource.WHATSAPP, profileLink: '',
-    country: 'مصر', countryCode: '+20'
+    source: ClientSource.WHATSAPP, profileLink: ''
   });
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
@@ -97,9 +94,7 @@ const ClientDetails: React.FC = () => {
           mode: data.mode || AttendanceMode.OFFLINE,
           labels: data.labels || [],
           source: data.source || ClientSource.WHATSAPP,
-          profileLink: data.profileLink || '',
-          country: data.country || 'مصر',
-          countryCode: data.countryCode || '+20'
+          profileLink: data.profileLink || ''
         });
         setStatus(data.status);
         setLabels(data.labels || []);
@@ -119,14 +114,14 @@ const ClientDetails: React.FC = () => {
       }
     );
 
-    const unsubLogs = isHighRole ? firestore.onSnapshot(
+    const unsubLogs = firestore.onSnapshot(
       firestore.query(firestore.collection(db, 'logs'), firestore.where('targetId', '==', id), firestore.orderBy('timestamp', 'desc')),
       (snap) => {
         setActivityLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as ActivityLog)));
       }, (err) => {
         console.error("ClientDetails Logs Snapshot Error:", err);
       }
-    ) : () => {};
+    );
 
     const unsubServices = firestore.onSnapshot(firestore.collection(db, 'services'), (snap) => {
       setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
@@ -262,86 +257,10 @@ const ClientDetails: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
-  const handleEditPhoneChange = (value: string) => {
-    let cleaned = value.replace(/[^\d+]/g, ''); 
-    
-    let detected = false;
-    if (cleaned.startsWith('+')) {
-      for (const country of ARAB_COUNTRIES) {
-        if (country.code && cleaned.startsWith(country.code)) {
-          const rest = cleaned.substring(country.code.length).replace(/^0+/, '');
-          setEditClientData(prev => ({
-            ...prev,
-            phone: rest,
-            country: country.name,
-            countryCode: country.code
-          }));
-          setShowCountrySelector(false);
-          detected = true;
-          break;
-        }
-      }
-    } else if (cleaned.startsWith('00')) {
-      const digits = cleaned.substring(2);
-      for (const c of ARAB_COUNTRIES) {
-        const codeDigits = c.code.replace(/\D/g, '');
-        if (codeDigits && digits.startsWith(codeDigits)) {
-          const rest = digits.substring(codeDigits.length).replace(/^0+/, '');
-          setEditClientData(prev => ({
-            ...prev,
-            phone: rest,
-            country: c.name,
-            countryCode: c.code
-          }));
-          setShowCountrySelector(false);
-          detected = true;
-          break;
-        }
-      }
-    }
-
-    if (!detected) {
-      setEditClientData(prev => ({ ...prev, phone: cleaned }));
-      if (cleaned.length > 0) {
-        setShowCountrySelector(true);
-      }
-    }
-  };
-
   const handleUpdateClient = async () => {
     if (!client || !user) return;
     try {
       const finalData = { ...editClientData };
-      
-      // التنظيف التلقائي للرقم
-      const currentCode = editClientData.countryCode || client.countryCode || '+20';
-      const cleanedPartial = cleanPhoneNumber(finalData.phone, currentCode);
-      const phoneFull = currentCode + cleanedPartial;
-      finalData.phone = phoneFull;
-
-      // Duplicate check if phone changed
-      if (phoneFull !== client.phone) {
-        const q = firestore.query(
-          firestore.collection(db, 'clients'), 
-          firestore.where('phone', '==', phoneFull),
-          firestore.limit(1)
-        );
-        const dupCheck = await firestore.getDocs(q);
-        if (!dupCheck.empty) {
-          const existing = dupCheck.docs[0].data() as Client;
-          const msg = `⚠️ تنبيه: هذا الرقم مسجل مسبقاً في النظام!
-
-تفاصيل العميل الحالي:
-• الاسم: ${existing.name}
-• الهاتف: ${existing.phone}
-• الكورس/الخدمة: ${existing.serviceName || 'غير محدد'}
-• الموظف المسؤول: ${existing.salesAgentName}
-
-لا يمكنك استخدام هذا الرقم. إذا كنت ترغب في تحويل العميل إليك، يرجى التواصل مع الإدارة.`;
-          return alert(msg);
-        }
-      }
-
       if (finalData.serviceId === 'other' && finalData.customServiceName) {
         finalData.serviceName = finalData.customServiceName;
       } else if (finalData.serviceId) {
@@ -352,10 +271,7 @@ const ClientDetails: React.FC = () => {
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), finalData);
       await logActivity(user.uid, user.name, `تحديث بيانات العميل`, client.id, client.name);
       setIsEditModalOpen(false);
-    } catch (err) { 
-      console.error(err);
-      alert("حدث خطأ أثناء التحديث.");
-    }
+    } catch (err) { console.error(err); }
   };
 
   if (loading) return <div className="text-center py-40 animate-pulse font-black text-primary-500">جاري تحميل السجل...</div>;
@@ -372,7 +288,6 @@ const ClientDetails: React.FC = () => {
               <button onClick={() => setIsEditModalOpen(true)} className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 hover:text-primary-500 transition-colors"><Edit2 size={16}/></button>
             </div>
             <p className="text-primary-500 font-bold flex items-center gap-2 mt-1"><PhoneIncoming size={14}/> {client.phone}</p>
-            <ContactButtons phone={client.phone} className="mt-2" iconSize={14} />
             <div className="flex flex-wrap gap-2 mt-3">
               <span className="bg-primary-100 dark:bg-primary-500/10 text-primary-500 px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1">
                 {client.source === ClientSource.WHATSAPP && <MessageCircle size={10}/>}
@@ -723,54 +638,9 @@ const ClientDetails: React.FC = () => {
                   <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-right" value={editClientData.name} onChange={e => setEditClientData({...editClientData, name: e.target.value})} placeholder="الاسم" />
                </div>
                
-               <div className="space-y-4">
-                 <div className="space-y-1.5 text-right">
-                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف</label>
-                    <div className="relative group">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400 transition-colors group-focus-within:text-primary-500" dir="ltr">
-                        {editClientData.countryCode || <Globe size={14} className="opacity-50"/>}
-                      </span>
-                      <input 
-                        className="w-full p-4 pl-16 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white text-right border-2 border-transparent focus:border-primary-500/20 transition-all" 
-                        dir="ltr" 
-                        type="tel"
-                        placeholder="مثال: 01012345678 أو +2010..." 
-                        value={editClientData.phone} 
-                        onChange={e => handleEditPhoneChange(e.target.value)} 
-                        onPaste={(e) => {
-                          setTimeout(() => {
-                            const input = e.target as HTMLInputElement;
-                            handleEditPhoneChange(input.value);
-                          }, 0);
-                        }}
-                      />
-                    </div>
-                    {editClientData.country && !showCountrySelector && (
-                      <p className="text-[10px] font-bold text-primary-500 mt-1 mr-2 animate-fade-in flex items-center gap-1">
-                        <Globe size={10}/> دولة العميل: {editClientData.country} ({editClientData.countryCode})
-                        <button type="button" onClick={() => setShowCountrySelector(true)} className="mr-2 text-slate-400 underline hover:text-slate-600 transition-colors">تغيير</button>
-                      </p>
-                    )}
-                 </div>
-
-                 {showCountrySelector && (
-                   <div className="space-y-1.5 animate-fade-in text-right">
-                      <label className="text-[10px] font-black text-slate-400 uppercase mr-2">اختر الدولة (لإضافة كود الدولة تلقائياً)</label>
-                      <div className="flex gap-2">
-                        <select className="flex-1 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white border-2 border-primary-500/10" value={editClientData.country} onChange={e => {
-                          const country = ARAB_COUNTRIES.find(c => c.name === e.target.value);
-                          setEditClientData({...editClientData, country: e.target.value, countryCode: country?.code || ''});
-                          setShowCountrySelector(false);
-                        }}>
-                          <option value="">اختر الدولة...</option>
-                          {ARAB_COUNTRIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                        </select>
-                        <button type="button" onClick={() => setShowCountrySelector(false)} className="p-4 text-slate-400 hover:text-rose-500 transition-colors">
-                          <X size={20}/>
-                        </button>
-                      </div>
-                   </div>
-                 )}
+               <div className="space-y-1.5 text-right">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف</label>
+                  <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white text-right" dir="ltr" value={editClientData.phone} onChange={e => setEditClientData({...editClientData, phone: e.target.value})} />
                </div>
                
                <div className="space-y-1.5">

@@ -287,7 +287,7 @@ const ClientDetails: React.FC = () => {
               <h1 className="text-3xl font-black text-slate-900 dark:text-white">{client.name}</h1>
               <button onClick={() => setIsEditModalOpen(true)} className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 hover:text-primary-500 transition-colors"><Edit2 size={16}/></button>
             </div>
-            <p className="text-primary-500 font-bold flex items-center gap-2 mt-1"><PhoneIncoming size={14}/> {client.phone}</p>
+            <p className="text-primary-500 font-bold flex items-center gap-2 mt-1"><PhoneIncoming size={14}/> <span dir="ltr">{client.phone}</span></p>
             <div className="flex flex-wrap gap-2 mt-3">
               <span className="bg-primary-100 dark:bg-primary-500/10 text-primary-500 px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1">
                 {client.source === ClientSource.WHATSAPP && <MessageCircle size={10}/>}
@@ -640,7 +640,15 @@ const ClientDetails: React.FC = () => {
                
                <div className="space-y-1.5 text-right">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف</label>
-                  <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white text-right" dir="ltr" value={editClientData.phone} onChange={e => setEditClientData({...editClientData, phone: e.target.value})} />
+                  <input 
+                    className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white text-right" 
+                    dir="ltr" 
+                    value={editClientData.phone} 
+                    onChange={e => {
+                      const val = e.target.value.replace(/[\s\(\)\-]/g, '');
+                      setEditClientData({...editClientData, phone: val});
+                    }} 
+                  />
                </div>
                
                <div className="space-y-1.5">

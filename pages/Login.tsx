@@ -68,10 +68,20 @@ const Login: React.FC = () => {
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'فشل تسجيل الدخول عبر جوجل');
+      let errorMsg = err.message || 'فشل تسجيل الدخول عبر جوجل';
+      if (err.code === 'auth/popup-closed-by-user' || err.message?.includes('closed-by-user')) {
+        errorMsg = 'تم إغلاق نافذة تسجيل الدخول من قبل المستخدم أو حجبها من المتصفح (بسبب قيود الإطار المدمج). يرجى محاولة الضغط مجدداً، أو افتح الموقع بتبويب مستقل باستخدام الزر بالأسفل.';
+      } else if (err.code === 'auth/cancelled-popup-request') {
+        errorMsg = 'تم إلغاء عملية تسجيل الدخول بسبب تكرار الضغط. يرجى الانتظار قليلاً ثم المحاولة مرة واحدة.';
+      }
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
+  };
+
+  const openInNewTab = () => {
+    window.open(window.location.href, '_blank');
   };
 
   return (
@@ -116,6 +126,14 @@ const Login: React.FC = () => {
                 >
                   <Chrome className="text-rose-500" size={24} />
                   {loading ? 'جاري التحقق...' : 'الدخول عبر Gmail'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openInNewTab}
+                  className="w-full py-4 rounded-3xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs transition-all flex items-center justify-center gap-2 border border-transparent"
+                >
+                  فتح في تبويب مستقل (حل مشكلة حظر النافذة المنبثقة)
                 </button>
 
                 <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">

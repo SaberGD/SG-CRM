@@ -15,6 +15,9 @@ import {
   Phone, Calendar, MessageSquare, User, Laptop, Globe, Clock, X,
   ExternalLink, Layers, AlertTriangle
 } from 'lucide-react';
+import { 
+  CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
+} from '../utils/currency';
 
 const ARAB_COUNTRIES = [
   { name: 'مصر', code: '+20' },
@@ -59,6 +62,12 @@ const ClientsList: React.FC = () => {
   const [filterGender, setFilterGender] = useState<string>('all');
   const [filterBookedCourse, setFilterBookedCourse] = useState<string>('all');
   const [filterSalesAgent, setFilterSalesAgent] = useState<string>('all');
+  const [filterTransferType, setFilterTransferType] = useState<string>('all');
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    fetchExchangeRates().then(rates => setExchangeRates(rates));
+  }, []);
   
   // Pagination
   const [lastVisible, setLastVisible] = useState<firestore.DocumentData | null>(clientsCache.lastVisible);
@@ -97,7 +106,14 @@ const ClientsList: React.FC = () => {
     bookedCourseName: '',
     totalPrice: 0,
     paidAmount: 0,
-    remainingAmount: 0
+    remainingAmount: 0,
+    isExternalTransfer: false,
+    originalCurrency: 'USD',
+    originalTotalPrice: 0,
+    originalPaidAmount: 0,
+    exchangeRateUsed: 48.5,
+    deductionAmount: 0,
+    deductionReason: '٣٪ عمولة تحويل و ١٤٪ ضرايب'
   });
 
   const handlePhoneChange = (val: string) => {
@@ -314,12 +330,18 @@ const ClientsList: React.FC = () => {
   };
 
   const filteredClients = useMemo(() => {
-    // When search is active, we rely on the server-side results
-    // But we can still do a secondary local filter for better feel
-    if (!debouncedSearch) return clients;
-    const term = debouncedSearch.toLowerCase();
-    return clients.filter(c => c.name.toLowerCase().includes(term) || c.phone.includes(term));
-  }, [clients, debouncedSearch]);
+    let result = clients;
+    if (debouncedSearch) {
+      const term = debouncedSearch.toLowerCase();
+      result = result.filter(c => c.name.toLowerCase().includes(term) || c.phone.includes(term));
+    }
+    if (filterTransferType === 'external') {
+      result = result.filter(c => c.isExternalTransfer === true);
+    } else if (filterTransferType === 'local') {
+      result = result.filter(c => !c.isExternalTransfer);
+    }
+    return result;
+  }, [clients, debouncedSearch, filterTransferType]);
 
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -382,7 +404,13 @@ const ClientsList: React.FC = () => {
         nextTs = dateObj.getTime();
       }
 
-      const { nextDate, nextTime, nextPeriod, scheduleNext, isBooked, bookedCourseId, bookedCourseName, totalPrice, paidAmount, remainingAmount, customServiceName, ...clientToSave } = newClient;
+      const { 
+        nextDate, nextTime, nextPeriod, scheduleNext, isBooked, bookedCourseId, bookedCourseName, 
+        totalPrice, paidAmount, remainingAmount, customServiceName,
+        isExternalTransfer, originalCurrency, originalTotalPrice, originalPaidAmount,
+        exchangeRateUsed, deductionAmount, deductionReason,
+        ...clientToSave 
+      } = newClient;
       
       // Validation for WhatsApp
       if (newClient.source === ClientSource.WHATSAPP && !newClient.phone.trim()) {
@@ -414,6 +442,16 @@ const ClientsList: React.FC = () => {
         dataToSave.remainingAmount = remainingAmount;
         dataToSave.bookingDate = Date.now();
         dataToSave.status = ClientStatus.BOOKED;
+
+        if (isExternalTransfer) {
+          dataToSave.isExternalTransfer = true;
+          dataToSave.originalCurrency = originalCurrency;
+          dataToSave.originalTotalPrice = originalTotalPrice;
+          dataToSave.originalPaidAmount = originalPaidAmount;
+          dataToSave.exchangeRateUsed = exchangeRateUsed;
+          dataToSave.deductionAmount = deductionAmount;
+          dataToSave.deductionReason = deductionReason;
+        }
       }
 
       await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
@@ -433,6 +471,41 @@ const ClientsList: React.FC = () => {
 
   const updateRemaining = (total: number, paid: number) => {
     setNewClient(prev => ({ ...prev, totalPrice: total, paidAmount: paid, remainingAmount: total - paid }));
+  };
+
+  const updateExternalBooking = (
+    isExt: boolean, 
+    currency: string, 
+    origTotal: number, 
+    origPaid: number, 
+    rateOverride?: number
+  ) => {
+    const rate = rateOverride !== undefined ? rateOverride : (exchangeRates[currency] || 1);
+    
+    if (isExt) {
+      const result = calculateExternalTransfer(origTotal, origPaid, currency, rate);
+      setNewClient(prev => ({
+        ...prev,
+        isExternalTransfer: true,
+        originalCurrency: currency,
+        originalTotalPrice: origTotal,
+        originalPaidAmount: origPaid,
+        exchangeRateUsed: rate,
+        deductionAmount: result.deductionPaid,
+        deductionReason: result.deductionReason,
+        totalPrice: result.finalTotal,
+        paidAmount: result.finalPaid,
+        remainingAmount: result.finalRemaining
+      }));
+    } else {
+      setNewClient(prev => ({
+        ...prev,
+        isExternalTransfer: false,
+        totalPrice: origTotal,
+        paidAmount: origPaid,
+        remainingAmount: origTotal - origPaid
+      }));
+    }
   };
 
   const handleTransfer = async () => {
@@ -643,7 +716,7 @@ const ClientsList: React.FC = () => {
             )}
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
             <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
               <option value="all">كل التصنيفات (Labels)</option>
               {allLabels.map(l => <option key={l.id} value={l.id}>{l.text}</option>)}
@@ -670,6 +743,12 @@ const ClientsList: React.FC = () => {
               <option value="all">الجنس</option>
               <option value={Gender.MALE}>ذكر</option>
               <option value={Gender.FEMALE}>أنثى</option>
+            </select>
+
+            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterTransferType} onChange={e => setFilterTransferType(e.target.value)}>
+              <option value="all">طرق الحجز والدفع</option>
+              <option value="external">تحويل خارجي (خارج مصر)</option>
+              <option value="local">دفع محلي (داخل مصر)</option>
             </select>
           </div>
       </div>
@@ -710,7 +789,14 @@ const ClientsList: React.FC = () => {
                         {client.source === ClientSource.OTHER && <Layers size={16}/>}
                       </div>
                       <div>
-                        <p onClick={() => navigate(`/clients/${client.id}`)} className="font-black text-sm text-slate-900 dark:text-white cursor-pointer hover:text-primary-500">{client.name}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p onClick={() => navigate(`/clients/${client.id}`)} className="font-black text-sm text-slate-900 dark:text-white cursor-pointer hover:text-primary-500">{client.name}</p>
+                          {client.isExternalTransfer && (
+                            <span className="bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[8px] font-black px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-500/10">
+                              تحويل خارجي ({client.originalCurrency})
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[10px] font-bold text-slate-500 mt-0.5" dir="ltr">{client.phone}</p>
                         <div className="flex items-center gap-2 mt-1">
                           <p className="text-[9px] font-black text-slate-400 flex items-center gap-1">
@@ -998,28 +1084,147 @@ const ClientsList: React.FC = () => {
                     {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">السعر الإجمالي</label>
-                    <input 
-                      type="number" 
-                      required 
-                      className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
-                      value={newClient.totalPrice} 
-                      onChange={e => updateRemaining(parseFloat(e.target.value) || 0, newClient.paidAmount)} 
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المبلغ المدفوع</label>
-                    <input 
-                      type="number" 
-                      required 
-                      className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
-                      value={newClient.paidAmount} 
-                      onChange={e => updateRemaining(newClient.totalPrice, parseFloat(e.target.value) || 0)} 
-                    />
-                  </div>
+
+                <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl">
+                  <span className="text-[10px] font-bold text-slate-500">تم الحجز من خارج مصر؟</span>
+                  <input 
+                    type="checkbox" 
+                    checked={newClient.isExternalTransfer} 
+                    onChange={e => {
+                      updateExternalBooking(
+                        e.target.checked, 
+                        newClient.originalCurrency, 
+                        newClient.originalTotalPrice, 
+                        newClient.originalPaidAmount
+                      );
+                    }} 
+                    className="w-4 h-4 accent-amber-500" 
+                  />
                 </div>
+
+                {newClient.isExternalTransfer ? (
+                  <div className="space-y-4 p-4 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-amber-350">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">العُملة</label>
+                        <select 
+                          className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none" 
+                          value={newClient.originalCurrency} 
+                          onChange={e => {
+                            updateExternalBooking(
+                              true, 
+                              e.target.value, 
+                              newClient.originalTotalPrice, 
+                              newClient.originalPaidAmount
+                            );
+                          }}
+                        >
+                          {Object.entries(CURRENCY_LABELS).map(([code, label]) => (
+                            code !== 'EGP' && <option key={code} value={code}>{label.ar} ({code})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">سعر الصرف (مقابل الجنيه)</label>
+                        <input 
+                          type="number" 
+                          step="0.0001"
+                          className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none" 
+                          value={newClient.exchangeRateUsed} 
+                          onChange={e => {
+                            const rate = parseFloat(e.target.value) || 1;
+                            updateExternalBooking(
+                              true, 
+                              newClient.originalCurrency, 
+                              newClient.originalTotalPrice, 
+                              newClient.originalPaidAmount, 
+                              rate
+                            );
+                          }} 
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الإجمالي ({newClient.originalCurrency})</label>
+                        <input 
+                          type="number" 
+                          required 
+                          className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none" 
+                          value={newClient.originalTotalPrice || ''} 
+                          onChange={e => {
+                            const val = parseFloat(e.target.value) || 0;
+                            updateExternalBooking(
+                              true, 
+                              newClient.originalCurrency, 
+                              val, 
+                              newClient.originalPaidAmount
+                            );
+                          }} 
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المدفوع ({newClient.originalCurrency})</label>
+                        <input 
+                          type="number" 
+                          required 
+                          className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none" 
+                          value={newClient.originalPaidAmount || ''} 
+                          onChange={e => {
+                            const val = parseFloat(e.target.value) || 0;
+                            updateExternalBooking(
+                              true, 
+                              newClient.originalCurrency, 
+                              newClient.originalTotalPrice, 
+                              val
+                            );
+                          }} 
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl space-y-2 text-[10px] text-right">
+                      <div className="flex justify-between text-slate-500 font-bold">
+                        <span>المبلغ المحول للمصري:</span>
+                        <span>{parseFloat(((newClient.originalTotalPrice || 0) * newClient.exchangeRateUsed).toFixed(2))} ج.م إجمالي | {parseFloat(((newClient.originalPaidAmount || 0) * newClient.exchangeRateUsed).toFixed(2))} ج.م مدفوع</span>
+                      </div>
+                      <div className="flex justify-between text-rose-500 font-bold border-t border-slate-100 dark:border-slate-800 pt-1.5">
+                        <span>خصم 17% (3% عمولة و 14% ضريبة):</span>
+                        <span>- {parseFloat((((newClient.originalTotalPrice || 0) * newClient.exchangeRateUsed) * 0.17).toFixed(2))} ج.م | - {parseFloat((((newClient.originalPaidAmount || 0) * newClient.exchangeRateUsed) * 0.17).toFixed(2))} ج.م</span>
+                      </div>
+                      <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-black border-t border-slate-100 dark:border-slate-800 pt-1.5 text-xs">
+                        <span>المبلغ النهائي بالمصري:</span>
+                        <span>{newClient.totalPrice} ج.م إجمالي | {newClient.paidAmount} ج.م مدفوع</span>
+                      </div>
+                      <p className="text-[9px] text-slate-400 font-semibold italic text-center mt-1">سبب الخصم: ٣٪ عمولة تحويل و ١٤٪ ضرايب</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-400 uppercase mr-2">السعر الإجمالي (ج.م)</label>
+                      <input 
+                        type="number" 
+                        required 
+                        className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
+                        value={newClient.totalPrice || ''} 
+                        onChange={e => updateRemaining(parseFloat(e.target.value) || 0, newClient.paidAmount)} 
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المبلغ المدفوع (ج.م)</label>
+                      <input 
+                        type="number" 
+                        required 
+                        className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none" 
+                        value={newClient.paidAmount || ''} 
+                        onChange={e => updateRemaining(newClient.totalPrice, parseFloat(e.target.value) || 0)} 
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-amber-100 dark:border-amber-500/10">
                   <p className="text-[9px] font-black text-slate-400 uppercase">المبلغ المتبقي</p>
                   <p className="text-sm font-black text-amber-600">{newClient.remainingAmount} ج.م</p>

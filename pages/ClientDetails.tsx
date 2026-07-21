@@ -17,6 +17,9 @@ import {
 } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
+import { 
+  CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
+} from '../utils/currency';
 
 const ClientDetails: React.FC = () => {
   const { id } = useParams();
@@ -55,6 +58,21 @@ const ClientDetails: React.FC = () => {
   const [totalPrice, setTotalPrice] = useState(0);
   const [paidAmount, setPaidAmount] = useState(0);
   const [remainingAmount, setRemainingAmount] = useState(0);
+  
+  // External Transfer Booking States
+  const [isExternalTransfer, setIsExternalTransfer] = useState(false);
+  const [originalCurrency, setOriginalCurrency] = useState('USD');
+  const [originalTotalPrice, setOriginalTotalPrice] = useState(0);
+  const [originalPaidAmount, setOriginalPaidAmount] = useState(0);
+  const [exchangeRateUsed, setExchangeRateUsed] = useState(48.5);
+  const [deductionAmount, setDeductionAmount] = useState(0);
+  const [deductionReason, setDeductionReason] = useState('٣٪ عمولة تحويل و ١٤٪ ضرايب');
+  
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    fetchExchangeRates().then(rates => setExchangeRates(rates));
+  }, []);
   
   // Services for booking
   const [services, setServices] = useState<Service[]>([]);
@@ -178,6 +196,35 @@ const ClientDetails: React.FC = () => {
     return dateObj.getTime();
   };
 
+  const updateExternalBooking = (
+    isExt: boolean, 
+    currency: string, 
+    origTotal: number, 
+    origPaid: number, 
+    rateOverride?: number
+  ) => {
+    const rate = rateOverride !== undefined ? rateOverride : (exchangeRates[currency] || 1);
+    
+    if (isExt) {
+      const result = calculateExternalTransfer(origTotal, origPaid, currency, rate);
+      setIsExternalTransfer(true);
+      setOriginalCurrency(currency);
+      setOriginalTotalPrice(origTotal);
+      setOriginalPaidAmount(origPaid);
+      setExchangeRateUsed(rate);
+      setDeductionAmount(result.deductionPaid);
+      setDeductionReason(result.deductionReason);
+      setTotalPrice(result.finalTotal);
+      setPaidAmount(result.finalPaid);
+      setRemainingAmount(result.finalRemaining);
+    } else {
+      setIsExternalTransfer(false);
+      setTotalPrice(origTotal);
+      setPaidAmount(origPaid);
+      setRemainingAmount(origTotal - origPaid);
+    }
+  };
+
   const submitFollowUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!client || !user || !startTime) return;
@@ -224,6 +271,18 @@ const ClientDetails: React.FC = () => {
         updateData.paidAmount = paidAmount;
         updateData.remainingAmount = remainingAmount;
         updateData.bookingDate = Date.now();
+
+        if (isExternalTransfer) {
+          updateData.isExternalTransfer = true;
+          updateData.originalCurrency = originalCurrency;
+          updateData.originalTotalPrice = originalTotalPrice;
+          updateData.originalPaidAmount = originalPaidAmount;
+          updateData.exchangeRateUsed = exchangeRateUsed;
+          updateData.deductionAmount = deductionAmount;
+          updateData.deductionReason = deductionReason;
+        } else {
+          updateData.isExternalTransfer = false;
+        }
       }
 
       if (nextTs) {
@@ -426,7 +485,66 @@ const ClientDetails: React.FC = () => {
           </div>
         </div>
 
-        <aside>
+        <aside className="space-y-6">
+          {client.isBooked && (
+            <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-slate-900 dark:to-amber-950/10 p-6 rounded-[2.5rem] border border-amber-200 dark:border-amber-500/10 shadow-sm space-y-4 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-black text-amber-800 dark:text-amber-400">تفاصيل الحجز الحالي</h4>
+                {client.isExternalTransfer && (
+                  <span className="bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[8px] font-black px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-500/10">
+                    تحويل خارجي
+                  </span>
+                )}
+              </div>
+              
+              <div className="space-y-3 divide-y divide-amber-100 dark:divide-slate-800">
+                <div className="flex justify-between items-center py-1.5 text-xs">
+                  <span className="font-bold text-slate-500">الكورس:</span>
+                  <span className="font-black text-slate-900 dark:text-white">{client.bookedCourseName}</span>
+                </div>
+                
+                {client.isExternalTransfer ? (
+                  <>
+                    <div className="flex justify-between items-center py-1.5 text-xs">
+                      <span className="font-bold text-slate-500">مبلغ التحويل الأصلي:</span>
+                      <span className="font-black text-amber-600 dark:text-amber-400">
+                        {client.originalTotalPrice} {client.originalCurrency}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-1.5 text-xs">
+                      <span className="font-bold text-slate-500">سعر الصرف المستخدم:</span>
+                      <span className="font-black text-slate-700 dark:text-slate-300">
+                        {client.exchangeRateUsed} ج.م / {client.originalCurrency}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-1.5 text-xs text-rose-500">
+                      <span className="font-bold">خصومات التحويل (17%):</span>
+                      <span className="font-black">
+                        - {client.deductionAmount} ج.م
+                      </span>
+                    </div>
+                    <p className="text-[8px] text-slate-400 italic text-right mt-0.5">السبب: {client.deductionReason || '٣٪ عمولة تحويل و ١٤٪ ضرايب'}</p>
+                  </>
+                ) : null}
+
+                <div className="flex justify-between items-center py-2 text-xs">
+                  <span className="font-bold text-slate-500">إجمالي الحساب (بالمصري):</span>
+                  <span className="font-black text-slate-900 dark:text-white">{client.totalPrice} ج.م</span>
+                </div>
+                <div className="flex justify-between items-center py-2 text-xs">
+                  <span className="font-bold text-slate-500">المدفوع النهائي:</span>
+                  <span className="font-black text-emerald-600 dark:text-emerald-400">{client.paidAmount} ج.m</span>
+                </div>
+                <div className="flex justify-between items-center py-2 text-xs">
+                  <span className="font-bold text-slate-500">المتبقي:</span>
+                  <span className="font-black text-rose-600 dark:text-rose-400">
+                    {(client.totalPrice || 0) - (client.paidAmount || 0)} ج.م
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {showForm ? (
             <div className="bg-white dark:bg-slate-900 p-8 rounded-[3.5rem] shadow-2xl border-2 border-primary-500/30 sticky top-10 animate-fade-in">
               <h3 className="text-xl font-black mb-6 flex items-center gap-2"><LayoutList className="text-primary-500"/> توثيق المتابعة</h3>
@@ -536,36 +654,155 @@ const ClientDetails: React.FC = () => {
                           {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 uppercase">السعر الإجمالي</label>
-                          <input 
-                            type="number" 
-                            required 
-                            className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
-                            value={totalPrice} 
-                            onChange={e => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setTotalPrice(val);
-                              setRemainingAmount(val - paidAmount);
-                            }} 
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 uppercase">المبلغ المدفوع</label>
-                          <input 
-                            type="number" 
-                            required 
-                            className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
-                            value={paidAmount} 
-                            onChange={e => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setPaidAmount(val);
-                              setRemainingAmount(totalPrice - val);
-                            }} 
-                          />
-                        </div>
+
+                      <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl">
+                        <span className="text-[10px] font-bold text-slate-500">تم الحجز من خارج مصر؟</span>
+                        <input 
+                          type="checkbox" 
+                          checked={isExternalTransfer} 
+                          onChange={e => {
+                            updateExternalBooking(
+                              e.target.checked, 
+                              originalCurrency, 
+                              originalTotalPrice, 
+                              originalPaidAmount
+                            );
+                          }} 
+                          className="w-4 h-4 accent-amber-500" 
+                        />
                       </div>
+
+                      {isExternalTransfer ? (
+                        <div className="space-y-4 p-4 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-amber-350">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">العُملة</label>
+                              <select 
+                                className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none text-slate-900 dark:text-white" 
+                                value={originalCurrency} 
+                                onChange={e => {
+                                  updateExternalBooking(
+                                    true, 
+                                    e.target.value, 
+                                    originalTotalPrice, 
+                                    originalPaidAmount
+                                  );
+                                }}
+                              >
+                                {Object.entries(CURRENCY_LABELS).map(([code, label]) => (
+                                  code !== 'EGP' && <option key={code} value={code}>{label.ar} ({code})</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">سعر الصرف (مقابل الجنيه)</label>
+                              <input 
+                                type="number" 
+                                step="0.0001"
+                                className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none text-slate-900 dark:text-white" 
+                                value={exchangeRateUsed} 
+                                onChange={e => {
+                                  const rate = parseFloat(e.target.value) || 1;
+                                  updateExternalBooking(
+                                    true, 
+                                    originalCurrency, 
+                                    originalTotalPrice, 
+                                    originalPaidAmount, 
+                                    rate
+                                  );
+                                }} 
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الإجمالي ({originalCurrency})</label>
+                              <input 
+                                type="number" 
+                                required 
+                                className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none text-slate-900 dark:text-white" 
+                                value={originalTotalPrice || ''} 
+                                onChange={e => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  updateExternalBooking(
+                                    true, 
+                                    originalCurrency, 
+                                    val, 
+                                    originalPaidAmount
+                                  );
+                                }} 
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المدفوع ({originalCurrency})</label>
+                              <input 
+                                type="number" 
+                                required 
+                                className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-xs outline-none text-slate-900 dark:text-white" 
+                                value={originalPaidAmount || ''} 
+                                onChange={e => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  updateExternalBooking(
+                                    true, 
+                                    originalCurrency, 
+                                    originalTotalPrice, 
+                                    val
+                                  );
+                                }} 
+                              />
+                            </div>
+                          </div>
+
+                          <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl space-y-2 text-[10px] text-right">
+                            <div className="flex justify-between text-slate-500 font-bold">
+                              <span>المبلغ المحول للمصري:</span>
+                              <span>{parseFloat(((originalTotalPrice || 0) * exchangeRateUsed).toFixed(2))} ج.م إجمالي | {parseFloat(((originalPaidAmount || 0) * exchangeRateUsed).toFixed(2))} ج.م مدفوع</span>
+                            </div>
+                            <div className="flex justify-between text-rose-500 font-bold border-t border-slate-100 dark:border-slate-800 pt-1.5">
+                              <span>خصم 17% (3% عمولة و 14% ضريبة):</span>
+                              <span>- {parseFloat((((originalTotalPrice || 0) * exchangeRateUsed) * 0.17).toFixed(2))} ج.م | - {parseFloat((((originalPaidAmount || 0) * exchangeRateUsed) * 0.17).toFixed(2))} ج.م</span>
+                            </div>
+                            <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-black border-t border-slate-100 dark:border-slate-800 pt-1.5 text-xs">
+                              <span>المبلغ النهائي بالمصري:</span>
+                              <span>{totalPrice} ج.م إجمالي | {paidAmount} ج.م مدفوع</span>
+                            </div>
+                            <p className="text-[9px] text-slate-400 font-semibold italic text-center mt-1">سبب الخصم: ٣٪ عمولة تحويل و ١٤٪ ضرايب</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-slate-400 uppercase">السعر الإجمالي (ج.م)</label>
+                            <input 
+                              type="number" 
+                              required 
+                              className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
+                              value={totalPrice || ''} 
+                              onChange={e => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setTotalPrice(val);
+                                setRemainingAmount(val - paidAmount);
+                              }} 
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-slate-400 uppercase">المبلغ المدفوع (ج.م)</label>
+                            <input 
+                              type="number" 
+                              required 
+                              className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
+                              value={paidAmount || ''} 
+                              onChange={e => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setPaidAmount(val);
+                                setRemainingAmount(totalPrice - val);
+                              }} 
+                            />
+                          </div>
+                        </div>
+                      )}
+
                       <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-amber-100 dark:border-amber-500/10">
                         <p className="text-[9px] font-black text-slate-400 uppercase">المبلغ المتبقي</p>
                         <p className="text-sm font-black text-amber-600">{remainingAmount} ج.م</p>

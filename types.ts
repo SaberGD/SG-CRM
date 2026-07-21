@@ -136,6 +136,13 @@ export interface Client {
   source?: ClientSource;
   profileLink?: string;
   transferHistory?: ClientTransfer[];
+  isExternalTransfer?: boolean;
+  originalCurrency?: string;
+  originalTotalPrice?: number;
+  originalPaidAmount?: number;
+  exchangeRateUsed?: number;
+  deductionAmount?: number;
+  deductionReason?: string;
 }
 
 export interface FollowUp {

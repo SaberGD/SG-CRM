@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
+import { sendMetaEvent } from '../metaService';
 import { useAuth } from '../App';
 import { 
   Client, FollowUp, ClientStatus, CommMethod, StatusLabels, CommMethodLabels,
@@ -291,8 +292,19 @@ const ClientDetails: React.FC = () => {
       }
 
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), updateData);
-      
+
       await logActivity(user.uid, user.name, `إنهاء متابعة: ${salesBrief}`, client.id, client.name);
+
+      if (isBooked) {
+        sendMetaEvent({
+          eventName: 'Purchase',
+          phone: client.phone,
+          value: paidAmount || totalPrice || 0,
+          currency: 'EGP',
+          contentName: bookedCourseName || client.serviceName,
+          contentCategory: client.source,
+        });
+      }
       
       setShowForm(false);
       setNote(''); setResult(''); setSalesBrief('');

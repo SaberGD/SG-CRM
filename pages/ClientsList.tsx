@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
+import { sendMetaEvent } from '../metaService';
 import { useAuth } from '../App';
 import { 
   Client, ClientStatus, StatusLabels, UserRole, Service, Label, 
@@ -457,6 +458,23 @@ const ClientsList: React.FC = () => {
       await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
       console.log("Client added successfully");
       await logActivity(user.uid, user.name, `إضافة عميل جديد (${newClient.source}): ${newClient.name}`, 'new', newClient.name);
+
+      sendMetaEvent({
+        eventName: 'Lead',
+        phone: phoneFull,
+        contentName: serviceName,
+        contentCategory: newClient.source,
+      });
+      if (isBooked) {
+        sendMetaEvent({
+          eventName: 'Purchase',
+          phone: phoneFull,
+          value: paidAmount || totalPrice || 0,
+          currency: 'EGP',
+          contentName: bookedCourseName || serviceName,
+          contentCategory: newClient.source,
+        });
+      }
       setIsAddModalOpen(false);
       // Reset and Clear cache context so it reloads on next mount or manually reload
       clientsCache.filters = ''; 

@@ -1,0 +1,17 @@
+{
+  "name": "functions",
+  "description": "Firebase Cloud Function for Meta Conversions API (Lead/Purchase events)",
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "shell": "firebase functions:shell",
+    "deploy": "firebase deploy --only functions"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-functions": "^5.0.0"
+  },
+  "private": true
+}

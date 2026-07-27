@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Environment variables (secrets: Gemini API key, Meta access token, etc.)
+.env
+.env.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

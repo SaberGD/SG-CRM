@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, getDocs, limit, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../App';
-import { Client, User, UserRole } from '../types';
+import { Client, User, UserRole, ClientStatus } from '../types';
 import { 
-  Users, Calendar, PhoneCall, Clock, CalendarDays, AlertTriangle, Filter, ArrowRightLeft, Timer, ChevronLeft, BellRing, Clock4, History
+  Users, Calendar, PhoneCall, Clock, CalendarDays, AlertTriangle, Filter, ArrowRightLeft, Timer, ChevronLeft, BellRing, Clock4, History, CheckCircle2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
@@ -13,7 +13,7 @@ import ManualFollowUpModal from '../components/ManualFollowUpModal';
 const Dashboard: React.FC = () => {
   const { user, effectiveRole } = useAuth();
   const navigate = useNavigate();
-  const [stats, setStats] = useState({ total: 0, today: 0, upcoming: 0, overdue: 0, transfersToday: 0 });
+  const [stats, setStats] = useState({ total: 0, today: 0, upcoming: 0, overdue: 0, transfersToday: 0, booked: 0 });
   const [clients, setClients] = useState<Client[]>([]);
   const [salesAgents, setSalesAgents] = useState<User[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
@@ -39,7 +39,7 @@ const Dashboard: React.FC = () => {
     
     // القواعد تفرض قيوداً: إذا لم يكن مديراً، يجب أن يفلتر دائماً حسب المعرف الخاص به
     if (isHighRole && selectedAgentId === 'all') {
-      q = query(clientsRef, limit(1000));
+      q = query(clientsRef);
     } else if (isHighRole && selectedAgentId !== 'all') {
       q = query(clientsRef, where('salesAgentId', '==', selectedAgentId));
     } else {
@@ -52,12 +52,15 @@ const Dashboard: React.FC = () => {
       const todayStart = new Date().setHours(0,0,0,0);
       const todayEnd = new Date().setHours(23,59,59,999);
       
+      const bookedCount = all.filter(c => c.isBooked || c.status === ClientStatus.BOOKED).length;
+
       setStats(prev => ({
         ...prev,
         total: all.length,
         today: all.filter(c => c.nextFollowUpDate && c.nextFollowUpDate >= todayStart && c.nextFollowUpDate <= todayEnd).length,
         upcoming: all.filter(c => c.nextFollowUpDate && c.nextFollowUpDate > todayEnd).length,
         overdue: all.filter(c => c.nextFollowUpDate && c.nextFollowUpDate < now).length,
+        booked: bookedCount,
       }));
       setClients(all);
       setLoading(false);
@@ -185,8 +188,9 @@ const Dashboard: React.FC = () => {
         </section>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
         <QuickStat icon={Users} label="إجمالي العملاء" value={stats.total} color="bg-blue-500" />
+        <QuickStat icon={CheckCircle2} label="إجمالي الحجوزات" value={stats.booked} color="bg-teal-500" />
         <QuickStat icon={Calendar} label="متابعات اليوم" value={stats.today} color="bg-emerald-500" highlight={stats.overdue > 0} />
         <QuickStat icon={Clock} label="المجدولة مستقبلاً" value={stats.upcoming} color="bg-primary-500" />
         <QuickStat icon={AlertTriangle} label="إجمالي المتأخرات" value={stats.overdue} color="bg-rose-500" animate={stats.overdue > 0} />

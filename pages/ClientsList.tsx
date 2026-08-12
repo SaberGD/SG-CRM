@@ -3,7 +3,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
-import { sendMetaEvent } from '../metaService';
 import { useAuth } from '../App';
 import { 
   Client, ClientStatus, StatusLabels, UserRole, Service, Label, 
@@ -11,10 +10,12 @@ import {
   ClientSource, SourceLabels
 } from '../types';
 import FloatingPanel from '../components/FloatingPanel';
+import { BulkImportModal } from '../components/BulkImportModal';
+import { exportBookingsToExcel } from '../utils/exportClients';
 import { 
   Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2, 
   Phone, Calendar, MessageSquare, User, Laptop, Globe, Clock, X,
-  ExternalLink, Layers, AlertTriangle
+  ExternalLink, Layers, AlertTriangle, Upload, Download
 } from 'lucide-react';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
@@ -77,6 +78,7 @@ const ClientsList: React.FC = () => {
   const [totalRead, setTotalRead] = useState(0);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [isBulkTransferOpen, setIsBulkTransferOpen] = useState(false);
@@ -458,23 +460,6 @@ const ClientsList: React.FC = () => {
       await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
       console.log("Client added successfully");
       await logActivity(user.uid, user.name, `إضافة عميل جديد (${newClient.source}): ${newClient.name}`, 'new', newClient.name);
-
-      sendMetaEvent({
-        eventName: 'Lead',
-        phone: phoneFull,
-        contentName: serviceName,
-        contentCategory: newClient.source,
-      });
-      if (isBooked) {
-        sendMetaEvent({
-          eventName: 'Purchase',
-          phone: phoneFull,
-          value: paidAmount || totalPrice || 0,
-          currency: 'EGP',
-          contentName: bookedCourseName || serviceName,
-          contentCategory: newClient.source,
-        });
-      }
       setIsAddModalOpen(false);
       // Reset and Clear cache context so it reloads on next mount or manually reload
       clientsCache.filters = ''; 
@@ -695,13 +680,29 @@ const ClientsList: React.FC = () => {
           <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">قائمة <span className="text-primary-500">العملاء</span></h1>
           <p className="text-slate-500 font-bold mt-1">إدارة بيانات المتقدمين والمتابعات (المحمل: {clients.length})</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button 
+            onClick={() => exportBookingsToExcel(clients)} 
+            className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-5 py-4 rounded-3xl font-black text-xs uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-all flex items-center gap-2"
+            title="تصدير الحجوزات الحالية إلى ملف Excel"
+          >
+            <Download size={18} /> تصدير Excel
+          </button>
+          
+          <button 
+            onClick={() => setIsBulkImportOpen(true)} 
+            className="bg-emerald-600 text-white px-5 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-emerald-700 transition-all flex items-center gap-2"
+          >
+            <Upload size={18} /> استيراد جماعي
+          </button>
+
           {canDelete && (
-            <button onClick={() => setIsBulkTransferOpen(true)} className="bg-amber-500 text-white px-6 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-amber-600 transition-all flex items-center gap-2">
+            <button onClick={() => setIsBulkTransferOpen(true)} className="bg-amber-500 text-white px-5 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-amber-600 transition-all flex items-center gap-2">
               <Layers size={18} /> تحويل جماعي
             </button>
           )}
-          <button onClick={() => setIsAddModalOpen(true)} className="bg-primary-500 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-primary-600 transition-all flex items-center gap-2">
+
+          <button onClick={() => setIsAddModalOpen(true)} className="bg-primary-500 text-white px-6 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-primary-600 transition-all flex items-center gap-2">
             <Plus size={18} /> إضافة عميل جديد
           </button>
         </div>
@@ -1372,6 +1373,19 @@ const ClientsList: React.FC = () => {
           )}
         </div>
       </FloatingPanel>
+
+      {/* Bulk Import Modal */}
+      <BulkImportModal 
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+        currentUser={{ uid: user?.uid || '', name: user?.name || '' }}
+        salesAgents={salesAgents}
+        services={services}
+        onSuccess={() => {
+          setIsBulkImportOpen(false);
+          fetchClients(false);
+        }}
+      />
     </div>
   );
 };

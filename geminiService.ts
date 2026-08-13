@@ -1,11 +1,15 @@
 import { Client, FollowUp, DailyReport, ClientStatus } from "./types";
 
+const CLOUD_FUNCTIONS_BASE = "https://us-central1-sg-crm-e3a38.cloudfunctions.net";
+
 /**
- * Predicts sales opportunity and analyzes lead history via Server API.
+ * Predicts sales opportunity and analyzes lead history via the geminiPredictSales
+ * Cloud Function (mirrors server.ts's /api/gemini/predict-sales route, which only
+ * runs inside AI Studio's own preview - production is a static Hostinger deploy).
  */
 export const predictSalesOpportunity = async (client: Client, followUps: FollowUp[]) => {
   try {
-    const response = await fetch("/api/gemini/predict-sales", {
+    const response = await fetch(`${CLOUD_FUNCTIONS_BASE}/geminiPredictSales`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ client, followUps }),
@@ -21,11 +25,12 @@ export const predictSalesOpportunity = async (client: Client, followUps: FollowU
 };
 
 /**
- * Provides automated analysis for daily sales reports via Server API.
+ * Provides automated analysis for daily sales reports via the geminiAnalyzeReport
+ * Cloud Function (mirrors server.ts's /api/gemini/analyze-report route).
  */
 export const analyzeDailyReport = async (report: DailyReport) => {
   try {
-    const response = await fetch("/api/gemini/analyze-report", {
+    const response = await fetch(`${CLOUD_FUNCTIONS_BASE}/geminiAnalyzeReport`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ report }),
@@ -42,11 +47,13 @@ export const analyzeDailyReport = async (report: DailyReport) => {
 };
 
 /**
- * Analyzes client history and generates AI sales assistant recommendation via Server API.
+ * Analyzes client history and generates AI sales assistant recommendation via the
+ * geminiAnalyzeClient Cloud Function (mirrors server.ts's /api/gemini/analyze-client
+ * route - this is the "AI Sales Assistant" / مساعد ذكي feature).
  */
 export const analyzeClientWithAi = async (client: Client, followUps: FollowUp[] = []) => {
   try {
-    const response = await fetch("/api/gemini/analyze-client", {
+    const response = await fetch(`${CLOUD_FUNCTIONS_BASE}/geminiAnalyzeClient`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ client, followUps }),

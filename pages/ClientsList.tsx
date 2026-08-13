@@ -203,9 +203,9 @@ const ClientsList: React.FC = () => {
     if (isHighRole) {
       firestore.getDocs(firestore.query(firestore.collection(db, 'users'), firestore.where('role', 'in', [UserRole.SALES_AGENT, UserRole.TEAM_LEADER, UserRole.MANAGER, UserRole.SUPERVISOR]))).then(snap => {
         const activeAgents = snap.docs
-          .map(d => ({ id: d.id, ...d.data() } as User))
+          .map(d => ({ uid: d.id, id: d.id, ...d.data() } as any))
           .filter(u => !u.isDeactivated)
-          .map(u => ({ id: u.uid, name: u.name }));
+          .map(u => ({ id: u.uid || u.id, name: u.name || u.email || 'بدون اسم' }));
         setSalesAgents(activeAgents);
       });
 

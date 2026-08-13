@@ -12,6 +12,17 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
+interface BatchBackup {
+  timestamp: number;
+  round: number;
+  count: number;
+  clientBackups: Array<{
+    clientId: string;
+    clientName: string;
+    previousAiRecommendation?: AiRecommendation | null;
+  }>;
+}
+
 export const AiAssistant: React.FC = () => {
   const { user, effectiveRole } = useAuth();
   const navigate = useNavigate();
@@ -79,6 +90,17 @@ export const AiAssistant: React.FC = () => {
   // Single Analysis Loading State
   const [analyzingClientId, setAnalyzingClientId] = useState<string | null>(null);
 
+  // Last Batch Backup State for Reverting Analysis
+  const [lastBatchBackup, setLastBatchBackup] = useState<BatchBackup | null>(() => {
+    try {
+      const saved = localStorage.getItem('saber_ai_last_batch_backup');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isRevertingBatch, setIsRevertingBatch] = useState(false);
+
   // Knowledge Base Modal / Drawer State
   const [showKnowledgeModal, setShowKnowledgeModal] = useState(false);
 
@@ -86,6 +108,7 @@ export const AiAssistant: React.FC = () => {
   const [copiedClientId, setCopiedClientId] = useState<string | null>(null);
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isAdmin = effectiveRole === UserRole.ADMIN;
 
   const todayDateStr = new Date().toISOString().split('T')[0];
 
@@ -156,7 +179,12 @@ export const AiAssistant: React.FC = () => {
   }, [user, effectiveRole, selectedAgentId, isHighRole]);
 
   // Handle single client analysis with target round tagging
-  const handleAnalyzeClient = async (client: Client, targetRound?: number) => {
+  const handleAnalyzeClient = async (client: Client, targetRound?: number, skipAdminCheck = false) => {
+    if (!isAdmin && !skipAdminCheck) {
+      alert("تشغيل واستدعاء تحليل الذكاء الاصطناعي متاح للإدمن (Admin) فقط حالياً.");
+      return;
+    }
+
     const activeRound = targetRound ?? currentRound;
     setAnalyzingClientId(client.id);
     try {
@@ -204,6 +232,11 @@ export const AiAssistant: React.FC = () => {
 
   // Run Batch Analysis under the Round System
   const handleBatchAnalyze = async (options: { customLimit?: number; forceNextRound?: boolean } = {}) => {
+    if (!isAdmin) {
+      alert("تشغيل واستدعاء تحليل الدفعة بالذكاء الاصطناعي متاح للإدمن (Admin) فقط حالياً.");
+      return;
+    }
+
     let activeRound = currentRound;
 
     if (options.forceNextRound) {
@@ -267,6 +300,27 @@ export const AiAssistant: React.FC = () => {
       return;
     }
 
+    // Save backup of target batch BEFORE running analysis
+    const backups = targetClients.map(c => ({
+      clientId: c.id,
+      clientName: c.name,
+      previousAiRecommendation: c.aiRecommendation ? JSON.parse(JSON.stringify(c.aiRecommendation)) : null
+    }));
+
+    const newBackup: BatchBackup = {
+      timestamp: Date.now(),
+      round: activeRound,
+      count: targetClients.length,
+      clientBackups: backups
+    };
+
+    setLastBatchBackup(newBackup);
+    try {
+      localStorage.setItem('saber_ai_last_batch_backup', JSON.stringify(newBackup));
+    } catch (e) {
+      console.warn("Could not save batch backup to localStorage", e);
+    }
+
     setIsBatchAnalyzing(true);
     setBatchProgress(1);
 
@@ -280,7 +334,7 @@ export const AiAssistant: React.FC = () => {
       await Promise.all(
         chunk.map(async (c) => {
           try {
-            await handleAnalyzeClient(c, activeRound);
+            await handleAnalyzeClient(c, activeRound, true);
           } catch (e) {
             console.warn(`Failed to analyze client ${c.name}`, e);
           }
@@ -298,8 +352,63 @@ export const AiAssistant: React.FC = () => {
     setIsBatchAnalyzing(false);
   };
 
+  // Revert / Undo Last Analyzed Batch
+  const handleRevertLastBatch = async () => {
+    if (!isAdmin) {
+      alert("خاصية التراجع عن تحليل الدفعة مخصصة للإدمن (Admin) فقط!");
+      return;
+    }
+
+    if (!lastBatchBackup || !lastBatchBackup.clientBackups || lastBatchBackup.clientBackups.length === 0) {
+      alert("لا توجد دفعة سابقة محفوظة للتراجع عنها!");
+      return;
+    }
+
+    const confirmMsg = `هل أنت متأكد من التراجع عن تحليل آخر دفعة شملت (${lastBatchBackup.count} عميل) - Round ${lastBatchBackup.round}؟\n\nسيتم حذف نتائج التحليل الجديدة واستعادة حالة الذكاء الاصطناعي لكل عميل كما كانت تماماً قبل هذه الدفعة.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsRevertingBatch(true);
+    try {
+      let count = 0;
+      for (const item of lastBatchBackup.clientBackups) {
+        const clientRef = firestore.doc(db, 'clients', item.clientId);
+        if (item.previousAiRecommendation) {
+          await firestore.updateDoc(clientRef, {
+            aiRecommendation: item.previousAiRecommendation
+          });
+        } else {
+          await firestore.updateDoc(clientRef, {
+            aiRecommendation: firestore.deleteField()
+          });
+        }
+        count++;
+      }
+
+      await logActivity(
+        user?.uid || '',
+        user?.name || 'الإدمن',
+        `تراجع عن تحليل آخر دفعة بالذكاء الاصطناعي (${count} عميل)`,
+        'batch',
+        'جميع العملاء'
+      );
+
+      setLastBatchBackup(null);
+      localStorage.removeItem('saber_ai_last_batch_backup');
+      alert(`تم التراجع عن تحليل آخر دفعة (${count} عميل) بنجاح واستعادة حالتهم السابقة!`);
+    } catch (err) {
+      console.error("Error reverting last batch:", err);
+      alert("حدث خطأ أثناء التراجع عن تحليل الدفعة.");
+    } finally {
+      setIsRevertingBatch(false);
+    }
+  };
+
   // Start Next Round manually
   const handleStartNextRoundManually = () => {
+    if (!isAdmin) {
+      alert("بدء راوند جديد متاح للإدمن (Admin) فقط حالياً.");
+      return;
+    }
     const nextR = currentRound + 1;
     if (window.confirm(`هل أنت تأكد من بدء الجولة الجديدة (Round ${nextR})؟\nسيؤدي ذلك لإعادة إتاحة جميع العملاء المؤهلين للتحليل والمتابعة تحت وسم Round ${nextR}.`)) {
       setCurrentRound(nextR);
@@ -591,33 +700,59 @@ export const AiAssistant: React.FC = () => {
               <span>قاعدة المعرفة</span>
             </button>
 
-            <button
-              onClick={handleStartNextRoundManually}
-              disabled={isBatchAnalyzing}
-              className="px-5 py-3.5 bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 border border-indigo-700/80 font-black text-xs rounded-2xl transition flex items-center gap-2 shrink-0 disabled:opacity-50"
-              title="إغلاق الجولة الحالية والبدء في الجولة التالية لإتاحة جميع العملاء للتحليل من جديد"
-            >
-              <RotateCcw size={16} className="text-indigo-400" />
-              <span>بدء راوند جديد (Round {currentRound + 1}) 🔄</span>
-            </button>
+            {isAdmin ? (
+              <>
+                {/* UNDO / REVERT LAST BATCH BUTTON */}
+                {lastBatchBackup && lastBatchBackup.clientBackups && lastBatchBackup.clientBackups.length > 0 && (
+                  <button
+                    onClick={handleRevertLastBatch}
+                    disabled={isBatchAnalyzing || isRevertingBatch}
+                    className="px-5 py-3.5 bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-700/80 font-black text-xs rounded-2xl transition flex items-center gap-2 shrink-0 disabled:opacity-50 shadow-lg"
+                    title="التراجع عن تحليل آخر دفعة واستعادة الحالة السابقة للعملاء"
+                  >
+                    <RotateCcw size={16} className={`text-rose-400 ${isRevertingBatch ? 'animate-spin' : ''}`} />
+                    <span>
+                      {isRevertingBatch
+                        ? 'جاري التراجع...'
+                        : `التراجع عن تحليل آخر دفعة (${lastBatchBackup.count} عميل) ↩️`}
+                    </span>
+                  </button>
+                )}
 
-            <button
-              onClick={() => handleBatchAnalyze()}
-              disabled={isBatchAnalyzing}
-              className="px-7 py-3.5 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white font-black text-xs uppercase rounded-2xl shadow-xl transition-all flex items-center gap-3 shrink-0 disabled:opacity-50"
-            >
-              {isBatchAnalyzing ? (
-                <>
-                  <RefreshCw className="animate-spin" size={18} />
-                  <span>جاري تحليل الدفعة ({batchProgress}%)...</span>
-                </>
-              ) : (
-                <>
-                  <Zap size={18} />
-                  <span>تشغيل دفعة اليوم ({batchSizeLimit} عميل - Round {currentRound})</span>
-                </>
-              )}
-            </button>
+                <button
+                  onClick={handleStartNextRoundManually}
+                  disabled={isBatchAnalyzing || isRevertingBatch}
+                  className="px-5 py-3.5 bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 border border-indigo-700/80 font-black text-xs rounded-2xl transition flex items-center gap-2 shrink-0 disabled:opacity-50"
+                  title="إغلاق الجولة الحالية والبدء في الجولة التالية لإتاحة جميع العملاء للتحليل من جديد"
+                >
+                  <RotateCcw size={16} className="text-indigo-400" />
+                  <span>بدء راوند جديد (Round {currentRound + 1}) 🔄</span>
+                </button>
+
+                <button
+                  onClick={() => handleBatchAnalyze()}
+                  disabled={isBatchAnalyzing || isRevertingBatch}
+                  className="px-7 py-3.5 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white font-black text-xs uppercase rounded-2xl shadow-xl transition-all flex items-center gap-3 shrink-0 disabled:opacity-50"
+                >
+                  {isBatchAnalyzing ? (
+                    <>
+                      <RefreshCw className="animate-spin" size={18} />
+                      <span>جاري تحليل الدفعة ({batchProgress}%)...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap size={18} />
+                      <span>تشغيل دفعة اليوم ({batchSizeLimit} عميل - Round {currentRound})</span>
+                    </>
+                  )}
+                </button>
+              </>
+            ) : (
+              <div className="px-5 py-3 bg-amber-500/10 text-amber-300 border border-amber-500/30 font-black text-xs rounded-2xl flex items-center gap-2">
+                <Shield size={16} className="text-amber-400 shrink-0" />
+                <span>تشغيل وبدء تحليل الذكاء الاصطناعي متاح للإدمن (Admin) فقط حالياً</span>
+              </div>
+            )}
           </div>
         </div>
 

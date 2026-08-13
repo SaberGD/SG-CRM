@@ -254,9 +254,12 @@ const Reports: React.FC = () => {
   };
 
   const fetchAgents = async () => {
-    const q = query(collection(db, 'users'), where('role', 'in', [UserRole.SALES_AGENT, UserRole.TEAM_LEADER]));
+    const q = query(collection(db, 'users'), where('role', 'in', [UserRole.SALES_AGENT, UserRole.TEAM_LEADER, UserRole.SUPERVISOR]));
     const snap = await getDocs(q);
-    setSalesAgents(snap.docs.map(d => ({ uid: d.id, ...d.data() } as User)));
+    const activeAgents = snap.docs
+      .map(d => ({ uid: d.id, ...d.data() } as User))
+      .filter(u => !u.isDeactivated);
+    setSalesAgents(activeAgents);
   };
 
   const fetchDefaultTargets = async () => {

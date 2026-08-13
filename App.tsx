@@ -68,7 +68,7 @@ const App: React.FC = () => {
             let role = data.role as string;
             // Normalize roles
             if (role === 'sales') role = UserRole.SALES_AGENT;
-            if (role === 'supervisor') role = UserRole.MANAGER;
+            if (role === 'supervisor') role = UserRole.SUPERVISOR;
             if (role === 'leader') role = UserRole.TEAM_LEADER;
             if (role === 'administrator') role = UserRole.ADMIN;
 
@@ -156,6 +156,28 @@ const App: React.FC = () => {
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
     </div>
   );
+
+  if (user?.isDeactivated) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 text-white p-6 text-center">
+        <div className="w-20 h-20 bg-rose-500/10 text-rose-500 rounded-3xl flex items-center justify-center mb-6 border border-rose-500/20 shadow-2xl">
+          <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H10m0-6h4m-2-4a9 9 0 110 18 9 9 0 010-18z" />
+          </svg>
+        </div>
+        <h1 className="text-2xl font-black mb-3">حسابك متوقف عن العمل حالياً ⛔</h1>
+        <p className="text-slate-400 font-bold max-w-md text-sm leading-relaxed mb-8">
+          تم إيقاف صلاحيات هذا الحساب وتجميد الوصول إلى النظام من قبل الإدارة. إذا كنت تعتقد أن هذا حدث عن طريق الخطأ، يرجى التواصل مع مسؤول النظام.
+        </p>
+        <button
+          onClick={() => auth.signOut()}
+          className="px-8 py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-2xl transition shadow-xl"
+        >
+          تسجيل الخروج
+        </button>
+      </div>
+    );
+  }
 
   return (
     <AuthContext.Provider value={{ user, effectiveRole, setEffectiveRole, loading }}>

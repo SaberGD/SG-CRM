@@ -40,8 +40,12 @@ const Notifications: React.FC = () => {
     });
 
     if (isHighRole) {
-      getDocs(query(collection(db, 'users'), where('role', 'in', [UserRole.SALES_AGENT, UserRole.TEAM_LEADER]))).then(snap => {
-        setSalesAgents(snap.docs.map(d => ({ id: d.id, name: d.data().name })));
+      getDocs(query(collection(db, 'users'), where('role', 'in', [UserRole.SALES_AGENT, UserRole.TEAM_LEADER, UserRole.SUPERVISOR]))).then(snap => {
+        const activeAgents = snap.docs
+          .map(d => ({ id: d.id, ...d.data() } as User))
+          .filter(u => !u.isDeactivated)
+          .map(u => ({ id: u.uid, name: u.name }));
+        setSalesAgents(activeAgents);
       });
     }
 

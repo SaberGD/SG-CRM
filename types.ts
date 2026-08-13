@@ -1,6 +1,7 @@
 
 export enum UserRole {
   ADMIN = 'admin',
+  SUPERVISOR = 'supervisor',
   MANAGER = 'manager',
   TEAM_LEADER = 'team_leader',
   SALES_AGENT = 'sales_agent'
@@ -91,6 +92,8 @@ export interface User {
   teamId?: string;
   createdAt?: number;
   invitedBy?: string;
+  isDeactivated?: boolean;
+  deactivatedAt?: number;
 }
 
 export interface Invitation {

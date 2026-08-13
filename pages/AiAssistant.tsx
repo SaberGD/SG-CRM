@@ -101,13 +101,26 @@ export const AiAssistant: React.FC = () => {
   });
   const [isRevertingBatch, setIsRevertingBatch] = useState(false);
 
+  // Active Sales Agents Selection & Per-Agent Quota
+  const [selectedActiveAgentIds, setSelectedActiveAgentIds] = useState<string[]>([]);
+  const [perAgentQuota, setPerAgentQuota] = useState<number>(25);
+  const [showBatchConfigModal, setShowBatchConfigModal] = useState<boolean>(false);
+
+  // Auto-initialize selected active sales agents when agents list loads
+  useEffect(() => {
+    if (salesAgents.length > 0 && selectedActiveAgentIds.length === 0) {
+      setSelectedActiveAgentIds(salesAgents.map(a => a.uid));
+    }
+  }, [salesAgents]);
+
   // Knowledge Base Modal / Drawer State
   const [showKnowledgeModal, setShowKnowledgeModal] = useState(false);
 
   // Copy feedback state
   const [copiedClientId, setCopiedClientId] = useState<string | null>(null);
 
-  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isSupervisorOrAbove = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
   const isAdmin = effectiveRole === UserRole.ADMIN;
 
   const todayDateStr = new Date().toISOString().split('T')[0];
@@ -147,7 +160,9 @@ export const AiAssistant: React.FC = () => {
     const fetchAgents = async () => {
       try {
         const usersSnap = await firestore.getDocs(firestore.collection(db, 'users'));
-        const agentsList = usersSnap.docs.map(doc => ({ uid: doc.id, ...doc.data() } as User));
+        const agentsList = usersSnap.docs
+          .map(doc => ({ uid: doc.id, ...doc.data() } as User))
+          .filter(u => !u.isDeactivated);
         setSalesAgents(agentsList);
       } catch (err) {
         console.error("Error fetching sales agents:", err);
@@ -230,10 +245,16 @@ export const AiAssistant: React.FC = () => {
     }
   };
 
-  // Run Batch Analysis under the Round System
+  // Run Batch Analysis under the Round System with Per-Agent Quota
   const handleBatchAnalyze = async (options: { customLimit?: number; forceNextRound?: boolean } = {}) => {
     if (!isAdmin) {
       alert("تشغيل واستدعاء تحليل الدفعة بالذكاء الاصطناعي متاح للإدمن (Admin) فقط حالياً.");
+      return;
+    }
+
+    if (selectedActiveAgentIds.length === 0) {
+      alert("يرجى اختيار مسؤول مبيعات واحد على الأقل من السيلز الشغالين حالياً قبل بدء التحليل!");
+      setShowBatchConfigModal(true);
       return;
     }
 
@@ -244,25 +265,26 @@ export const AiAssistant: React.FC = () => {
       setCurrentRound(activeRound);
     }
 
-    const effectiveLimit = options.customLimit ?? batchSizeLimit;
-
-    // 1. Filter candidates based on interest preference
+    // 1. Filter candidates based on interest preference (skips booked / non-interested)
     let eligibleClients = clients;
     if (onlyInterested) {
       eligibleClients = clients.filter(c => isClientInterested(c));
     }
 
     // 2. Filter candidates needing analysis in `activeRound`
-    // (Clients missing aiRecommendation or analyzed in a lower round < activeRound)
     let candidateClients = eligibleClients.filter(c => {
       if (!c.aiRecommendation) return true;
       return (c.aiRecommendation.round || 0) < activeRound;
     });
 
-    // 3. If ALL eligible clients in activeRound are already analyzed:
-    if (candidateClients.length === 0) {
+    // Check if candidates exist for selected active agents
+    const candidatesForActiveAgents = candidateClients.filter(c => 
+      c.salesAgentId && selectedActiveAgentIds.includes(c.salesAgentId)
+    );
+
+    if (candidatesForActiveAgents.length === 0 && candidateClients.length === 0) {
       const confirmNext = window.confirm(
-        `🎉 مكتمل! تم تحليل جميع العملاء المؤهلين (${eligibleClients.length} عميل) في الجولة الحاليّة (Round ${activeRound})!\n\nهل ترغب في البدء التلقائي في الجولة الجديدة (Round ${activeRound + 1}) وإعادة فحص العملاء مجدداً؟`
+        `🎉 مكتمل! تم تحليل جميع العملاء المؤهلين للـ (${selectedActiveAgentIds.length}) سيلز المحددين في الجولة الحاليّة (Round ${activeRound})!\n\nهل ترغب في البدء التلقائي في الجولة الجديدة (Round ${activeRound + 1}) وإعادة فحص العملاء مجدداً؟`
       );
       if (confirmNext) {
         activeRound = activeRound + 1;
@@ -273,30 +295,44 @@ export const AiAssistant: React.FC = () => {
       }
     }
 
-    // 4. Sort candidates:
-    //    1st: Unanalyzed clients or lowest round
-    //    2nd: Hot / Interested clients
-    //    3rd: Most recent clients
-    candidateClients.sort((a, b) => {
-      const aRound = a.aiRecommendation?.round || 0;
-      const bRound = b.aiRecommendation?.round || 0;
-      if (aRound !== bRound) return aRound - bRound; // priority to older rounds or unanalyzed
+    // Helper sort function for candidate clients
+    const sortCandidates = (list: Client[]) => {
+      return [...list].sort((a, b) => {
+        const aRound = a.aiRecommendation?.round || 0;
+        const bRound = b.aiRecommendation?.round || 0;
+        if (aRound !== bRound) return aRound - bRound;
 
-      const aStatus = (a.status || '').toLowerCase();
-      const bStatus = (b.status || '').toLowerCase();
-      const aIsHot = aStatus.includes('interested') || aStatus.includes('مهتم');
-      const bIsHot = bStatus.includes('interested') || bStatus.includes('مهتم');
-      if (aIsHot && !bIsHot) return -1;
-      if (!aIsHot && bIsHot) return 1;
+        const aStatus = (a.status || '').toLowerCase();
+        const bStatus = (b.status || '').toLowerCase();
+        const aIsHot = aStatus.includes('interested') || aStatus.includes('مهتم');
+        const bIsHot = bStatus.includes('interested') || bStatus.includes('مهتم');
+        if (aIsHot && !bIsHot) return -1;
+        if (!aIsHot && bIsHot) return 1;
 
-      return (b.createdAt || 0) - (a.createdAt || 0);
+        return (b.createdAt || 0) - (a.createdAt || 0);
+      });
+    };
+
+    // 3. Per-Agent Allocation:
+    // Take up to `perAgentQuota` (e.g. 25) clients for EACH selected active sales agent
+    const targetClients: Client[] = [];
+
+    selectedActiveAgentIds.forEach(agentUid => {
+      const agentCandidates = candidateClients.filter(c => c.salesAgentId === agentUid);
+      const sorted = sortCandidates(agentCandidates);
+      const chosen = sorted.slice(0, perAgentQuota);
+      targetClients.push(...chosen);
     });
 
-    // 5. Take target batch slice
-    const targetClients = candidateClients.slice(0, effectiveLimit);
+    // Handle unassigned candidates if target batch is empty
+    const unassignedCandidates = candidateClients.filter(c => !c.salesAgentId || !selectedActiveAgentIds.includes(c.salesAgentId));
+    if (unassignedCandidates.length > 0 && targetClients.length === 0) {
+      const sorted = sortCandidates(unassignedCandidates);
+      targetClients.push(...sorted.slice(0, perAgentQuota));
+    }
 
     if (targetClients.length === 0) {
-      alert("لا يوجد عملاء بحاجة للتحليل حالياً!");
+      alert("لا يوجد عملاء بحاجة للتحليل حالياً للسيلز المحددين!");
       return;
     }
 
@@ -324,7 +360,7 @@ export const AiAssistant: React.FC = () => {
     setIsBatchAnalyzing(true);
     setBatchProgress(1);
 
-    // 6. Concurrency execution in chunks of 4
+    // 4. Concurrency execution in chunks of 4
     const CONCURRENCY = 4;
     let processedCount = 0;
 
@@ -345,7 +381,7 @@ export const AiAssistant: React.FC = () => {
       setBatchProgress(Math.round((processedCount / targetClients.length) * 100));
 
       if (i + CONCURRENCY < targetClients.length) {
-        await new Promise(r => setTimeout(r, 400));
+        await new Promise(r => setTimeout(r, 300));
       }
     }
 
@@ -720,6 +756,16 @@ export const AiAssistant: React.FC = () => {
                 )}
 
                 <button
+                  onClick={() => setShowBatchConfigModal(true)}
+                  disabled={isBatchAnalyzing || isRevertingBatch}
+                  className="px-4 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 font-black text-xs rounded-2xl transition flex items-center gap-2 shrink-0"
+                  title="تحديد السيلز الشغالين وحصة كل سيلز اليومية"
+                >
+                  <SlidersHorizontal size={16} className="text-amber-400" />
+                  <span>السيلز الشغالين ({selectedActiveAgentIds.length}) & الحصة ({perAgentQuota}) ⚙️</span>
+                </button>
+
+                <button
                   onClick={handleStartNextRoundManually}
                   disabled={isBatchAnalyzing || isRevertingBatch}
                   className="px-5 py-3.5 bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 border border-indigo-700/80 font-black text-xs rounded-2xl transition flex items-center gap-2 shrink-0 disabled:opacity-50"
@@ -742,7 +788,7 @@ export const AiAssistant: React.FC = () => {
                   ) : (
                     <>
                       <Zap size={18} />
-                      <span>تشغيل دفعة اليوم ({batchSizeLimit} عميل - Round {currentRound})</span>
+                      <span>تشغيل دفعة اليوم ({selectedActiveAgentIds.length * perAgentQuota} عميل - Round {currentRound})</span>
                     </>
                   )}
                 </button>
@@ -773,47 +819,37 @@ export const AiAssistant: React.FC = () => {
             </label>
           </div>
 
-          {/* Custom Batch Size Input & Presets */}
+          {/* Quota Per Active Agent Input & Summary */}
           <div className="md:col-span-7 flex flex-wrap items-center justify-between gap-3 bg-slate-800/60 p-3.5 rounded-2xl border border-slate-700/60">
             <div className="flex items-center gap-2">
-              <span className="font-black text-slate-300 shrink-0">حجم الدفعة المخصص:</span>
+              <span className="font-black text-slate-300 shrink-0">حصة كل سيلز شغال:</span>
               <input 
                 type="number"
                 min={1}
-                max={totalClientsCount || 1000}
-                value={batchSizeLimit}
-                onChange={(e) => setBatchSizeLimit(Math.max(1, parseInt(e.target.value) || 1))}
+                max={500}
+                value={perAgentQuota}
+                onChange={(e) => setPerAgentQuota(Math.max(1, parseInt(e.target.value) || 1))}
                 className="w-20 bg-slate-900 text-white font-black text-center border border-slate-700 rounded-xl px-2 py-1 focus:outline-none focus:border-primary-500"
               />
-              <span className="text-slate-400 font-bold">عميل/يوم</span>
+              <span className="text-slate-400 font-bold">عميل/سيلز</span>
             </div>
 
             {/* Quick Presets */}
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] text-slate-400 font-bold ml-1">اختيار سريع:</span>
-              {[10, 25, 50, 100, 200].map(size => (
+              <span className="text-[10px] text-slate-400 font-bold ml-1">تحديد حصة السيلز:</span>
+              {[10, 15, 20, 25, 30, 50].map(quota => (
                 <button
-                  key={size}
-                  onClick={() => setBatchSizeLimit(size)}
+                  key={quota}
+                  onClick={() => setPerAgentQuota(quota)}
                   className={`px-2.5 py-1 rounded-lg font-black text-[11px] transition ${
-                    batchSizeLimit === size 
+                    perAgentQuota === quota 
                       ? 'bg-primary-500 text-white shadow' 
-                      : 'bg-slate-900 text-slate-300 hover:bg-slate-700'
+                      : 'bg-slate-900 text-slate-300 hover:bg-slate-700 border border-slate-700'
                   }`}
                 >
-                  {size}
+                  {quota} عميل
                 </button>
               ))}
-              <button
-                onClick={() => setBatchSizeLimit(totalClientsCount || 100)}
-                className={`px-2.5 py-1 rounded-lg font-black text-[11px] transition ${
-                  batchSizeLimit === totalClientsCount 
-                    ? 'bg-indigo-500 text-white shadow' 
-                    : 'bg-slate-900 text-indigo-300 hover:bg-slate-700'
-                }`}
-              >
-                الكل ({totalClientsCount})
-              </button>
             </div>
           </div>
 
@@ -1747,6 +1783,181 @@ export const AiAssistant: React.FC = () => {
               >
                 <RotateCcw size={16} />
                 <span>تنفيذ إعادة المتابعة</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ACTIVE WORKING SALES SELECTION & PER-AGENT QUOTA MODAL */}
+      {showBatchConfigModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-7 max-w-2xl w-full border border-slate-200 dark:border-slate-800 space-y-6 shadow-2xl relative">
+            
+            {/* Header */}
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-black">
+                  <SlidersHorizontal size={24} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">تحديد السيلز الشغالين وحصة التحليل اليومية</h3>
+                  <p className="text-xs font-bold text-slate-400">اختر مسؤولين المبيعات النشطين اليوم وحدد حصة العملاء لكل سيلز</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowBatchConfigModal(false)}
+                className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl hover:bg-slate-200 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Quota Per Agent Input */}
+            <div className="p-5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <label className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <Zap size={16} className="text-amber-500" />
+                    <span>حصة العملاء لكل سيلز شغال (الحد لكل مسؤول مبيعات):</span>
+                  </label>
+                  <p className="text-[11px] font-bold text-slate-400 mt-0.5">
+                    الذكاء الاصطناعي سيحلل حتى هذا العدد من العملاء المؤهلين لكل سيلز محدد
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={perAgentQuota}
+                    onChange={(e) => setPerAgentQuota(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-24 p-2.5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-black text-center text-sm border border-slate-300 dark:border-slate-600 rounded-xl outline-none focus:border-amber-500"
+                  />
+                  <span className="text-xs font-black text-slate-500">عميل</span>
+                </div>
+              </div>
+
+              {/* Preset buttons */}
+              <div className="flex items-center gap-2 pt-1 flex-wrap">
+                <span className="text-[11px] font-bold text-slate-400 ml-1">تحديد سريع للحصة:</span>
+                {[10, 15, 20, 25, 30, 50].map(q => (
+                  <button
+                    key={q}
+                    onClick={() => setPerAgentQuota(q)}
+                    className={`px-3 py-1.5 rounded-xl font-black text-xs transition ${
+                      perAgentQuota === q
+                        ? 'bg-amber-500 text-white shadow-md'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-amber-500'
+                    }`}
+                  >
+                    {q} عميل
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Active Sales Agents Selection */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <UserCheck size={16} className="text-primary-500" />
+                  <span>السيلز الشغالين حالياً ({selectedActiveAgentIds.length} من {salesAgents.length}):</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedActiveAgentIds(salesAgents.map(a => a.uid))}
+                    className="text-[11px] font-black text-primary-500 hover:underline"
+                  >
+                    تحديد الكل
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    onClick={() => setSelectedActiveAgentIds([])}
+                    className="text-[11px] font-black text-rose-500 hover:underline"
+                  >
+                    إلغاء الكل
+                  </button>
+                </div>
+              </div>
+
+              {/* Grid of Agents */}
+              <div className="max-h-64 overflow-y-auto pr-1 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {salesAgents.map((agent) => {
+                  const isChecked = selectedActiveAgentIds.includes(agent.uid);
+                  const agentClientsCount = clients.filter(c => c.salesAgentId === agent.uid && isClientInterested(c)).length;
+
+                  return (
+                    <div
+                      key={agent.uid}
+                      onClick={() => {
+                        if (isChecked) {
+                          setSelectedActiveAgentIds(selectedActiveAgentIds.filter(id => id !== agent.uid));
+                        } else {
+                          setSelectedActiveAgentIds([...selectedActiveAgentIds, agent.uid]);
+                        }
+                      }}
+                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between select-none ${
+                        isChecked 
+                          ? 'bg-primary-50/70 dark:bg-primary-500/10 border-primary-500 text-slate-900 dark:text-white shadow-sm' 
+                          : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-5 h-5 rounded-lg flex items-center justify-center border transition ${
+                          isChecked ? 'bg-primary-500 border-primary-500 text-white' : 'border-slate-400 bg-white dark:bg-slate-900'
+                        }`}>
+                          {isChecked && <Check size={14} className="stroke-[3]" />}
+                        </div>
+                        <div>
+                          <p className="text-xs font-black">{agent.name}</p>
+                          <span className="text-[10px] font-bold text-slate-400">
+                            {agent.role === UserRole.TEAM_LEADER ? 'رئيس فريق' : 'مبيعات'} • {agentClientsCount} عميل مؤهل
+                          </span>
+                        </div>
+                      </div>
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                        isChecked ? 'bg-primary-500/20 text-primary-600 dark:text-primary-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
+                      }`}>
+                        {isChecked ? `حتى ${perAgentQuota}` : 'غير متواجد'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Total Calculation Banner */}
+            <div className="p-4 bg-gradient-to-r from-primary-500/10 via-indigo-500/10 to-emerald-500/10 rounded-2xl border border-primary-500/20 flex items-center justify-between text-xs font-black">
+              <div className="flex items-center gap-2 text-slate-900 dark:text-white">
+                <Sparkles size={18} className="text-amber-500" />
+                <span>إجمالي دفعة اليوم المخططة:</span>
+              </div>
+              <span className="text-sm font-black text-primary-600 dark:text-primary-400">
+                {selectedActiveAgentIds.length * perAgentQuota} عميل ({selectedActiveAgentIds.length} سيلز × {perAgentQuota})
+              </span>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowBatchConfigModal(false)}
+                className="px-5 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl text-xs font-black hover:bg-slate-200 transition"
+              >
+                حفظ وإغلاق
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowBatchConfigModal(false);
+                  handleBatchAnalyze();
+                }}
+                disabled={selectedActiveAgentIds.length === 0}
+                className="px-6 py-3 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white rounded-2xl font-black text-xs transition flex items-center gap-2 shadow-lg disabled:opacity-50"
+              >
+                <Zap size={16} />
+                <span>بدء تشغيل الدفعة الآن ({selectedActiveAgentIds.length * perAgentQuota} عميل)</span>
               </button>
             </div>
 

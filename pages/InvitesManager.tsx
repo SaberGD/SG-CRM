@@ -164,7 +164,8 @@ const InvitesManager: React.FC = () => {
                    {isAdmin && (
                      <>
                         <option value={UserRole.TEAM_LEADER}>Team Leader (رئيس فريق)</option>
-                        <option value={UserRole.MANAGER}>Supervisor / Manager (مدير نظام)</option>
+                        <option value={UserRole.SUPERVISOR}>Supervisor (مشرف)</option>
+                         <option value={UserRole.MANAGER}>Manager (مدير نظام)</option>
                         <option value={UserRole.ADMIN}>Administrator (أدمن كامل)</option>
                      </>
                    )}

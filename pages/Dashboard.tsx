@@ -84,9 +84,12 @@ const Dashboard: React.FC = () => {
 
   const fetchAgents = async () => {
     try {
-      const q = query(collection(db, 'users'), where('role', '==', UserRole.SALES_AGENT));
+      const q = query(collection(db, 'users'));
       const snap = await getDocs(q);
-      setSalesAgents(snap.docs.map(d => ({ uid: d.id, ...d.data() } as User)));
+      const activeAgents = snap.docs
+        .map(d => ({ uid: d.id, ...d.data() } as User))
+        .filter(u => !u.isDeactivated && (u.role === UserRole.SALES_AGENT || u.role === UserRole.TEAM_LEADER || u.role === UserRole.SUPERVISOR));
+      setSalesAgents(activeAgents);
     } catch (e) {
       console.warn("Permission denied for agents list.");
     }

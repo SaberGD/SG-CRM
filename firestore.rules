@@ -82,7 +82,7 @@ service cloud.firestore {
     match /clients/{clientId} {
       allow read: if isAuthenticated(); 
       allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (isTeamLeader() || resource.data.salesAgentId == request.auth.uid);
+      allow update: if isAuthenticated();
       allow delete: if isManager();
     }
     

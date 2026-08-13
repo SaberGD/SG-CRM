@@ -113,10 +113,17 @@ export interface AiRecommendation {
   insightsSummary: string;
   salesTip: string;
   generatedAt: number;
-  status: 'PENDING' | 'ACCEPTED' | 'DISMISSED';
+  status: 'PENDING' | 'ACCEPTED' | 'SKIPPED' | 'DISMISSED';
+  round?: number;
   acceptedAt?: number;
   acceptedByUid?: string;
   acceptedByName?: string;
+  salesComment?: string;
+  salesCheckAt?: number;
+  supervisorCheck?: boolean;
+  supervisorCheckedAt?: number;
+  supervisorCheckedByName?: string;
+  supervisorNotes?: string;
 }
 
 export interface Client {

@@ -103,6 +103,22 @@ export interface Invitation {
   timestamp: number;
 }
 
+export interface AiRecommendation {
+  suggestedDate: string; // YYYY-MM-DD
+  suggestedTime?: string; // HH:MM
+  suggestedTimestamp: number;
+  suggestedChannel: string;
+  suggestedPitch: string;
+  conversionPriority: 'عالي' | 'متوسط' | 'منخفض';
+  insightsSummary: string;
+  salesTip: string;
+  generatedAt: number;
+  status: 'PENDING' | 'ACCEPTED' | 'DISMISSED';
+  acceptedAt?: number;
+  acceptedByUid?: string;
+  acceptedByName?: string;
+}
+
 export interface Client {
   id: string;
   name: string;
@@ -143,6 +159,7 @@ export interface Client {
   exchangeRateUsed?: number;
   deductionAmount?: number;
   deductionReason?: string;
+  aiRecommendation?: AiRecommendation;
 }
 
 export interface FollowUp {

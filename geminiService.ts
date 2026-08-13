@@ -40,3 +40,23 @@ export const analyzeDailyReport = async (report: DailyReport) => {
     return "فشل تحليل التقرير بسبب مشكلة في الاتصال بالسيرفر.";
   }
 };
+
+/**
+ * Analyzes client history and generates AI sales assistant recommendation via Server API.
+ */
+export const analyzeClientWithAi = async (client: Client, followUps: FollowUp[] = []) => {
+  try {
+    const response = await fetch("/api/gemini/analyze-client", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client, followUps }),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("analyzeClientWithAi error calling endpoint:", error);
+    throw error;
+  }
+};

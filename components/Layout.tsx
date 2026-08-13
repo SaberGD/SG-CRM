@@ -6,7 +6,7 @@ import { auth, db, logActivity } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { 
-  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog, Database
+  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog, Database, Sparkles
 } from 'lucide-react';
 import { UserRole, Client } from '../types';
 
@@ -178,6 +178,7 @@ const Layout: React.FC = () => {
     { name: 'لوحة التحكم', path: '/', icon: LayoutDashboard },
     { name: 'العملاء', path: '/clients', icon: Users },
     { name: 'المتابعات والمهام', path: '/notifications', icon: Bell },
+    { name: 'المساعد الذكي AI', path: '/ai-assistant', icon: Sparkles },
     { name: 'التقارير', path: '/reports', icon: BarChart3 },
   ];
 

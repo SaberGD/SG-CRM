@@ -20,6 +20,7 @@ import ServicesManager from './pages/ServicesManager';
 import LabelsManager from './pages/LabelsManager';
 import InvitesManager from './pages/InvitesManager';
 import AdminPanel from './pages/AdminPanel';
+import { AiAssistant } from './pages/AiAssistant';
 
 interface AuthContextType {
   user: User | null;
@@ -166,6 +167,7 @@ const App: React.FC = () => {
             <Route path="/clients" element={<ClientsList />} />
             <Route path="/clients/:id" element={<ClientDetails />} />
             <Route path="/notifications" element={<Notifications />} />
+            <Route path="/ai-assistant" element={<AiAssistant />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/services" element={<ServicesManager />} />
             <Route path="/labels" element={<LabelsManager />} />

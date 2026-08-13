@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 import { sendMetaEvent } from '../metaService';
+import { analyzeClientWithAi } from '../geminiService';
 import { useAuth } from '../App';
 import { 
   Client, FollowUp, ClientStatus, CommMethod, StatusLabels, CommMethodLabels,
@@ -14,7 +15,7 @@ import {
   Play, Square, Clock, Calendar, History, PhoneIncoming, Clock4, 
   MessageSquare, Edit2, X, Save, User, CalendarPlus, 
   Download, FileText, UserCheck, Settings, Timer, LayoutList, History as HistoryIcon,
-  MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers
+  MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw
 } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
@@ -70,6 +71,81 @@ const ClientDetails: React.FC = () => {
   const [deductionReason, setDeductionReason] = useState('٣٪ عمولة تحويل و ١٤٪ ضرايب');
   
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
+
+  const [isAnalyzingAi, setIsAnalyzingAi] = useState(false);
+  const [copiedPitch, setCopiedPitch] = useState(false);
+
+  const handleRunAiAnalysis = async () => {
+    if (!client) return;
+    setIsAnalyzingAi(true);
+    try {
+      const result = await analyzeClientWithAi(client, followUps);
+      const [year, month, day] = (result.suggestedDate || '').split('-').map(Number);
+      let suggestedTimestamp = Date.now() + 86400000;
+      if (year && month && day) {
+        const [hours, minutes] = (result.suggestedTime || '12:00').split(':').map(Number);
+        suggestedTimestamp = new Date(year, month - 1, day, hours || 12, minutes || 0).getTime();
+      }
+
+      const newRecommendation = {
+        suggestedDate: result.suggestedDate || new Date(suggestedTimestamp).toISOString().split('T')[0],
+        suggestedTime: result.suggestedTime || '12:00',
+        suggestedTimestamp,
+        suggestedChannel: result.suggestedChannel || 'واتساب',
+        suggestedPitch: result.suggestedPitch || 'مرحباً، أود متابعة استفسارك بخصوص الدورة التدريبية...',
+        conversionPriority: (result.conversionPriority as any) || 'متوسط',
+        insightsSummary: result.insightsSummary || 'تحليل بناءً على بيانات العميل ومتابعاته.',
+        salesTip: result.salesTip || 'ركز على توضيح المزايا والخصومات المتاحة.',
+        generatedAt: Date.now(),
+        status: 'PENDING'
+      };
+
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+        aiRecommendation: newRecommendation
+      });
+    } catch (err: any) {
+      console.error("AI Analysis error:", err);
+      alert(`حدث خطأ أثناء تحليل العميل بالذكاء الاصطناعي: ${err?.message || ''}`);
+    } finally {
+      setIsAnalyzingAi(false);
+    }
+  };
+
+  const handleApplyAiRecommendation = async () => {
+    if (!client || !client.aiRecommendation) return;
+    try {
+      const rec = client.aiRecommendation;
+      let method: CommMethod = CommMethod.WHATSAPP;
+      if (rec.suggestedChannel.includes('اتصال') || rec.suggestedChannel.includes('هاتف')) {
+        method = CommMethod.PHONE;
+      } else if (rec.suggestedChannel.includes('مقابلة') || rec.suggestedChannel.includes('مقر')) {
+        method = CommMethod.MEETING;
+      }
+
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+        nextFollowUpDate: rec.suggestedTimestamp,
+        nextFollowUpMethod: method,
+        notes: client.notes ? `${client.notes}\n[توصية AI]: ${rec.suggestedPitch}` : `[توصية AI]: ${rec.suggestedPitch}`,
+        'aiRecommendation.status': 'ACCEPTED',
+        'aiRecommendation.acceptedAt': Date.now(),
+        'aiRecommendation.acceptedByUid': user?.uid,
+        'aiRecommendation.acceptedByName': user?.name
+      });
+
+      await logActivity(
+        user?.uid || '',
+        user?.name || 'موظف',
+        `اعتماد توصية المساعد الذكي AI للعميل`,
+        client.id,
+        client.name
+      );
+
+      alert(`تم اعتماد اقتراح المساعد الذكي وجدولة المتابعة بتاريخ ${rec.suggestedDate}`);
+    } catch (err) {
+      console.error("Error applying AI recommendation:", err);
+      alert("حدث خطأ أثناء اعتماد التوصية.");
+    }
+  };
 
   useEffect(() => {
     fetchExchangeRates().then(rates => setExchangeRates(rates));
@@ -437,6 +513,117 @@ const ClientDetails: React.FC = () => {
            <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 rounded-2xl flex items-center justify-center"><UserCheck size={28}/></div>
            <div><p className="text-[10px] font-black text-slate-400 uppercase">الحالة الحالية</p><p className="text-xs font-black text-slate-900 dark:text-white">{StatusLabels[client.status].ar}</p></div>
         </div>
+      </div>
+
+      {/* AI Sales Assistant Card for this Client */}
+      <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-8 rounded-[3rem] text-white shadow-2xl border border-slate-800 space-y-6 relative overflow-hidden">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-primary-500/20 text-primary-400 rounded-2xl flex items-center justify-center border border-primary-500/30 shrink-0">
+              <Bot size={24} />
+            </div>
+            <div>
+              <h3 className="text-xl font-black flex items-center gap-2">
+                <span>توصية المساعد الذكي (Gemini AI)</span>
+                <Sparkles size={18} className="text-primary-400 animate-pulse" />
+              </h3>
+              <p className="text-xs font-bold text-slate-400">تحليل تلقائي بناءً على سلوك وسجل متابعة العميل</p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleRunAiAnalysis}
+            disabled={isAnalyzingAi}
+            className="px-6 py-3 bg-primary-500 hover:bg-primary-600 text-white rounded-2xl font-black text-xs transition flex items-center gap-2 shadow-lg shadow-primary-500/20 disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={isAnalyzingAi ? 'animate-spin' : ''} />
+            <span>{isAnalyzingAi ? 'جاري التحليل بالـ AI...' : 'تشغيل تحليل جديد'}</span>
+          </button>
+        </div>
+
+        {client.aiRecommendation ? (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700/50 space-y-1">
+                <p className="text-[10px] font-black text-slate-400 uppercase">الموعد المقترح</p>
+                <p className="text-sm font-black text-primary-300">{client.aiRecommendation.suggestedDate} ({client.aiRecommendation.suggestedTime || '12:00'})</p>
+              </div>
+
+              <div className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700/50 space-y-1">
+                <p className="text-[10px] font-black text-slate-400 uppercase">قناة التواصل الأفضل</p>
+                <p className="text-sm font-black text-indigo-300">{client.aiRecommendation.suggestedChannel}</p>
+              </div>
+
+              <div className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700/50 space-y-1">
+                <p className="text-[10px] font-black text-slate-400 uppercase">مستوى الأولوية</p>
+                <span className={`inline-block px-3 py-1 rounded-xl text-xs font-black ${
+                  client.aiRecommendation.conversionPriority === 'عالي' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                }`}>
+                  أولوية {client.aiRecommendation.conversionPriority}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-[10px] font-black text-slate-400 uppercase">رأي وتحليل الذكاء الاصطناعي:</p>
+              <p className="text-xs font-bold text-slate-200 leading-relaxed bg-slate-800/40 p-4 rounded-2xl border border-slate-800">{client.aiRecommendation.insightsSummary}</p>
+            </div>
+
+            <div className="space-y-2 bg-primary-500/10 p-5 rounded-2xl border border-primary-500/20">
+              <div className="flex justify-between items-center">
+                <p className="text-xs font-black text-primary-300 flex items-center gap-1">
+                  <Sparkles size={14} /> سيناريو الإقناع والرد على الاعتراضات:
+                </p>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(client.aiRecommendation?.suggestedPitch || '');
+                    setCopiedPitch(true);
+                    setTimeout(() => setCopiedPitch(false), 2000);
+                  }}
+                  className="px-3 py-1 bg-slate-800 text-xs font-black rounded-lg hover:bg-slate-700 transition flex items-center gap-1 text-slate-300"
+                >
+                  {copiedPitch ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                  <span>{copiedPitch ? 'تم النسخ' : 'نسخ النص'}</span>
+                </button>
+              </div>
+              <p className="text-xs font-bold text-white leading-relaxed">{client.aiRecommendation.suggestedPitch}</p>
+            </div>
+
+            {client.aiRecommendation.salesTip && (
+              <p className="text-xs font-bold text-amber-300 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">
+                💡 <strong>نصيحة ذهبية:</strong> {client.aiRecommendation.salesTip}
+              </p>
+            )}
+
+            <div className="pt-2 flex justify-between items-center">
+              {client.aiRecommendation.status === 'ACCEPTED' ? (
+                <div className="text-xs font-black text-emerald-400 flex items-center gap-2 bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/20 w-full justify-center">
+                  <CheckCircle2 size={16} />
+                  <span>تم اعتماد المتابعة الموصى بها في جدولك بواسطة {client.aiRecommendation.acceptedByName || 'الموظف'}</span>
+                </div>
+              ) : (
+                <button
+                  onClick={handleApplyAiRecommendation}
+                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-2xl transition shadow-xl flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 size={18} />
+                  <span>تحويل توصية AI لمتابعة حقيقية مجدولة الآن</span>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-6 space-y-3">
+            <p className="text-xs font-bold text-slate-400">لا توجد توصية ذكاء اصطناعي متاحة حالياً لـ {client.name}.</p>
+            <button
+              onClick={handleRunAiAnalysis}
+              disabled={isAnalyzingAi}
+              className="px-6 py-3 bg-primary-500 text-white rounded-2xl font-black text-xs hover:bg-primary-600 transition"
+            >
+              {isAnalyzingAi ? 'جاري التحليل...' : 'تشغيل المساعد الذكي لمراجعة العميل'}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">

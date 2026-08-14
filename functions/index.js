@@ -81,14 +81,12 @@ exports.metaCapiEvent = onRequest({ region: "us-central1", cors: true }, async (
 // those routes exactly so geminiService.ts can call them from the live site.
 // ---------------------------------------------------------------------------
 
-const geminiApiKey = process.env.GEMINI_API_KEY || "";
+// Vertex AI mode via Application Default Credentials — bills to this project's
+// Cloud Billing account instead of a free-tier API key.
 const ai = new GoogleGenAI({
-  apiKey: geminiApiKey,
-  httpOptions: {
-    headers: {
-      "User-Agent": "aistudio-build",
-    },
-  },
+  vertexai: true,
+  project: "sg-crm-e3a38",
+  location: "us-central1",
 });
 
 /**
@@ -100,10 +98,6 @@ exports.geminiPredictSales = onRequest({ region: "us-central1", cors: true }, as
     return res.status(405).json({ error: "Method not allowed" });
   }
   try {
-    if (!geminiApiKey) {
-      return res.json({ score: "Medium", reason: "GEMINI_API_KEY غير متوفر في السيرفر" });
-    }
-
     const { client, followUps } = req.body || {};
     if (!client) {
       return res.status(400).json({ error: "Missing client parameter" });
@@ -158,10 +152,6 @@ exports.geminiAnalyzeReport = onRequest({ region: "us-central1", cors: true }, a
     return res.status(405).json({ error: "Method not allowed" });
   }
   try {
-    if (!geminiApiKey) {
-      return res.json({ text: "تقرير مكتمل. حافظ على متابعة العملاء المهتمين وتحديث السجلات أولاً بأول." });
-    }
-
     const { report } = req.body || {};
     if (!report) {
       return res.status(400).json({ error: "Missing report parameter" });
@@ -234,10 +224,6 @@ exports.geminiAnalyzeClient = onRequest({ region: "us-central1", cors: true }, a
   const { client, followUps } = req.body || {};
   if (!client) {
     return res.status(400).json({ error: "Missing client parameter" });
-  }
-
-  if (!geminiApiKey) {
-    return res.json(generateFallbackClientAnalysis(client));
   }
 
   const historyText = (followUps || []).map((f) => {

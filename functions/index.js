@@ -86,7 +86,7 @@ exports.metaCapiEvent = onRequest({ region: "us-central1", cors: true }, async (
 const ai = new GoogleGenAI({
   vertexai: true,
   project: "sg-crm-e3a38",
-  location: "us-central1",
+  location: "global",
 });
 
 /**

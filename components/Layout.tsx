@@ -178,7 +178,7 @@ const Layout: React.FC = () => {
     { name: 'لوحة التحكم', path: '/', icon: LayoutDashboard },
     { name: 'العملاء', path: '/clients', icon: Users },
     { name: 'المتابعات والمهام', path: '/notifications', icon: Bell },
-    { name: 'المساعد الذكي AI', path: '/ai-assistant', icon: Sparkles },
+    { name: 'المساعد الذكي (مارو) AI', path: '/ai-assistant', icon: Sparkles },
     { name: 'التقارير', path: '/reports', icon: BarChart3 },
   ];
 

@@ -520,24 +520,24 @@ const ClientDetails: React.FC = () => {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-6">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-primary-500/20 text-primary-400 rounded-2xl flex items-center justify-center border border-primary-500/30 shrink-0">
-              <Bot size={24} />
+              <Sparkles size={24} />
             </div>
             <div>
               <h3 className="text-xl font-black flex items-center gap-2">
-                <span>توصية المساعد الذكي (Gemini AI)</span>
+                <span>اقتراحات مارو بالذكاء الاصطناعي (Maro AI)</span>
                 <Sparkles size={18} className="text-primary-400 animate-pulse" />
               </h3>
-              <p className="text-xs font-bold text-slate-400">تحليل تلقائي بناءً على سلوك وسجل متابعة العميل</p>
+              <p className="text-xs font-bold text-slate-400">تحليل تلقائي ذكي وسيناريو إقناع مخصص بناءً على سجل هذا العميل</p>
             </div>
           </div>
 
           <button
             onClick={handleRunAiAnalysis}
             disabled={isAnalyzingAi}
-            className="px-6 py-3 bg-primary-500 hover:bg-primary-600 text-white rounded-2xl font-black text-xs transition flex items-center gap-2 shadow-lg shadow-primary-500/20 disabled:opacity-50"
+            className="px-6 py-3 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white rounded-2xl font-black text-xs transition flex items-center gap-2 shadow-lg shadow-primary-500/20 disabled:opacity-50"
           >
             <RefreshCw size={14} className={isAnalyzingAi ? 'animate-spin' : ''} />
-            <span>{isAnalyzingAi ? 'جاري التحليل بالـ AI...' : 'تشغيل تحليل جديد'}</span>
+            <span>{isAnalyzingAi ? 'جاري استخراج اقتراحات مارو...' : '✨ استخراج / تحديث اقتراحات مارو'}</span>
           </button>
         </div>
 
@@ -565,14 +565,14 @@ const ClientDetails: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <p className="text-[10px] font-black text-slate-400 uppercase">رأي وتحليل الذكاء الاصطناعي:</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase">رأي وتحليل مارو الذكي:</p>
               <p className="text-xs font-bold text-slate-200 leading-relaxed bg-slate-800/40 p-4 rounded-2xl border border-slate-800">{client.aiRecommendation.insightsSummary}</p>
             </div>
 
             <div className="space-y-2 bg-primary-500/10 p-5 rounded-2xl border border-primary-500/20">
               <div className="flex justify-between items-center">
                 <p className="text-xs font-black text-primary-300 flex items-center gap-1">
-                  <Sparkles size={14} /> سيناريو الإقناع والرد على الاعتراضات:
+                  <Sparkles size={14} /> سيناريو الإقناع والرد على الاعتراضات (توصية مارو):
                 </p>
                 <button
                   onClick={() => {
@@ -599,7 +599,7 @@ const ClientDetails: React.FC = () => {
               {client.aiRecommendation.status === 'ACCEPTED' ? (
                 <div className="text-xs font-black text-emerald-400 flex items-center gap-2 bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/20 w-full justify-center">
                   <CheckCircle2 size={16} />
-                  <span>تم اعتماد المتابعة الموصى بها في جدولك بواسطة {client.aiRecommendation.acceptedByName || 'الموظف'}</span>
+                  <span>تم اعتماد توصية مارو في جدول المتابعات بواسطة {client.aiRecommendation.acceptedByName || 'الموظف'}</span>
                 </div>
               ) : (
                 <button
@@ -607,20 +607,21 @@ const ClientDetails: React.FC = () => {
                   className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-2xl transition shadow-xl flex items-center justify-center gap-2"
                 >
                   <CheckCircle2 size={18} />
-                  <span>تحويل توصية AI لمتابعة حقيقية مجدولة الآن</span>
+                  <span>اعتماد توصية مارو وتحويلها لمتابعة حقيقية في جدولك</span>
                 </button>
               )}
             </div>
           </div>
         ) : (
           <div className="text-center py-6 space-y-3">
-            <p className="text-xs font-bold text-slate-400">لا توجد توصية ذكاء اصطناعي متاحة حالياً لـ {client.name}.</p>
+            <p className="text-xs font-bold text-slate-400">لا توجد اقتراحات ذكاء اصطناعي (مارو) حالياً لـ {client.name}.</p>
             <button
               onClick={handleRunAiAnalysis}
               disabled={isAnalyzingAi}
-              className="px-6 py-3 bg-primary-500 text-white rounded-2xl font-black text-xs hover:bg-primary-600 transition"
+              className="px-6 py-3 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white rounded-2xl font-black text-xs transition flex items-center gap-2 mx-auto shadow-lg"
             >
-              {isAnalyzingAi ? 'جاري التحليل...' : 'تشغيل المساعد الذكي لمراجعة العميل'}
+              <Sparkles size={16} />
+              <span>{isAnalyzingAi ? 'جاري التحليل...' : '✨ استخراج اقتراحات مارو لتحليل العميل'}</span>
             </button>
           </div>
         )}

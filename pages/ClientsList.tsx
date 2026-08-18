@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
+import { sendMetaEvent } from '../metaService';
 import { useAuth } from '../App';
 import { 
   Client, ClientStatus, StatusLabels, UserRole, Service, Label, 
@@ -15,7 +16,7 @@ import { exportBookingsToExcel } from '../utils/exportClients';
 import { 
   Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2, 
   Phone, Calendar, MessageSquare, User, Laptop, Globe, Clock, X,
-  ExternalLink, Layers, AlertTriangle, Upload, Download
+  ExternalLink, Layers, AlertTriangle, Upload, Download, Sparkles
 } from 'lucide-react';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
@@ -464,6 +465,14 @@ const ClientsList: React.FC = () => {
       await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
       console.log("Client added successfully");
       await logActivity(user.uid, user.name, `إضافة عميل جديد (${newClient.source}): ${newClient.name}`, 'new', newClient.name);
+      sendMetaEvent({
+        eventName: isBooked ? 'Purchase' : 'Lead',
+        phone: phoneFull,
+        value: isBooked ? (paidAmount || totalPrice || 0) : undefined,
+        currency: isBooked ? 'EGP' : undefined,
+        contentName: isBooked ? bookedCourseName : newClient.name,
+        contentCategory: newClient.source,
+      });
       setIsAddModalOpen(false);
       // Reset and Clear cache context so it reloads on next mount or manually reload
       clientsCache.filters = ''; 
@@ -686,6 +695,14 @@ const ClientsList: React.FC = () => {
         </div>
         <div className="flex flex-wrap gap-2">
           <button 
+            onClick={() => navigate('/ai-assistant')} 
+            className="bg-gradient-to-r from-primary-500 via-indigo-600 to-purple-600 text-white px-5 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:opacity-95 transition-all flex items-center gap-2"
+            title="فتح المساعد الذكي (مارو) وتحليل العملاء واقتراحات المتابعة"
+          >
+            <Sparkles size={18} className="text-amber-300 animate-pulse" /> اقتراحات مارو (AI)
+          </button>
+
+          <button 
             onClick={() => exportBookingsToExcel(clients)} 
             className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-5 py-4 rounded-3xl font-black text-xs uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-all flex items-center gap-2"
             title="تصدير الحجوزات الحالية إلى ملف Excel"
@@ -792,6 +809,7 @@ const ClientsList: React.FC = () => {
                     <span>واتساب</span>
                     <span>اتصال</span>
                     <span>السجل</span>
+                    <span>مارو AI</span>
                     {isHighRole && <span>تحويل</span>}
                     {canDelete && <span>حذف</span>}
                   </div>
@@ -817,6 +835,16 @@ const ClientsList: React.FC = () => {
                           {client.isExternalTransfer && (
                             <span className="bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[8px] font-black px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-500/10">
                               تحويل خارجي ({client.originalCurrency})
+                            </span>
+                          )}
+                          {client.aiRecommendation && (
+                            <span 
+                              onClick={() => navigate(`/clients/${client.id}`)}
+                              className="cursor-pointer bg-gradient-to-r from-purple-500/10 to-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[8px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 hover:opacity-80"
+                              title={`اقتراح مارو: ${client.aiRecommendation.suggestedChannel} - أولوية ${client.aiRecommendation.conversionPriority}`}
+                            >
+                              <Sparkles size={10} className="text-amber-500" />
+                              <span>مارو: {client.aiRecommendation.conversionPriority}</span>
                             </span>
                           )}
                         </div>
@@ -853,6 +881,17 @@ const ClientsList: React.FC = () => {
                       <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="p-2.5 bg-emerald-50 text-emerald-500 rounded-xl hover:scale-110 transition-all dark:bg-emerald-500/10"><MessageCircle size={16} /></a>
                       <a href={`tel:${client.phone}`} title="اتصال هاتفي" className="p-2.5 bg-blue-50 text-blue-500 rounded-xl hover:scale-110 transition-all dark:bg-blue-500/10"><Phone size={16} /></a>
                       <button onClick={() => navigate(`/clients/${client.id}`)} title="عرض السجل والمتابعة" className="p-2.5 bg-primary-50 text-primary-500 rounded-xl hover:scale-110 transition-all dark:bg-primary-500/10"><History size={16} /></button>
+                      <button 
+                        onClick={() => navigate(`/clients/${client.id}`)} 
+                        title={client.aiRecommendation ? "عرض اقتراحات مارو (AI)" : "استخراج اقتراحات مارو (AI)"} 
+                        className={`p-2.5 rounded-xl hover:scale-110 transition-all ${
+                          client.aiRecommendation 
+                            ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 shadow-sm' 
+                            : 'bg-slate-100 text-slate-400 hover:text-indigo-600 dark:bg-slate-800 dark:text-slate-500'
+                        }`}
+                      >
+                        <Sparkles size={16} className={client.aiRecommendation ? 'text-amber-500' : ''} />
+                      </button>
                       {isHighRole && (
                         <button onClick={() => { setSelectedClient(client); setIsTransferModalOpen(true); }} title="تحويل العميل لموظف آخر" className="p-2.5 bg-amber-50 text-amber-500 rounded-xl hover:scale-110 transition-all dark:bg-amber-500/10"><ArrowRightLeft size={16} /></button>
                       )}

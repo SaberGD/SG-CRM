@@ -194,12 +194,7 @@ export const AiAssistant: React.FC = () => {
   }, [user, effectiveRole, selectedAgentId, isHighRole]);
 
   // Handle single client analysis with target round tagging
-  const handleAnalyzeClient = async (client: Client, targetRound?: number, skipAdminCheck = false) => {
-    if (!isAdmin && !skipAdminCheck) {
-      alert("تشغيل واستدعاء تحليل الذكاء الاصطناعي متاح للإدمن (Admin) فقط حالياً.");
-      return;
-    }
-
+  const handleAnalyzeClient = async (client: Client, targetRound?: number, skipAdminCheck = true) => {
     const activeRound = targetRound ?? currentRound;
     setAnalyzingClientId(client.id);
     try {
@@ -247,20 +242,13 @@ export const AiAssistant: React.FC = () => {
 
   // Run Batch Analysis under the Round System with Per-Agent Quota
   const handleBatchAnalyze = async (options: { customLimit?: number; forceNextRound?: boolean } = {}) => {
-    if (!isAdmin) {
-      alert("تشغيل واستدعاء تحليل الدفعة بالذكاء الاصطناعي متاح للإدمن (Admin) فقط حالياً.");
-      return;
-    }
-
-    if (selectedActiveAgentIds.length === 0) {
-      alert("يرجى اختيار مسؤول مبيعات واحد على الأقل من السيلز الشغالين حالياً قبل بدء التحليل!");
-      setShowBatchConfigModal(true);
-      return;
-    }
-
     let activeRound = currentRound;
 
     if (options.forceNextRound) {
+      if (!isAdmin) {
+        alert("بدء راوند جديد متاح للإدمن (Admin) فقط.");
+        return;
+      }
       activeRound = currentRound + 1;
       setCurrentRound(activeRound);
     }
@@ -277,23 +265,7 @@ export const AiAssistant: React.FC = () => {
       return (c.aiRecommendation.round || 0) < activeRound;
     });
 
-    // Check if candidates exist for selected active agents
-    const candidatesForActiveAgents = candidateClients.filter(c => 
-      c.salesAgentId && selectedActiveAgentIds.includes(c.salesAgentId)
-    );
-
-    if (candidatesForActiveAgents.length === 0 && candidateClients.length === 0) {
-      const confirmNext = window.confirm(
-        `🎉 مكتمل! تم تحليل جميع العملاء المؤهلين للـ (${selectedActiveAgentIds.length}) سيلز المحددين في الجولة الحاليّة (Round ${activeRound})!\n\nهل ترغب في البدء التلقائي في الجولة الجديدة (Round ${activeRound + 1}) وإعادة فحص العملاء مجدداً؟`
-      );
-      if (confirmNext) {
-        activeRound = activeRound + 1;
-        setCurrentRound(activeRound);
-        candidateClients = eligibleClients.filter(c => !c.aiRecommendation || (c.aiRecommendation.round || 0) < activeRound);
-      } else {
-        return;
-      }
-    }
+    const targetClients: Client[] = [];
 
     // Helper sort function for candidate clients
     const sortCandidates = (list: Client[]) => {
@@ -313,26 +285,55 @@ export const AiAssistant: React.FC = () => {
       });
     };
 
-    // 3. Per-Agent Allocation:
-    // Take up to `perAgentQuota` (e.g. 25) clients for EACH selected active sales agent
-    const targetClients: Client[] = [];
+    if (isAdmin) {
+      if (selectedActiveAgentIds.length === 0) {
+        alert("يرجى اختيار مسؤول مبيعات واحد على الأقل من السيلز الشغالين حالياً قبل بدء التحليل!");
+        setShowBatchConfigModal(true);
+        return;
+      }
 
-    selectedActiveAgentIds.forEach(agentUid => {
-      const agentCandidates = candidateClients.filter(c => c.salesAgentId === agentUid);
-      const sorted = sortCandidates(agentCandidates);
+      // Check if candidates exist for selected active agents
+      const candidatesForActiveAgents = candidateClients.filter(c => 
+        c.salesAgentId && selectedActiveAgentIds.includes(c.salesAgentId)
+      );
+
+      if (candidatesForActiveAgents.length === 0 && candidateClients.length === 0) {
+        const confirmNext = window.confirm(
+          `🎉 مكتمل! تم تحليل جميع العملاء المؤهلين للـ (${selectedActiveAgentIds.length}) سيلز المحددين في الجولة الحاليّة (Round ${activeRound})!\n\nهل ترغب في البدء التلقائي في الجولة الجديدة (Round ${activeRound + 1}) وإعادة فحص العملاء مجدداً؟`
+        );
+        if (confirmNext) {
+          activeRound = activeRound + 1;
+          setCurrentRound(activeRound);
+          candidateClients = eligibleClients.filter(c => !c.aiRecommendation || (c.aiRecommendation.round || 0) < activeRound);
+        } else {
+          return;
+        }
+      }
+
+      // Per-Agent Allocation for Admin:
+      selectedActiveAgentIds.forEach(agentUid => {
+        const agentCandidates = candidateClients.filter(c => c.salesAgentId === agentUid);
+        const sorted = sortCandidates(agentCandidates);
+        const chosen = sorted.slice(0, perAgentQuota);
+        targetClients.push(...chosen);
+      });
+
+      // Handle unassigned candidates if target batch is empty
+      const unassignedCandidates = candidateClients.filter(c => !c.salesAgentId || !selectedActiveAgentIds.includes(c.salesAgentId));
+      if (unassignedCandidates.length > 0 && targetClients.length === 0) {
+        const sorted = sortCandidates(unassignedCandidates);
+        targetClients.push(...sorted.slice(0, perAgentQuota));
+      }
+    } else {
+      // For Sales Agent: Target their own candidate clients up to perAgentQuota
+      const myCandidates = candidateClients.filter(c => !c.salesAgentId || c.salesAgentId === user?.uid);
+      const sorted = sortCandidates(myCandidates.length > 0 ? myCandidates : candidateClients);
       const chosen = sorted.slice(0, perAgentQuota);
       targetClients.push(...chosen);
-    });
-
-    // Handle unassigned candidates if target batch is empty
-    const unassignedCandidates = candidateClients.filter(c => !c.salesAgentId || !selectedActiveAgentIds.includes(c.salesAgentId));
-    if (unassignedCandidates.length > 0 && targetClients.length === 0) {
-      const sorted = sortCandidates(unassignedCandidates);
-      targetClients.push(...sorted.slice(0, perAgentQuota));
     }
 
     if (targetClients.length === 0) {
-      alert("لا يوجد عملاء بحاجة للتحليل حالياً للسيلز المحددين!");
+      alert("لا يوجد عملاء بحاجة للتحليل حالياً في هذه الجولة!");
       return;
     }
 
@@ -794,10 +795,23 @@ export const AiAssistant: React.FC = () => {
                 </button>
               </>
             ) : (
-              <div className="px-5 py-3 bg-amber-500/10 text-amber-300 border border-amber-500/30 font-black text-xs rounded-2xl flex items-center gap-2">
-                <Shield size={16} className="text-amber-400 shrink-0" />
-                <span>تشغيل وبدء تحليل الذكاء الاصطناعي متاح للإدمن (Admin) فقط حالياً</span>
-              </div>
+              <button
+                onClick={() => handleBatchAnalyze()}
+                disabled={isBatchAnalyzing}
+                className="px-7 py-3.5 bg-gradient-to-r from-primary-500 via-indigo-600 to-purple-600 hover:from-primary-600 hover:to-indigo-700 text-white font-black text-xs uppercase rounded-2xl shadow-xl transition-all flex items-center gap-3 shrink-0 disabled:opacity-50"
+              >
+                {isBatchAnalyzing ? (
+                  <>
+                    <RefreshCw className="animate-spin" size={18} />
+                    <span>جاري تشغيل تحليل مارو لعملائي ({batchProgress}%)...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap size={18} className="text-amber-300" />
+                    <span>تشغيل اقتراحات مارو لعملائي (دفعة {perAgentQuota} عميل - Round {currentRound}) ✨</span>
+                  </>
+                )}
+              </button>
             )}
           </div>
         </div>
@@ -1370,13 +1384,14 @@ export const AiAssistant: React.FC = () => {
                         </div>
                       ) : (
                         <div className="p-6 text-center bg-slate-50 dark:bg-slate-800 rounded-3xl space-y-2">
-                          <p className="text-xs font-bold text-slate-500">لم يتم جلب تحليل AI بعد لهذا العميل.</p>
+                          <p className="text-xs font-bold text-slate-500">لم يتم استخراج اقتراحات مارو (AI) بعد لهذا العميل.</p>
                           <button
                             onClick={() => handleAnalyzeClient(client)}
                             disabled={isAnalyzingThis}
-                            className="px-4 py-2 bg-primary-500 text-white rounded-xl text-xs font-black hover:bg-primary-600 transition"
+                            className="px-4 py-2.5 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white rounded-xl text-xs font-black shadow transition flex items-center justify-center gap-2 mx-auto disabled:opacity-50"
                           >
-                            {isAnalyzingThis ? 'جاري التحليل...' : 'تشغيل التحليل الآن'}
+                            <Sparkles size={14} className={isAnalyzingThis ? 'animate-spin' : ''} />
+                            <span>{isAnalyzingThis ? 'جاري استخراج اقتراحات مارو...' : '✨ استخراج اقتراحات مارو الآن'}</span>
                           </button>
                         </div>
                       )}
@@ -1388,10 +1403,11 @@ export const AiAssistant: React.FC = () => {
                         <button
                           onClick={() => handleAnalyzeClient(client)}
                           disabled={isAnalyzingThis}
-                          className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 rounded-2xl text-xs font-black transition flex items-center gap-1"
-                          title="إعادة تحليل العميل بناءً على داتا صابر جروب"
+                          className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-primary-50 hover:text-primary-600 dark:hover:bg-slate-700 rounded-2xl text-xs font-black transition flex items-center gap-1.5"
+                          title="إعادة استخراج اقتراحات مارو للعميل"
                         >
-                          <RefreshCw size={14} className={isAnalyzingThis ? 'animate-spin' : ''} />
+                          <RefreshCw size={14} className={isAnalyzingThis ? 'animate-spin text-primary-500' : ''} />
+                          <span className="text-[10px]">{isAnalyzingThis ? 'جاري التحديث...' : 'تحديث اقتراحات مارو'}</span>
                         </button>
                       </div>
 

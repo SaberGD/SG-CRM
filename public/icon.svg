@@ -33,42 +33,44 @@
   <!-- Subtle inner border for premium glossy look -->
   <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="#ffffff" stroke-opacity="0.05" stroke-width="4" />
 
-  <!-- Abstract CRM Nodes Connection Group -->
-  <g filter="url(#glow)">
-    <!-- Connection lines -->
-    <path d="M 160 256 L 256 160 L 352 256" fill="none" stroke="url(#neonPurple)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" />
-    <path d="M 160 256 L 256 352 L 352 256" fill="none" stroke="url(#neonBlue)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" />
-    <path d="M 256 160 L 256 352" fill="none" stroke="url(#neonBlue)" stroke-dasharray="4,12" stroke-width="6" stroke-linecap="round" opacity="0.4" />
-    <path d="M 160 256 L 352 256" fill="none" stroke="url(#neonPurple)" stroke-dasharray="4,12" stroke-width="6" stroke-linecap="round" opacity="0.4" />
+  <!-- Abstract CRM Nodes Connection Group scaled to 80% -->
+  <g transform="translate(256, 256) scale(0.8) translate(-256, -256)">
+    <g filter="url(#glow)">
+      <!-- Connection lines -->
+      <path d="M 160 256 L 256 160 L 352 256" fill="none" stroke="url(#neonPurple)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" />
+      <path d="M 160 256 L 256 352 L 352 256" fill="none" stroke="url(#neonBlue)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" />
+      <path d="M 256 160 L 256 352" fill="none" stroke="url(#neonBlue)" stroke-dasharray="4,12" stroke-width="6" stroke-linecap="round" opacity="0.4" />
+      <path d="M 160 256 L 352 256" fill="none" stroke="url(#neonPurple)" stroke-dasharray="4,12" stroke-width="6" stroke-linecap="round" opacity="0.4" />
 
-    <!-- Outer Decorative Orbit Circle -->
-    <circle cx="256" cy="256" r="140" fill="none" stroke="url(#neonBlue)" stroke-width="4" stroke-dasharray="8 16" opacity="0.25" />
+      <!-- Outer Decorative Orbit Circle -->
+      <circle cx="256" cy="256" r="140" fill="none" stroke="url(#neonBlue)" stroke-width="4" stroke-dasharray="8 16" opacity="0.25" />
 
-    <!-- Center Hub Node (CRM Core) -->
-    <circle cx="256" cy="256" r="38" fill="url(#neonBlue)" />
-    <circle cx="256" cy="256" r="18" fill="#ffffff" />
-    
-    <!-- Top Node (Analytics / Data) -->
-    <circle cx="256" cy="160" r="24" fill="url(#neonPurple)" />
-    <circle cx="256" cy="160" r="10" fill="#ffffff" />
+      <!-- Center Hub Node (CRM Core) -->
+      <circle cx="256" cy="256" r="38" fill="url(#neonBlue)" />
+      <circle cx="256" cy="256" r="18" fill="#ffffff" />
+      
+      <!-- Top Node (Analytics / Data) -->
+      <circle cx="256" cy="160" r="24" fill="url(#neonPurple)" />
+      <circle cx="256" cy="160" r="10" fill="#ffffff" />
 
-    <!-- Bottom Node (Clients / Users) -->
-    <circle cx="256" cy="352" r="24" fill="url(#neonPurple)" />
-    <circle cx="256" cy="352" r="10" fill="#ffffff" />
+      <!-- Bottom Node (Clients / Users) -->
+      <circle cx="256" cy="352" r="24" fill="url(#neonPurple)" />
+      <circle cx="256" cy="352" r="10" fill="#ffffff" />
 
-    <!-- Left Node (Sales / Conversions) -->
-    <circle cx="160" cy="256" r="24" fill="url(#neonBlue)" />
-    <circle cx="160" cy="256" r="10" fill="#ffffff" />
+      <!-- Left Node (Sales / Conversions) -->
+      <circle cx="160" cy="256" r="24" fill="url(#neonBlue)" />
+      <circle cx="160" cy="256" r="10" fill="#ffffff" />
 
-    <!-- Right Node (AI Assistant - Maro) -->
-    <circle cx="352" cy="256" r="24" fill="url(#neonBlue)" />
-    <!-- Small star inside Maro AI node -->
-    <path d="M 352 248 L 354 253 L 359 253 L 355 256 L 357 261 L 352 258 L 347 261 L 349 256 L 345 253 L 350 253 Z" fill="#ffffff" />
+      <!-- Right Node (AI Assistant - Maro) -->
+      <circle cx="352" cy="256" r="24" fill="url(#neonBlue)" />
+      <!-- Small star inside Maro AI node -->
+      <path d="M 352 248 L 354 253 L 359 253 L 355 256 L 357 261 L 352 258 L 347 261 L 349 256 L 345 253 L 350 253 Z" fill="#ffffff" />
+    </g>
+
+    <!-- Glowing dots / sparkle details -->
+    <circle cx="130" cy="140" r="6" fill="#38bdf8" opacity="0.8" />
+    <circle cx="390" cy="380" r="8" fill="#a855f7" opacity="0.8" />
+    <circle cx="380" cy="120" r="5" fill="#0ea5e9" opacity="0.6" />
+    <circle cx="120" cy="370" r="7" fill="#6366f1" opacity="0.7" />
   </g>
-
-  <!-- Glowing dots / sparkle details -->
-  <circle cx="130" cy="140" r="6" fill="#38bdf8" opacity="0.8" />
-  <circle cx="390" cy="380" r="8" fill="#a855f7" opacity="0.8" />
-  <circle cx="380" cy="120" r="5" fill="#0ea5e9" opacity="0.6" />
-  <circle cx="120" cy="370" r="7" fill="#6366f1" opacity="0.7" />
 </svg>

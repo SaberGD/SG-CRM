@@ -695,14 +695,6 @@ const ClientsList: React.FC = () => {
         </div>
         <div className="flex flex-wrap gap-2">
           <button 
-            onClick={() => navigate('/ai-assistant')} 
-            className="bg-gradient-to-r from-primary-500 via-indigo-600 to-purple-600 text-white px-5 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:opacity-95 transition-all flex items-center gap-2"
-            title="فتح المساعد الذكي (مارو) وتحليل العملاء واقتراحات المتابعة"
-          >
-            <Sparkles size={18} className="text-amber-300 animate-pulse" /> اقتراحات مارو (AI)
-          </button>
-
-          <button 
             onClick={() => exportBookingsToExcel(clients)} 
             className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-5 py-4 rounded-3xl font-black text-xs uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-all flex items-center gap-2"
             title="تصدير الحجوزات الحالية إلى ملف Excel"

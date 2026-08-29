@@ -7,11 +7,12 @@ steps:
         echo "META_PIXEL_ID=1748422296177915" > functions/.env
         echo "META_ACCESS_TOKEN=$$META_ACCESS_TOKEN" >> functions/.env
         echo "GEMINI_API_KEY=$$GEMINI_API_KEY" >> functions/.env
+        echo "AUTOMATION_SECRET=rQc2uXOMLx-01PEXeHqgV1gpPfuyDgrH7CXTbXodiGk" >> functions/.env
         cd functions
         npm install
         cd ..
         npm install -g firebase-tools
-        firebase deploy --only functions:metaCapiEvent,functions:geminiPredictSales,functions:geminiAnalyzeReport,functions:geminiAnalyzeClient --project=sg-crm-e3a38 --non-interactive
+        firebase deploy --only functions:metaCapiEvent,functions:geminiPredictSales,functions:geminiAnalyzeReport,functions:geminiAnalyzeClient,functions:upsertClientFromAutomation --project=sg-crm-e3a38 --non-interactive
     secretEnv: ['META_ACCESS_TOKEN', 'GEMINI_API_KEY']
 availableSecrets:
   secretManager:

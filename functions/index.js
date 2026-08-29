@@ -351,3 +351,367 @@ ${historyText || "لا توجد متابعات سابقة بعد"}
 
   return res.json(generateFallbackClientAnalysis(client));
 });
+
+// ---------------------------------------------------------------------------
+// Automation bridge: hourly n8n workflow → Chatwoot idle-conversation AI
+// extraction → this function. Upserts a Client (by phone, dedup-safe) and
+// logs a follow-up entry, without ever touching staff's native
+// WhatsApp/Messenger/Instagram apps or Chatwoot's own UI.
+//
+// Auth: shared secret in the "x-automation-secret" header (or
+// req.body.automationSecret), compared against AUTOMATION_SECRET env var.
+//
+// Deliberately conservative: never sets isBooked/financial fields and never
+// overwrites a status of "not_interested" — those stay human-only decisions.
+// If the AI extraction says the customer mentioned booking, that's recorded
+// in the follow-up note/salesBrief for a human to close out, not auto-applied.
+// ---------------------------------------------------------------------------
+
+const admin = require("firebase-admin");
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
+const db = admin.firestore();
+
+const ALLOWED_AUTO_STATUSES = ["interested", "potential", "not_interested"];
+const ALLOWED_METHODS = ["phone", "whatsapp", "meeting", "other"];
+const ALLOWED_SOURCES = ["whatsapp", "messenger", "facebook", "instagram", "tiktok", "google", "other"];
+const PLACEHOLDER_NAME_RE = /^(john\s*doe|unknown|غير معروف)$/i;
+
+function mapSuggestedStatus(raw) {
+  const key = String(raw || "").toLowerCase().trim();
+  if (key === "booked") {
+    return { status: "potential", bookedMentioned: true };
+  }
+  if (ALLOWED_AUTO_STATUSES.includes(key)) {
+    return { status: key, bookedMentioned: false };
+  }
+  return { status: "potential", bookedMentioned: false };
+}
+
+function mapMethod(raw) {
+  const key = String(raw || "").toLowerCase().trim();
+  return ALLOWED_METHODS.includes(key) ? key : "whatsapp";
+}
+
+function mapSource(raw) {
+  const key = String(raw || "").toLowerCase().trim();
+  return ALLOWED_SOURCES.includes(key) ? key : "other";
+}
+
+/** Mirrors ClientsList.tsx's handleAddClient phone normalization exactly. */
+function normalizeIncomingPhone(rawPhone, countryCode) {
+  if (!rawPhone) return null;
+  const cc = countryCode || "+20";
+  let digits = String(rawPhone).replace(/\D/g, "");
+  if (!digits) return null;
+  const ccDigits = cc.replace(/\D/g, "");
+  if (ccDigits && digits.startsWith(ccDigits)) {
+    digits = digits.substring(ccDigits.length);
+  }
+  digits = digits.replace(/^0+/, "");
+  if (!digits) return null;
+  return cc + digits;
+}
+
+/** Mirrors ClientsList.tsx's dedup phoneVariations logic exactly. */
+function buildPhoneVariations(phoneFull) {
+  const digitsOnly = phoneFull.replace(/\D/g, "");
+  const variations = new Set([phoneFull, digitsOnly]);
+  if (phoneFull.startsWith("+20")) {
+    const core = phoneFull.substring(3);
+    variations.add("0" + core);
+    variations.add(core);
+    variations.add("20" + core);
+  } else if (digitsOnly.startsWith("20")) {
+    const core = digitsOnly.substring(2);
+    variations.add("+20" + core);
+    variations.add("0" + core);
+    variations.add(core);
+  }
+  return Array.from(variations).slice(0, 10);
+}
+
+let cachedDefaultAgent = null;
+let cachedDefaultAgentAt = 0;
+async function getDefaultAutomationAgent() {
+  const now = Date.now();
+  if (cachedDefaultAgent && now - cachedDefaultAgentAt < 10 * 60 * 1000) {
+    return cachedDefaultAgent;
+  }
+  const email = process.env.AUTOMATION_DEFAULT_AGENT_EMAIL || "sabergroup.eg@gmail.com";
+  try {
+    const snap = await db.collection("users").where("email", "==", email).limit(1).get();
+    if (!snap.empty) {
+      const doc = snap.docs[0];
+      cachedDefaultAgent = { id: doc.id, name: doc.data().name || "الإدارة" };
+      cachedDefaultAgentAt = now;
+      return cachedDefaultAgent;
+    }
+  } catch (e) {
+    console.error("getDefaultAutomationAgent lookup failed:", e);
+  }
+  cachedDefaultAgent = { id: "automation", name: "نظام الأتمتة" };
+  cachedDefaultAgentAt = now;
+  return cachedDefaultAgent;
+}
+
+async function matchLabelIds(suggestedLabels) {
+  if (!Array.isArray(suggestedLabels) || suggestedLabels.length === 0) return [];
+  try {
+    const snap = await db.collection("labels").get();
+    const allLabels = snap.docs.map((d) => ({ id: d.id, text: (d.data().text || "").toString() }));
+    const matched = [];
+    for (const raw of suggestedLabels) {
+      const needle = String(raw || "").trim().toLowerCase();
+      if (!needle) continue;
+      const hit = allLabels.find(
+        (l) => l.text.toLowerCase() === needle || l.text.toLowerCase().includes(needle) || needle.includes(l.text.toLowerCase())
+      );
+      if (hit) matched.push(hit.id);
+    }
+    return Array.from(new Set(matched));
+  } catch (e) {
+    console.error("matchLabelIds failed:", e);
+    return [];
+  }
+}
+
+async function matchService(suggestedServiceName) {
+  const fallback = { serviceId: "", serviceName: suggestedServiceName ? String(suggestedServiceName).trim() : "غير محدد (رصد تلقائي)" };
+  if (!suggestedServiceName) return fallback;
+  try {
+    const snap = await db.collection("services").where("isActive", "==", true).get();
+    const needle = String(suggestedServiceName).trim().toLowerCase();
+    const hit = snap.docs.find((d) => {
+      const name = (d.data().name || "").toString().toLowerCase();
+      return name === needle || name.includes(needle) || needle.includes(name);
+    });
+    if (hit) return { serviceId: hit.id, serviceName: hit.data().name };
+    return fallback;
+  } catch (e) {
+    console.error("matchService failed:", e);
+    return fallback;
+  }
+}
+
+async function postMetaLeadEvent(phoneFull, contentName, contentCategory) {
+  const metaPixelId = process.env.META_PIXEL_ID || "";
+  const metaAccessToken = process.env.META_ACCESS_TOKEN || "";
+  if (!metaPixelId || !metaAccessToken) return;
+  try {
+    const eventData = {
+      event_name: "Lead",
+      event_time: Math.floor(Date.now() / 1000),
+      action_source: "system_generated",
+      user_data: { ph: [hashForMeta(phoneFull.replace(/\D/g, ""))] },
+      custom_data: { content_name: contentName || "", content_category: contentCategory || "automation" },
+    };
+    await fetch(`https://graph.facebook.com/v21.0/${metaPixelId}/events?access_token=${encodeURIComponent(metaAccessToken)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: [eventData] }),
+    });
+  } catch (e) {
+    console.error("postMetaLeadEvent failed (non-fatal):", e);
+  }
+}
+
+/**
+ * Called by the n8n hourly-idle-conversation workflow. Body shape (all from
+ * the AI extraction step run over a Chatwoot conversation transcript):
+ * {
+ *   customer_phone, customer_name, country_code,
+ *   sales_brief, detailed_result,
+ *   suggested_status, suggested_labels[], suggested_service,
+ *   booked, next_followup_date, next_followup_channel,
+ *   has_meaningful_content, missing_or_ambiguous_fields[],
+ *   source, chatwoot_conversation_id, chatwoot_conversation_link
+ * }
+ */
+exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const expectedSecret = process.env.AUTOMATION_SECRET || "";
+  const providedSecret = req.get("x-automation-secret") || (req.body && req.body.automationSecret) || "";
+  if (!expectedSecret) {
+    return res.status(500).json({ error: "AUTOMATION_SECRET not configured on server" });
+  }
+  if (providedSecret !== expectedSecret) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const body = req.body || {};
+  const hasMeaningfulContent = body.has_meaningful_content !== false;
+
+  if (!hasMeaningfulContent) {
+    return res.json({ success: true, action: "skipped", reason: "not_meaningful" });
+  }
+
+  const phoneFull = normalizeIncomingPhone(body.customer_phone, body.country_code || "+20");
+  if (!phoneFull) {
+    console.log("upsertClientFromAutomation: skipped, no valid phone. conversation:", body.chatwoot_conversation_id);
+    return res.json({
+      success: true,
+      action: "skipped",
+      reason: "no_phone",
+      note_for_agent: "تمت معالجة المحادثة تلقائيًا لكن بدون رقم هاتف واضح — تحتاج مراجعة يدوية.",
+    });
+  }
+
+  try {
+    const variations = buildPhoneVariations(phoneFull);
+    const existingSnap = await db.collection("clients").where("phone", "in", variations).limit(1).get();
+    const { status: mappedStatus, bookedMentioned } = mapSuggestedStatus(body.suggested_status);
+    const mappedMethod = mapMethod(body.next_followup_channel);
+    const mappedSource = mapSource(body.source);
+    const defaultAgent = await getDefaultAutomationAgent();
+    const matchedLabelIds = await matchLabelIds(body.suggested_labels);
+
+    let nextFollowUpTs = 0;
+    if (body.next_followup_date) {
+      const parsed = new Date(body.next_followup_date).getTime();
+      if (!Number.isNaN(parsed)) nextFollowUpTs = parsed;
+    }
+
+    if (!existingSnap.empty) {
+      // ----- Existing client: log a follow-up, apply conservative updates -----
+      const existingDoc = existingSnap.docs[0];
+      const existingClient = existingDoc.data();
+      const batch = db.batch();
+
+      const updateData = {
+        lastFollowUpDate: Date.now(),
+      };
+
+      if (existingClient.status !== "not_interested") {
+        updateData.status = mappedStatus;
+      }
+      if (matchedLabelIds.length > 0) {
+        updateData.labels = Array.from(new Set([...(existingClient.labels || []), ...matchedLabelIds]));
+      }
+      if (!existingClient.nextFollowUpDate || existingClient.nextFollowUpDate < Date.now()) {
+        if (nextFollowUpTs) {
+          updateData.nextFollowUpDate = nextFollowUpTs;
+          updateData.nextFollowUpMethod = mappedMethod;
+        }
+      }
+      if (
+        body.customer_name &&
+        body.customer_name.trim() &&
+        (!existingClient.name || PLACEHOLDER_NAME_RE.test(existingClient.name.trim()))
+      ) {
+        updateData.name = body.customer_name.trim();
+      }
+
+      batch.update(existingDoc.ref, updateData);
+
+      const followUpRef = db.collection("followups").doc();
+      batch.set(followUpRef, {
+        clientId: existingDoc.id,
+        clientName: updateData.name || existingClient.name || "عميل",
+        agentId: defaultAgent.id,
+        agentName: `${defaultAgent.name} (تحليل تلقائي)`,
+        note: body.detailed_result || body.sales_brief || "تحليل تلقائي لمحادثة غير نشطة",
+        result: bookedMentioned ? "العميل ذكر رغبته في الحجز - يحتاج تأكيد ودفع من موظف" : "متابعة تلقائية من تحليل المحادثة",
+        salesBrief: body.sales_brief || "",
+        method: mappedMethod,
+        timestamp: Date.now(),
+        startTime: Date.now(),
+        endTime: Date.now(),
+        duration: 0,
+        scheduledTime: existingClient.nextFollowUpDate || 0,
+        delayStatus: "on_time",
+        appointmentId: null,
+        isAutomated: true,
+        chatwootConversationId: body.chatwoot_conversation_id || null,
+      });
+
+      await batch.commit();
+      return res.json({ success: true, action: "updated_existing", clientId: existingDoc.id, bookedMentioned });
+    }
+
+    // ----- New client -----
+    const serviceMatch = await matchService(body.suggested_service);
+    const cleanName =
+      body.customer_name && body.customer_name.trim() && !PLACEHOLDER_NAME_RE.test(body.customer_name.trim())
+        ? body.customer_name.trim()
+        : "عميل تلقائي (بانتظار المراجعة)";
+
+    const newClientRef = db.collection("clients").doc();
+    const newClientData = {
+      name: cleanName,
+      phone: phoneFull,
+      gender: "male",
+      laptop: "without",
+      mode: "online",
+      status: mappedStatus,
+      serviceId: serviceMatch.serviceId,
+      serviceName: serviceMatch.serviceName,
+      labels: matchedLabelIds,
+      salesAgentId: defaultAgent.id,
+      salesAgentName: defaultAgent.name,
+      createdAt: Date.now(),
+      country: "مصر",
+      countryCode: body.country_code || "+20",
+      source: mappedSource,
+      notes: [
+        "🤖 تم إنشاء هذا العميل تلقائيًا من تحليل محادثة غير نشطة (Chatwoot).",
+        body.sales_brief ? `الملخص: ${body.sales_brief}` : "",
+        Array.isArray(body.missing_or_ambiguous_fields) && body.missing_or_ambiguous_fields.length
+          ? `بيانات ناقصة/غير واضحة: ${body.missing_or_ambiguous_fields.join("، ")}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+    if (nextFollowUpTs) {
+      newClientData.nextFollowUpDate = nextFollowUpTs;
+      newClientData.nextFollowUpMethod = mappedMethod;
+    }
+
+    const batch = db.batch();
+    batch.set(newClientRef, newClientData);
+
+    const followUpRef = db.collection("followups").doc();
+    batch.set(followUpRef, {
+      clientId: newClientRef.id,
+      clientName: cleanName,
+      agentId: defaultAgent.id,
+      agentName: `${defaultAgent.name} (تحليل تلقائي)`,
+      note: body.detailed_result || body.sales_brief || "عميل جديد تم رصده تلقائيًا",
+      result: bookedMentioned ? "العميل ذكر رغبته في الحجز - يحتاج تأكيد ودفع من موظف" : "عميل جديد من تحليل تلقائي",
+      salesBrief: body.sales_brief || "",
+      method: mappedMethod,
+      timestamp: Date.now(),
+      startTime: Date.now(),
+      endTime: Date.now(),
+      duration: 0,
+      scheduledTime: 0,
+      delayStatus: "on_time",
+      appointmentId: null,
+      isAutomated: true,
+      chatwootConversationId: body.chatwoot_conversation_id || null,
+    });
+
+    const logRef = db.collection("logs").doc();
+    batch.set(logRef, {
+      userId: defaultAgent.id,
+      userName: `${defaultAgent.name} (تحليل تلقائي)`,
+      action: `إضافة عميل جديد تلقائيًا (${mappedSource}): ${cleanName}`,
+      targetId: newClientRef.id,
+      targetName: cleanName,
+      timestamp: Date.now(),
+    });
+
+    await batch.commit();
+    postMetaLeadEvent(phoneFull, cleanName, mappedSource);
+
+    return res.json({ success: true, action: "created_new", clientId: newClientRef.id, bookedMentioned });
+  } catch (error) {
+    console.error("upsertClientFromAutomation error:", error);
+    return res.status(500).json({ error: error?.message || "Unknown error in upsertClientFromAutomation" });
+  }
+});

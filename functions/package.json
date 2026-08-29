@@ -12,7 +12,7 @@
   "main": "index.js",
   "dependencies": {
     "firebase-functions": "^5.0.0",
-    "firebase-admin": "^14.0.0",
+    "firebase-admin": "^12.6.0",
     "@google/genai": "^2.16.0"
   },
   "private": true

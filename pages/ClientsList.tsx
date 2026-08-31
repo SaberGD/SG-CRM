@@ -117,7 +117,8 @@ const ClientsList: React.FC = () => {
     originalPaidAmount: 0,
     exchangeRateUsed: 48.5,
     deductionAmount: 0,
-    deductionReason: '٣٪ عمولة تحويل و ١٤٪ ضرايب'
+    deductionReason: '٣٪ عمولة تحويل و ١٤٪ ضرايب',
+    assignedSalesAgentId: ''
   });
 
   const handlePhoneChange = (val: string) => {
@@ -152,7 +153,7 @@ const ClientsList: React.FC = () => {
     setNewClient(prev => ({ ...prev, phone: cleaned }));
   };
 
-  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
   const canDelete = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
 
   // Debounce search
@@ -416,7 +417,7 @@ const ClientsList: React.FC = () => {
         nextDate, nextTime, nextPeriod, scheduleNext, isBooked, bookedCourseId, bookedCourseName, 
         totalPrice, paidAmount, remainingAmount, customServiceName,
         isExternalTransfer, originalCurrency, originalTotalPrice, originalPaidAmount,
-        exchangeRateUsed, deductionAmount, deductionReason,
+        exchangeRateUsed, deductionAmount, deductionReason, assignedSalesAgentId,
         ...clientToSave 
       } = newClient;
       
@@ -426,13 +427,24 @@ const ClientsList: React.FC = () => {
         return alert("رقم الموبايل إجباري عند اختيار واتساب");
       }
 
+      let targetAgentId = user.uid;
+      let targetAgentName = user.name;
+
+      if (isHighRole && assignedSalesAgentId) {
+        const selectedAgent = salesAgents.find(a => a.id === assignedSalesAgentId);
+        if (selectedAgent) {
+          targetAgentId = selectedAgent.id;
+          targetAgentName = selectedAgent.name;
+        }
+      }
+
       const dataToSave: any = { 
         ...clientToSave, 
         phone: phoneFull,
         serviceName,
         nextFollowUpDate: nextTs,
-        salesAgentId: user.uid, 
-        salesAgentName: user.name, 
+        salesAgentId: targetAgentId, 
+        salesAgentName: targetAgentName, 
         createdAt: Date.now() 
       };
       
@@ -944,6 +956,29 @@ const ClientsList: React.FC = () => {
         icon={<Plus size={24} />}
       >
         <form onSubmit={handleAddClient} className="space-y-6">
+          {isHighRole && (
+            <div className="space-y-1.5 p-4 bg-primary-500/5 dark:bg-primary-500/10 rounded-2xl border border-primary-500/20">
+              <label className="text-[10px] font-black text-primary-600 dark:text-primary-400 uppercase mr-2 flex items-center gap-1">
+                <User size={14} />
+                <span>السيلز / الموظف المسؤول عن العميل (اختياري)</span>
+              </label>
+              <select 
+                className="w-full p-4 bg-white dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white border border-slate-200 dark:border-slate-700 text-xs" 
+                value={newClient.assignedSalesAgentId} 
+                onChange={e => setNewClient({...newClient, assignedSalesAgentId: e.target.value})}
+              >
+                <option value="">أنا المسؤول (تسجيل باسمي: {user?.name || 'الحالي'})</option>
+                {salesAgents.map(agent => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name} {agent.id === user?.uid ? '(أنا)' : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] font-bold text-slate-400 mr-2">
+                تنويه: بصفتك مشرف/مسؤول، يمكنك تخصيص العميل لموظف مبيعات معين عند الإضافة مباشرة.
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المنصة (Source)</label>

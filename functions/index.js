@@ -456,6 +456,27 @@ async function getDefaultAutomationAgent() {
   return cachedDefaultAgent;
 }
 
+async function findAgentByName(rawName) {
+  if (!rawName || !String(rawName).trim()) return null;
+  const target = String(rawName).trim().toLowerCase();
+  try {
+    const snap = await db.collection("users").get();
+    let match = null;
+    snap.forEach((doc) => {
+      if (match) return;
+      const name = (doc.data().name || "").toString().trim().toLowerCase();
+      if (!name) return;
+      if (name === target || name.includes(target) || target.includes(name)) {
+        match = { id: doc.id, name: doc.data().name };
+      }
+    });
+    return match;
+  } catch (e) {
+    console.error("findAgentByName lookup failed:", e);
+    return null;
+  }
+}
+
 async function matchLabelIds(suggestedLabels) {
   if (!Array.isArray(suggestedLabels) || suggestedLabels.length === 0) return [];
   try {
@@ -550,7 +571,12 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     return res.json({ success: true, action: "skipped", reason: "not_meaningful" });
   }
 
-  const phoneFull = normalizeIncomingPhone(body.customer_phone, body.country_code || "+20");
+  let phoneFull = normalizeIncomingPhone(body.customer_phone, body.country_code || "+20");
+  const isWhatsAppSource = mapSource(body.source) === "whatsapp";
+  if (!phoneFull && !isWhatsAppSource && body.chatwoot_contact_id) {
+    const contactDigits = String(body.chatwoot_contact_id).replace(/\D/g, "").padStart(9, "0").slice(-9);
+    phoneFull = "+209" + contactDigits;
+  }
   if (!phoneFull) {
     console.log("upsertClientFromAutomation: skipped, no valid phone. conversation:", body.chatwoot_conversation_id);
     return res.json({
@@ -568,6 +594,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     const mappedMethod = mapMethod(body.next_followup_channel);
     const mappedSource = mapSource(body.source);
     const defaultAgent = await getDefaultAutomationAgent();
+    const requestedAgent = body.sales_rep_name ? await findAgentByName(body.sales_rep_name) : null;
+    const resolvedAgent = requestedAgent || defaultAgent;
     const matchedLabelIds = await matchLabelIds(body.suggested_labels);
 
     let nextFollowUpTs = 0;
@@ -612,8 +640,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       batch.set(followUpRef, {
         clientId: existingDoc.id,
         clientName: updateData.name || existingClient.name || "عميل",
-        agentId: defaultAgent.id,
-        agentName: `${defaultAgent.name} (تحليل تلقائي)`,
+        agentId: resolvedAgent.id,
+        agentName: `${resolvedAgent.name} (تحليل تلقائي)`,
         note: body.detailed_result || body.sales_brief || "تحليل تلقائي لمحادثة غير نشطة",
         result: bookedMentioned ? "العميل ذكر رغبته في الحجز - يحتاج تأكيد ودفع من موظف" : "متابعة تلقائية من تحليل المحادثة",
         salesBrief: body.sales_brief || "",
@@ -651,8 +679,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       serviceId: serviceMatch.serviceId,
       serviceName: serviceMatch.serviceName,
       labels: matchedLabelIds,
-      salesAgentId: defaultAgent.id,
-      salesAgentName: defaultAgent.name,
+      salesAgentId: resolvedAgent.id,
+      salesAgentName: resolvedAgent.name,
       createdAt: Date.now(),
       country: "مصر",
       countryCode: body.country_code || "+20",
@@ -679,8 +707,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     batch.set(followUpRef, {
       clientId: newClientRef.id,
       clientName: cleanName,
-      agentId: defaultAgent.id,
-      agentName: `${defaultAgent.name} (تحليل تلقائي)`,
+      agentId: resolvedAgent.id,
+      agentName: `${resolvedAgent.name} (تحليل تلقائي)`,
       note: body.detailed_result || body.sales_brief || "عميل جديد تم رصده تلقائيًا",
       result: bookedMentioned ? "العميل ذكر رغبته في الحجز - يحتاج تأكيد ودفع من موظف" : "عميل جديد من تحليل تلقائي",
       salesBrief: body.sales_brief || "",
@@ -698,8 +726,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
 
     const logRef = db.collection("logs").doc();
     batch.set(logRef, {
-      userId: defaultAgent.id,
-      userName: `${defaultAgent.name} (تحليل تلقائي)`,
+      userId: resolvedAgent.id,
+      userName: `${resolvedAgent.name} (تحليل تلقائي)`,
       action: `إضافة عميل جديد تلقائيًا (${mappedSource}): ${cleanName}`,
       targetId: newClientRef.id,
       targetName: cleanName,

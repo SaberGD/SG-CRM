@@ -573,11 +573,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
 
   let phoneFull = normalizeIncomingPhone(body.customer_phone, body.country_code || "+20");
   const isWhatsAppSource = mapSource(body.source) === "whatsapp";
-  if (!phoneFull && !isWhatsAppSource && body.chatwoot_contact_id) {
-    const contactDigits = String(body.chatwoot_contact_id).replace(/\D/g, "").padStart(9, "0").slice(-9);
-    phoneFull = "+209" + contactDigits;
-  }
-  if (!phoneFull) {
+  const hasChatwootContactId = !!body.chatwoot_contact_id;
+  if (!phoneFull && (isWhatsAppSource || !hasChatwootContactId)) {
     console.log("upsertClientFromAutomation: skipped, no valid phone. conversation:", body.chatwoot_conversation_id);
     return res.json({
       success: true,
@@ -588,8 +585,13 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
   }
 
   try {
-    const variations = buildPhoneVariations(phoneFull);
-    const existingSnap = await db.collection("clients").where("phone", "in", variations).limit(1).get();
+    let existingSnap;
+    if (phoneFull) {
+      const variations = buildPhoneVariations(phoneFull);
+      existingSnap = await db.collection("clients").where("phone", "in", variations).limit(1).get();
+    } else {
+      existingSnap = await db.collection("clients").where("chatwootContactId", "==", String(body.chatwoot_contact_id)).limit(1).get();
+    }
     const { status: mappedStatus, bookedMentioned } = mapSuggestedStatus(body.suggested_status);
     const mappedMethod = mapMethod(body.next_followup_channel);
     const mappedSource = mapSource(body.source);
@@ -671,7 +673,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     const newClientRef = db.collection("clients").doc();
     const newClientData = {
       name: cleanName,
-      phone: phoneFull,
+      phone: phoneFull || "",
+      chatwootContactId: body.chatwoot_contact_id ? String(body.chatwoot_contact_id) : null,
       gender: "male",
       laptop: "without",
       mode: "online",
@@ -735,7 +738,9 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     });
 
     await batch.commit();
-    postMetaLeadEvent(phoneFull, cleanName, mappedSource);
+    if (phoneFull) {
+      postMetaLeadEvent(phoneFull, cleanName, mappedSource);
+    }
 
     return res.json({ success: true, action: "created_new", clientId: newClientRef.id, bookedMentioned });
   } catch (error) {

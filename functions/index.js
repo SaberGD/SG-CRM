@@ -498,9 +498,12 @@ async function matchLabelIds(suggestedLabels) {
   }
 }
 
+const NO_SERVICE_MATCH_RE = /^(أخرى|other|unspecified)$/i;
+
 async function matchService(suggestedServiceName) {
+  const generic = { serviceId: "", serviceName: "غير محدد (رصد تلقائي)" };
   const fallback = { serviceId: "", serviceName: suggestedServiceName ? String(suggestedServiceName).trim() : "غير محدد (رصد تلقائي)" };
-  if (!suggestedServiceName) return fallback;
+  if (!suggestedServiceName || NO_SERVICE_MATCH_RE.test(String(suggestedServiceName).trim())) return generic;
   try {
     const snap = await db.collection("services").where("isActive", "==", true).get();
     const needle = String(suggestedServiceName).trim().toLowerCase();
@@ -537,6 +540,35 @@ async function postMetaLeadEvent(phoneFull, contentName, contentCategory) {
     console.error("postMetaLeadEvent failed (non-fatal):", e);
   }
 }
+
+/**
+ * Read-only lookup for the n8n automation: the live, active services catalog,
+ * so the Gemini extraction step can semantically match a customer's own wording
+ * against the real course list instead of a hardcoded name list baked into the prompt.
+ */
+exports.getActiveServicesForAutomation = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  const expectedSecret = process.env.AUTOMATION_SECRET || "";
+  const providedSecret = req.get("x-automation-secret") || "";
+  if (!expectedSecret) {
+    return res.status(500).json({ error: "AUTOMATION_SECRET not configured on server" });
+  }
+  if (providedSecret !== expectedSecret) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const snap = await db.collection("services").where("isActive", "==", true).get();
+    const services = snap.docs.map((d) => ({
+      id: d.id,
+      name: d.data().name || "",
+      description: d.data().description || "",
+    }));
+    return res.json({ services });
+  } catch (e) {
+    console.error("getActiveServicesForAutomation failed:", e);
+    return res.status(500).json({ error: e?.message || "Unknown error" });
+  }
+});
 
 /**
  * Called by the n8n hourly-idle-conversation workflow. Body shape (all from

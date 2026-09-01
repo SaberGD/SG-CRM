@@ -102,6 +102,10 @@ const ClientsList: React.FC = () => {
     labels: [] as string[],
     notes: '',
     preferredMethod: CommMethod.PHONE,
+    hasLastFollowUp: false,
+    lastFollowUpDate: '',
+    lastFollowUpTime: '10:00',
+    lastFollowUpPeriod: 'AM' as 'AM' | 'PM',
     nextFollowUpMethod: CommMethod.PHONE,
     scheduleNext: false,
     nextDate: '',
@@ -389,6 +393,15 @@ const ClientsList: React.FC = () => {
     });
   };
 
+  const buildLocalTimestamp = (date: string, time: string, period: 'AM' | 'PM') => {
+    if (!date) return 0;
+    const [h, m] = time.split(':').map(Number);
+    const finalH = period === 'PM' && h < 12 ? h + 12 : (period === 'AM' && h === 12 ? 0 : h);
+    const dateObj = new Date(date);
+    dateObj.setHours(finalH || 0, m || 0, 0, 0);
+    return dateObj.getTime();
+  };
+
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || isSubmitting) return;
@@ -443,14 +456,15 @@ const ClientsList: React.FC = () => {
 
       let nextTs = 0;
       if (newClient.scheduleNext && newClient.nextDate) {
-        const [h, m] = newClient.nextTime.split(':').map(Number);
-        const finalH = newClient.nextPeriod === 'PM' && h < 12 ? h + 12 : (newClient.nextPeriod === 'AM' && h === 12 ? 0 : h);
-        const dateObj = new Date(newClient.nextDate);
-        dateObj.setHours(finalH, m, 0, 0);
-        nextTs = dateObj.getTime();
+        nextTs = buildLocalTimestamp(newClient.nextDate, newClient.nextTime, newClient.nextPeriod);
       }
 
+      const lastFollowUpTs = newClient.hasLastFollowUp
+        ? buildLocalTimestamp(newClient.lastFollowUpDate, newClient.lastFollowUpTime, newClient.lastFollowUpPeriod)
+        : 0;
+
       const { 
+        hasLastFollowUp, lastFollowUpDate, lastFollowUpTime, lastFollowUpPeriod,
         nextDate, nextTime, nextPeriod, scheduleNext, isBooked, bookedCourseId, bookedCourseName, 
         totalPrice, paidAmount, remainingAmount, customServiceName,
         isExternalTransfer, originalCurrency, originalTotalPrice, originalPaidAmount,
@@ -490,6 +504,10 @@ const ClientsList: React.FC = () => {
       
       if (nextTs) {
         dataToSave.nextFollowUpMethod = newClient.nextFollowUpMethod;
+      }
+
+      if (lastFollowUpTs) {
+        dataToSave.lastFollowUpDate = lastFollowUpTs;
       }
 
       if (isBooked) {
@@ -1300,6 +1318,56 @@ const ClientsList: React.FC = () => {
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">ملاحظات إضافية</label>
               <textarea className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold h-14 dark:text-white" value={newClient.notes} onChange={e => setNewClient({...newClient, notes: e.target.value})} />
             </div>
+          </div>
+
+          <div className="p-6 bg-blue-50 dark:bg-blue-500/5 rounded-[2rem] border border-blue-100 dark:border-blue-500/20 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-black uppercase text-blue-600 dark:text-blue-400">آخر متابعة مع العميل</h3>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">تسجيل آخر متابعة</span>
+                <input
+                  type="checkbox"
+                  checked={newClient.hasLastFollowUp}
+                  onChange={e => setNewClient({...newClient, hasLastFollowUp: e.target.checked})}
+                  className="w-5 h-5 accent-blue-500"
+                />
+              </div>
+            </div>
+
+            {newClient.hasLastFollowUp && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">تاريخ آخر متابعة</label>
+                  <input
+                    type="date"
+                    required
+                    className="w-full p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none"
+                    value={newClient.lastFollowUpDate}
+                    onChange={e => setNewClient({...newClient, lastFollowUpDate: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">توقيت آخر متابعة</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="time"
+                      required
+                      className="flex-1 p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none"
+                      value={newClient.lastFollowUpTime}
+                      onChange={e => setNewClient({...newClient, lastFollowUpTime: e.target.value})}
+                    />
+                    <select
+                      className="p-4 bg-white dark:bg-slate-900 rounded-2xl font-bold text-xs outline-none"
+                      value={newClient.lastFollowUpPeriod}
+                      onChange={e => setNewClient({...newClient, lastFollowUpPeriod: e.target.value as any})}
+                    >
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-[2rem] space-y-4">

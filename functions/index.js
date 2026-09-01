@@ -432,6 +432,30 @@ function buildPhoneVariations(phoneFull) {
   return Array.from(variations).slice(0, 10);
 }
 
+function parseAutomationTimestamp(...candidates) {
+  for (const candidate of candidates) {
+    if (candidate === undefined || candidate === null || candidate === "") continue;
+
+    if (typeof candidate === "number") {
+      const ts = candidate < 10000000000 ? candidate * 1000 : candidate;
+      if (Number.isFinite(ts) && ts > 0) return ts;
+    }
+
+    const raw = String(candidate).trim();
+    if (!raw) continue;
+
+    if (/^\d+$/.test(raw)) {
+      const numeric = Number(raw);
+      const ts = numeric < 10000000000 ? numeric * 1000 : numeric;
+      if (Number.isFinite(ts) && ts > 0) return ts;
+    }
+
+    const parsed = new Date(raw).getTime();
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 0;
+}
+
 let cachedDefaultAgent = null;
 let cachedDefaultAgentAt = 0;
 async function getDefaultAutomationAgent() {
@@ -578,6 +602,7 @@ exports.getActiveServicesForAutomation = onRequest({ region: "us-central1", cors
  *   sales_brief, detailed_result,
  *   suggested_status, suggested_labels[], suggested_service,
  *   booked, next_followup_date, next_followup_channel,
+ *   last_followup_date,
  *   has_meaningful_content, missing_or_ambiguous_fields[],
  *   source, chatwoot_conversation_id, chatwoot_conversation_link
  * }
@@ -654,6 +679,15 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       if (!Number.isNaN(parsed)) nextFollowUpTs = parsed;
     }
 
+    const automationNow = Date.now();
+    const lastFollowUpTs = parseAutomationTimestamp(
+      body.last_followup_date,
+      body.last_followup_at,
+      body.last_contacted_at,
+      body.last_message_at,
+      body.chatwoot_last_activity_at
+    ) || automationNow;
+
     if (!existingSnap.empty) {
       // ----- Existing client: log a follow-up, apply conservative updates -----
       const existingDoc = existingSnap.docs[0];
@@ -661,7 +695,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       const batch = db.batch();
 
       const updateData = {
-        lastFollowUpDate: Date.now(),
+        lastFollowUpDate: lastFollowUpTs,
       };
 
       if (existingClient.status !== "not_interested") {
@@ -705,9 +739,9 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         result: bookedMentioned ? "العميل ذكر رغبته في الحجز - يحتاج تأكيد ودفع من موظف" : "متابعة تلقائية من تحليل المحادثة",
         salesBrief: body.sales_brief || "",
         method: mappedMethod,
-        timestamp: Date.now(),
-        startTime: Date.now(),
-        endTime: Date.now(),
+        timestamp: lastFollowUpTs,
+        startTime: lastFollowUpTs,
+        endTime: lastFollowUpTs,
         duration: 0,
         scheduledTime: existingClient.nextFollowUpDate || 0,
         delayStatus: "on_time",
@@ -743,7 +777,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       labels: matchedLabelIds,
       salesAgentId: resolvedAgent.id,
       salesAgentName: resolvedAgent.name,
-      createdAt: Date.now(),
+      createdAt: automationNow,
+      lastFollowUpDate: lastFollowUpTs,
       country: "مصر",
       countryCode: body.country_code || "+20",
       source: mappedSource,
@@ -777,9 +812,9 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       result: bookedMentioned ? "العميل ذكر رغبته في الحجز - يحتاج تأكيد ودفع من موظف" : "عميل جديد من تحليل تلقائي",
       salesBrief: body.sales_brief || "",
       method: mappedMethod,
-      timestamp: Date.now(),
-      startTime: Date.now(),
-      endTime: Date.now(),
+      timestamp: lastFollowUpTs,
+      startTime: lastFollowUpTs,
+      endTime: lastFollowUpTs,
       duration: 0,
       scheduledTime: 0,
       delayStatus: "on_time",
@@ -795,7 +830,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       action: `إضافة عميل جديد تلقائيًا (${mappedSource}): ${cleanName}`,
       targetId: newClientRef.id,
       targetName: cleanName,
-      timestamp: Date.now(),
+      timestamp: automationNow,
     });
 
     await batch.commit();

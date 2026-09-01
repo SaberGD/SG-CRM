@@ -91,6 +91,8 @@ const ClientsList: React.FC = () => {
   const [bulkTransferTo, setBulkTransferTo] = useState('');
   const [recentBulkTransfers, setRecentBulkTransfers] = useState<BulkTransfer[]>([]);
   const [isUndoing, setIsUndoing] = useState(false);
+  const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const [newClient, setNewClient] = useState({ 
     name: '', position: '', phone: '', status: ClientStatus.INTERESTED,
@@ -155,7 +157,9 @@ const ClientsList: React.FC = () => {
   };
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
-  const canDelete = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
+  const isAdmin = user?.role === UserRole.ADMIN;
+  const canDelete = isAdmin;
+  const canBulkTransfer = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
   const canEditChatId = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR;
   const UNASSIGNED_AGENT = '__unassigned__';
 
@@ -355,6 +359,36 @@ const ClientsList: React.FC = () => {
     return result;
   }, [clients, debouncedSearch, filterTransferType]);
 
+  const selectedClientSet = useMemo(() => new Set(selectedClientIds), [selectedClientIds]);
+  const selectedClients = useMemo(
+    () => clients.filter(client => selectedClientSet.has(client.id)),
+    [clients, selectedClientSet]
+  );
+  const allVisibleSelected = filteredClients.length > 0 && filteredClients.every(client => selectedClientSet.has(client.id));
+
+  useEffect(() => {
+    const visibleClientIds = new Set(filteredClients.map(client => client.id));
+    setSelectedClientIds(prev => prev.filter(id => visibleClientIds.has(id)));
+  }, [filteredClients]);
+
+  const toggleClientSelection = (clientId: string) => {
+    setSelectedClientIds(prev => (
+      prev.includes(clientId)
+        ? prev.filter(id => id !== clientId)
+        : [...prev, clientId]
+    ));
+  };
+
+  const toggleVisibleSelection = () => {
+    const visibleIds = filteredClients.map(client => client.id);
+    setSelectedClientIds(prev => {
+      if (allVisibleSelected) {
+        return prev.filter(id => !visibleIds.includes(id));
+      }
+      return Array.from(new Set([...prev, ...visibleIds]));
+    });
+  };
+
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || isSubmitting) return;
@@ -500,6 +534,57 @@ const ClientsList: React.FC = () => {
       alert("حدث خطأ في الصلاحيات أثناء إضافة العميل. يرجى التأكد من إعدادات Firebase.");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!user || !isAdmin) {
+      alert("الحذف الجماعي متاح للأدمن فقط.");
+      return;
+    }
+
+    if (selectedClientIds.length === 0) {
+      alert("اختر عميل واحد على الأقل للحذف.");
+      return;
+    }
+
+    const confirmation = prompt(`أنت على وشك حذف ${selectedClientIds.length} عميل نهائياً. يرجى كتابة كلمة 'delete' للتأكيد:`);
+    if (confirmation !== 'delete') {
+      if (confirmation !== null) alert("كلمة التأكيد غير صحيحة، لم يتم الحذف.");
+      return;
+    }
+
+    setIsBulkDeleting(true);
+    const idsToDelete = [...selectedClientIds];
+    const idsToDeleteSet = new Set(idsToDelete);
+
+    try {
+      for (let i = 0; i < idsToDelete.length; i += 450) {
+        const batch = firestore.writeBatch(db);
+        idsToDelete.slice(i, i + 450).forEach(clientId => {
+          batch.delete(firestore.doc(db, 'clients', clientId));
+        });
+        await batch.commit();
+      }
+
+      const deletedNames = selectedClients.slice(0, 5).map(client => client.name).join('، ');
+      await logActivity(
+        user.uid,
+        user.name,
+        `حذف جماعي نهائي (${idsToDelete.length} عميل)`,
+        'bulk-delete',
+        deletedNames || `${idsToDelete.length} عميل`
+      );
+
+      setClients(prev => prev.filter(client => !idsToDeleteSet.has(client.id)));
+      clientsCache.data = clientsCache.data.filter(client => !idsToDeleteSet.has(client.id));
+      setSelectedClientIds([]);
+      alert(`تم حذف ${idsToDelete.length} عميل بنجاح.`);
+    } catch (error) {
+      console.error("Error bulk deleting clients:", error);
+      alert("حدث خطأ أثناء الحذف الجماعي. يرجى التحقق من صلاحيات الأدمن.");
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
@@ -736,6 +821,21 @@ const ClientsList: React.FC = () => {
           </button>
 
           {canDelete && (
+            <button 
+              onClick={handleBulkDelete}
+              disabled={selectedClientIds.length === 0 || isBulkDeleting}
+              className={`px-5 py-4 rounded-3xl font-black text-xs uppercase shadow-xl transition-all flex items-center gap-2 ${
+                selectedClientIds.length === 0 || isBulkDeleting
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-800'
+                  : 'bg-rose-600 text-white hover:bg-rose-700'
+              }`}
+              title="حذف العملاء المحددين نهائياً"
+            >
+              <Trash2 size={18} /> {isBulkDeleting ? 'جاري الحذف...' : selectedClientIds.length > 0 ? `حذف ${selectedClientIds.length}` : 'حذف جماعي'}
+            </button>
+          )}
+
+          {canBulkTransfer && (
             <button onClick={() => setIsBulkTransferOpen(true)} className="bg-amber-500 text-white px-5 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-amber-600 transition-all flex items-center gap-2">
               <Layers size={18} /> تحويل جماعي
             </button>
@@ -820,6 +920,17 @@ const ClientsList: React.FC = () => {
           <table className="w-full text-right">
             <thead className="bg-slate-50 dark:bg-slate-800/50">
               <tr>
+                {canDelete && (
+                  <th className="w-14 px-6 py-5 text-center">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleVisibleSelection}
+                      className="w-4 h-4 accent-rose-600"
+                      title="تحديد كل العملاء الظاهرين"
+                    />
+                  </th>
+                )}
                 <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">العميل / وقت التسجيل</th>
                 <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">الحالة / الخدمة</th>
                 <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">المواصفات</th>
@@ -839,9 +950,20 @@ const ClientsList: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredClients.length === 0 ? (
-                <tr><td colSpan={5} className="py-20 text-center text-slate-400 font-bold italic">لا يوجد عملاء حالياً</td></tr>
+                <tr><td colSpan={canDelete ? 6 : 5} className="py-20 text-center text-slate-400 font-bold italic">لا يوجد عملاء حالياً</td></tr>
               ) : filteredClients.map((client) => (
-                <tr key={client.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-all">
+                <tr key={client.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-all ${selectedClientSet.has(client.id) ? 'bg-rose-50/60 dark:bg-rose-500/5' : ''}`}>
+                  {canDelete && (
+                    <td className="px-6 py-6 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedClientSet.has(client.id)}
+                        onChange={() => toggleClientSelection(client.id)}
+                        className="w-4 h-4 accent-rose-600"
+                        title={`تحديد ${client.name}`}
+                      />
+                    </td>
+                  )}
                   <td className="px-8 py-6">
                     <div className="flex items-center gap-3">
                       <div className="shrink-0 w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-primary-500">
@@ -926,6 +1048,7 @@ const ClientsList: React.FC = () => {
                               // Remove from local state and cache
                               setClients(prev => prev.filter(c => c.id !== client.id));
                               clientsCache.data = clientsCache.data.filter(c => c.id !== client.id);
+                              setSelectedClientIds(prev => prev.filter(id => id !== client.id));
                               alert("تم حذف العميل بنجاح");
                             } catch (error) {
                               console.error("Error deleting client:", error);

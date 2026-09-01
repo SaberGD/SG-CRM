@@ -914,6 +914,45 @@ const ClientsList: React.FC = () => {
           </div>
       </div>
 
+      {canDelete && (
+        <div className="bg-rose-50 dark:bg-rose-500/10 border border-rose-100 dark:border-rose-500/20 rounded-[2rem] px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-lg">
+              <Trash2 size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-black text-rose-700 dark:text-rose-300">الحذف الجماعي للعملاء</p>
+              <p className="text-[10px] font-bold text-rose-500/80 dark:text-rose-200/80">
+                {selectedClientIds.length > 0
+                  ? `تم تحديد ${selectedClientIds.length} عميل للحذف النهائي`
+                  : 'حدد العملاء من المربعات الموجودة بجانب أسمائهم ثم اضغط حذف'}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={toggleVisibleSelection}
+              disabled={filteredClients.length === 0}
+              className="bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-200 px-5 py-3 rounded-2xl font-black text-[10px] uppercase border border-rose-100 dark:border-rose-500/20 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {allVisibleSelected ? 'إلغاء تحديد الظاهر' : 'تحديد كل الظاهر'}
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              disabled={selectedClientIds.length === 0 || isBulkDeleting}
+              className={`px-6 py-3 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all flex items-center gap-2 ${
+                selectedClientIds.length === 0 || isBulkDeleting
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-800'
+                  : 'bg-rose-600 text-white hover:bg-rose-700 active:scale-95'
+              }`}
+            >
+              <Trash2 size={16} />
+              {isBulkDeleting ? 'جاري الحذف...' : selectedClientIds.length > 0 ? `حذف ${selectedClientIds.length} عميل` : 'حذف المحدد'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
         <div className="overflow-x-auto">

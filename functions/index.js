@@ -585,6 +585,22 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
   }
 
   try {
+    if (body.chatwoot_conversation_id) {
+      const alreadyProcessed = await db
+        .collection("clients")
+        .where("chatId", "==", String(body.chatwoot_conversation_id))
+        .limit(1)
+        .get();
+      if (!alreadyProcessed.empty) {
+        return res.json({
+          success: true,
+          action: "skipped",
+          reason: "conversation_already_processed",
+          clientId: alreadyProcessed.docs[0].id,
+        });
+      }
+    }
+
     let existingSnap;
     if (phoneFull) {
       const variations = buildPhoneVariations(phoneFull);

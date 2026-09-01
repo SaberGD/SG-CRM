@@ -657,6 +657,9 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       if (!existingClient.chatId && body.chatwoot_conversation_id) {
         updateData.chatId = String(body.chatwoot_conversation_id);
       }
+      if (!existingClient.profileLink && body.profile_link && String(body.profile_link).trim()) {
+        updateData.profileLink = String(body.profile_link).trim();
+      }
 
       batch.update(existingDoc.ref, updateData);
 
@@ -712,6 +715,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       country: "مصر",
       countryCode: body.country_code || "+20",
       source: mappedSource,
+      profileLink: body.profile_link ? String(body.profile_link).trim() : "",
+      preferredMethod: mappedMethod,
       notes: [
         "🤖 تم إنشاء هذا العميل تلقائيًا من تحليل محادثة غير نشطة (Chatwoot).",
         body.sales_brief ? `الملخص: ${body.sales_brief}` : "",

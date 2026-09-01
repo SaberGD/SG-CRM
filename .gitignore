@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Functions env files (contain live secrets, never commit)
+functions/.env
+functions/.env.*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

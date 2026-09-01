@@ -174,6 +174,7 @@ export interface Client {
   deductionAmount?: number;
   deductionReason?: string;
   aiRecommendation?: AiRecommendation;
+  lastChatwootContactAt?: number;
   chatId?: string;
 }
 

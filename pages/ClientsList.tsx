@@ -66,6 +66,7 @@ const ClientsList: React.FC = () => {
   const [filterBookedCourse, setFilterBookedCourse] = useState<string>('all');
   const [filterSalesAgent, setFilterSalesAgent] = useState<string>('all');
   const [filterTransferType, setFilterTransferType] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'createdAt' | 'lastChatwootContactAsc'>('createdAt');
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -235,7 +236,7 @@ const ClientsList: React.FC = () => {
       unsubServices();
       unsubLabels();
     };
-  }, [authLoading, user, effectiveRole, filterStatus, filterService, filterLabel, filterLaptop, filterMode, filterGender, filterBookedCourse, filterSalesAgent, debouncedSearch]);
+  }, [authLoading, user, effectiveRole, filterStatus, filterService, filterLabel, filterLaptop, filterMode, filterGender, filterBookedCourse, filterSalesAgent, debouncedSearch, sortBy]);
 
   const fetchClients = async (isMore: boolean, searchOverride?: string) => {
     if (!user || (!isMore && isLoadingMore)) return;
@@ -282,6 +283,8 @@ const ClientsList: React.FC = () => {
           constraints.push(firestore.where('name', '<=', activeSearch + '\uf8ff'));
           constraints.push(firestore.orderBy('name'));
         }
+      } else if (sortBy === 'lastChatwootContactAsc') {
+        constraints.push(firestore.orderBy('lastChatwootContactAt', 'asc'));
       } else {
         constraints.push(firestore.orderBy('createdAt', 'desc'));
       }
@@ -758,6 +761,10 @@ const ClientsList: React.FC = () => {
                 value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
+            <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}>
+              <option value="createdAt">الأحدث تسجيلاً</option>
+              <option value="lastChatwootContactAsc">الأقدم تواصل في Chatwoot</option>
+            </select>
             <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
               <option value="all">كل الحالات</option>
               {Object.entries(StatusLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
@@ -874,6 +881,11 @@ const ClientsList: React.FC = () => {
                           <p className="text-[9px] font-black text-slate-400 flex items-center gap-1">
                             <Clock size={10}/> {new Date(client.createdAt).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                           </p>
+                          {client.lastChatwootContactAt && (
+                            <p className="text-[9px] font-black text-teal-500 dark:text-teal-400 flex items-center gap-1" title="آخر تواصل فعلي في Chatwoot">
+                              <MessageCircle size={10}/> {new Date(client.lastChatwootContactAt).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          )}
                           {client.profileLink && (
                             <a href={client.profileLink} target="_blank" className="text-blue-500 hover:underline flex items-center gap-0.5 text-[8px] font-black">
                               <ExternalLink size={8}/> الرابط

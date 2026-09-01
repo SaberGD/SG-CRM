@@ -654,6 +654,12 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       if (!Number.isNaN(parsed)) nextFollowUpTs = parsed;
     }
 
+    let lastChatwootContactAt = 0;
+    if (body.last_contact_at) {
+      const parsed = new Date(body.last_contact_at).getTime();
+      if (!Number.isNaN(parsed)) lastChatwootContactAt = parsed;
+    }
+
     if (!existingSnap.empty) {
       // ----- Existing client: log a follow-up, apply conservative updates -----
       const existingDoc = existingSnap.docs[0];
@@ -691,6 +697,9 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       }
       if (!existingClient.profileLink && body.profile_link && String(body.profile_link).trim()) {
         updateData.profileLink = String(body.profile_link).trim();
+      }
+      if (lastChatwootContactAt && lastChatwootContactAt > (existingClient.lastChatwootContactAt || 0)) {
+        updateData.lastChatwootContactAt = lastChatwootContactAt;
       }
 
       batch.update(existingDoc.ref, updateData);
@@ -749,6 +758,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       source: mappedSource,
       profileLink: body.profile_link ? String(body.profile_link).trim() : "",
       preferredMethod: mappedMethod,
+      lastChatwootContactAt: lastChatwootContactAt || null,
       notes: [
         "🤖 تم إنشاء هذا العميل تلقائيًا من تحليل محادثة غير نشطة (Chatwoot).",
         body.sales_brief ? `الملخص: ${body.sales_brief}` : "",

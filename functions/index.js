@@ -635,6 +635,12 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       ) {
         updateData.name = body.customer_name.trim();
       }
+      if (!existingClient.position && body.position && String(body.position).trim()) {
+        updateData.position = String(body.position).trim();
+      }
+      if (!existingClient.chatId && body.chatwoot_conversation_id) {
+        updateData.chatId = String(body.chatwoot_conversation_id);
+      }
 
       batch.update(existingDoc.ref, updateData);
 
@@ -673,11 +679,13 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     const newClientRef = db.collection("clients").doc();
     const newClientData = {
       name: cleanName,
+      position: body.position && String(body.position).trim() ? String(body.position).trim() : "",
       phone: phoneFull || "",
       chatwootContactId: body.chatwoot_contact_id ? String(body.chatwoot_contact_id) : null,
-      gender: (body.gender === "male" || body.gender === "female") ? body.gender : "male",
-      laptop: (body.has_laptop === "with" || body.has_laptop === "without") ? body.has_laptop : "without",
-      mode: (body.attendance_mode === "online" || body.attendance_mode === "offline") ? body.attendance_mode : "online",
+      chatId: body.chatwoot_conversation_id ? String(body.chatwoot_conversation_id) : null,
+      gender: ["male", "female", "unspecified"].includes(body.gender) ? body.gender : "unspecified",
+      laptop: ["with", "without", "unspecified"].includes(body.has_laptop) ? body.has_laptop : "unspecified",
+      mode: ["online", "offline", "unspecified"].includes(body.attendance_mode) ? body.attendance_mode : "unspecified",
       status: mappedStatus,
       serviceId: serviceMatch.serviceId,
       serviceName: serviceMatch.serviceName,

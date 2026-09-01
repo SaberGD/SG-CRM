@@ -93,7 +93,7 @@ const ClientsList: React.FC = () => {
   const [isUndoing, setIsUndoing] = useState(false);
 
   const [newClient, setNewClient] = useState({ 
-    name: '', phone: '', status: ClientStatus.INTERESTED, 
+    name: '', position: '', phone: '', status: ClientStatus.INTERESTED,
     source: ClientSource.WHATSAPP, profileLink: '',
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
     serviceId: '', customServiceName: '', country: 'مصر', countryCode: '+20', 
@@ -118,7 +118,8 @@ const ClientsList: React.FC = () => {
     exchangeRateUsed: 48.5,
     deductionAmount: 0,
     deductionReason: '٣٪ عمولة تحويل و ١٤٪ ضرايب',
-    assignedSalesAgentId: ''
+    assignedSalesAgentId: '',
+    chatId: ''
   });
 
   const handlePhoneChange = (val: string) => {
@@ -155,6 +156,8 @@ const ClientsList: React.FC = () => {
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
   const canDelete = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
+  const canEditChatId = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR;
+  const UNASSIGNED_AGENT = '__unassigned__';
 
   // Debounce search
   useEffect(() => {
@@ -430,7 +433,10 @@ const ClientsList: React.FC = () => {
       let targetAgentId = user.uid;
       let targetAgentName = user.name;
 
-      if (isHighRole && assignedSalesAgentId) {
+      if (isHighRole && assignedSalesAgentId === UNASSIGNED_AGENT) {
+        targetAgentId = '';
+        targetAgentName = 'لم يتم تحديد المسؤول بعد';
+      } else if (isHighRole && assignedSalesAgentId) {
         const selectedAgent = salesAgents.find(a => a.id === assignedSalesAgentId);
         if (selectedAgent) {
           targetAgentId = selectedAgent.id;
@@ -783,18 +789,21 @@ const ClientsList: React.FC = () => {
               <option value="all">حالة اللابتوب</option>
               <option value={LaptopStatus.WITH}>مع لابتوب</option>
               <option value={LaptopStatus.WITHOUT}>بدون لابتوب</option>
+              <option value={LaptopStatus.UNSPECIFIED}>لم يحدد</option>
             </select>
 
             <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterMode} onChange={e => setFilterMode(e.target.value)}>
               <option value="all">نظام الحضور</option>
               <option value={AttendanceMode.ONLINE}>أونلاين</option>
               <option value={AttendanceMode.OFFLINE}>أوفلاين</option>
+              <option value={AttendanceMode.UNSPECIFIED}>لم يحدد</option>
             </select>
 
             <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterGender} onChange={e => setFilterGender(e.target.value)}>
               <option value="all">الجنس</option>
               <option value={Gender.MALE}>ذكر</option>
               <option value={Gender.FEMALE}>أنثى</option>
+              <option value={Gender.UNSPECIFIED}>لم يحدد</option>
             </select>
 
             <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterTransferType} onChange={e => setFilterTransferType(e.target.value)}>
@@ -882,9 +891,9 @@ const ClientsList: React.FC = () => {
                   </td>
                   <td className="px-8 py-6">
                     <div className="flex flex-wrap gap-1">
-                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.gender === Gender.MALE ? 'ذكر' : 'أنثى'}</span>
-                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : 'بدون لابتوب'}</span>
-                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : 'أوفلاين'}</span>
+                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.gender === Gender.MALE ? 'ذكر' : client.gender === Gender.FEMALE ? 'أنثى' : 'لم يحدد'}</span>
+                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : client.laptop === LaptopStatus.WITHOUT ? 'بدون لابتوب' : 'لم يحدد'}</span>
+                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : client.mode === AttendanceMode.OFFLINE ? 'أوفلاين' : 'لم يحدد'}</span>
                     </div>
                   </td>
                   <td className="px-8 py-6 text-center text-[10px] text-slate-500 font-bold italic">{client.salesAgentName}</td>
@@ -968,6 +977,7 @@ const ClientsList: React.FC = () => {
                 onChange={e => setNewClient({...newClient, assignedSalesAgentId: e.target.value})}
               >
                 <option value="">أنا المسؤول (تسجيل باسمي: {user?.name || 'الحالي'})</option>
+                <option value={UNASSIGNED_AGENT}>لم يتم تحديد المسؤول بعد</option>
                 {salesAgents.map(agent => (
                   <option key={agent.id} value={agent.id}>
                     {agent.name} {agent.id === user?.uid ? '(أنا)' : ''}
@@ -977,6 +987,12 @@ const ClientsList: React.FC = () => {
               <p className="text-[10px] font-bold text-slate-400 mr-2">
                 تنويه: بصفتك مشرف/مسؤول، يمكنك تخصيص العميل لموظف مبيعات معين عند الإضافة مباشرة.
               </p>
+            </div>
+          )}
+          {canEditChatId && (
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">Chat ID (اختياري)</label>
+              <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" dir="ltr" placeholder="Chat ID" value={newClient.chatId} onChange={e => setNewClient({...newClient, chatId: e.target.value})} />
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -998,6 +1014,7 @@ const ClientsList: React.FC = () => {
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الاسم بالكامل</label>
               <input required className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" placeholder="أدخل الاسم..." value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} />
+              <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white mt-2" placeholder="الصفة / الوظيفة (اختياري)" value={newClient.position} onChange={e => setNewClient({...newClient, position: e.target.value})} />
             </div>
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-400 uppercase mr-2">حالة العميل</label>
@@ -1032,6 +1049,7 @@ const ClientsList: React.FC = () => {
               <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.gender} onChange={e => setNewClient({...newClient, gender: e.target.value as Gender})}>
                 <option value={Gender.MALE}>ذكر</option>
                 <option value={Gender.FEMALE}>أنثى</option>
+                <option value={Gender.UNSPECIFIED}>لم يحدد</option>
               </select>
             </div>
             <div className="space-y-1.5">
@@ -1039,6 +1057,7 @@ const ClientsList: React.FC = () => {
               <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.laptop} onChange={e => setNewClient({...newClient, laptop: e.target.value as LaptopStatus})}>
                 <option value={LaptopStatus.WITH}>مع لابتوب</option>
                 <option value={LaptopStatus.WITHOUT}>بدون لابتوب</option>
+                <option value={LaptopStatus.UNSPECIFIED}>لم يحدد</option>
               </select>
             </div>
             <div className="space-y-1.5">
@@ -1046,6 +1065,7 @@ const ClientsList: React.FC = () => {
               <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none dark:text-white" value={newClient.mode} onChange={e => setNewClient({...newClient, mode: e.target.value as AttendanceMode})}>
                 <option value={AttendanceMode.OFFLINE}>أوفلاين (في المقر)</option>
                 <option value={AttendanceMode.ONLINE}>أونلاين (عن بعد)</option>
+                <option value={AttendanceMode.UNSPECIFIED}>لم يحدد</option>
               </select>
             </div>
           </div>

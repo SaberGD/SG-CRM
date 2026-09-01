@@ -161,14 +161,15 @@ const ClientDetails: React.FC = () => {
   const [nextPeriod, setNextPeriod] = useState<'AM' | 'PM'>('AM');
 
   // Edit Client
-  const [editClientData, setEditClientData] = useState({ 
-    name: '', phone: '', serviceName: '', serviceId: '', customServiceName: '', status: ClientStatus.INTERESTED,
+  const [editClientData, setEditClientData] = useState({
+    name: '', position: '', phone: '', serviceName: '', serviceId: '', customServiceName: '', status: ClientStatus.INTERESTED,
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
     labels: [] as string[],
-    source: ClientSource.WHATSAPP, profileLink: ''
+    source: ClientSource.WHATSAPP, profileLink: '', chatId: ''
   });
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const canEditChatId = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR;
 
   useEffect(() => {
     if (!id) return;
@@ -177,9 +178,10 @@ const ClientDetails: React.FC = () => {
       if (snap.exists()) {
         const data = snap.data() as Client;
         setClient({ id: snap.id, ...data });
-        setEditClientData({ 
-          name: data.name, 
-          phone: data.phone, 
+        setEditClientData({
+          name: data.name,
+          position: data.position || '',
+          phone: data.phone,
           serviceName: data.serviceName,
           serviceId: data.serviceId || '',
           customServiceName: data.serviceName, // simplified
@@ -189,7 +191,8 @@ const ClientDetails: React.FC = () => {
           mode: data.mode || AttendanceMode.OFFLINE,
           labels: data.labels || [],
           source: data.source || ClientSource.WHATSAPP,
-          profileLink: data.profileLink || ''
+          profileLink: data.profileLink || '',
+          chatId: data.chatId || ''
         });
         setStatus(data.status);
         setLabels(data.labels || []);
@@ -435,7 +438,13 @@ const ClientDetails: React.FC = () => {
               <h1 className="text-3xl font-black text-slate-900 dark:text-white">{client.name}</h1>
               <button onClick={() => setIsEditModalOpen(true)} className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 hover:text-primary-500 transition-colors"><Edit2 size={16}/></button>
             </div>
+            {client.position && (
+              <p className="text-slate-400 font-bold text-xs mt-0.5">{client.position}</p>
+            )}
             <p className="text-primary-500 font-bold flex items-center gap-2 mt-1"><PhoneIncoming size={14}/> <span dir="ltr">{client.phone}</span></p>
+            {client.chatId && (
+              <p className="text-slate-400 font-bold flex items-center gap-2 mt-1 text-xs">Chat ID: <span dir="ltr">{client.chatId}</span></p>
+            )}
             <div className="flex flex-wrap gap-2 mt-3">
               <span className="bg-primary-100 dark:bg-primary-500/10 text-primary-500 px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1">
                 {client.source === ClientSource.WHATSAPP && <MessageCircle size={10}/>}
@@ -448,9 +457,9 @@ const ClientDetails: React.FC = () => {
                   <ExternalLink size={10}/> رابط الحساب
                 </a>
               )}
-              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.gender === Gender.MALE ? 'ذكر' : 'أنثى'}</span>
-              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : 'بدون لابتوب'}</span>
-              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : 'أوفلاين'}</span>
+              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.gender === Gender.MALE ? 'ذكر' : client.gender === Gender.FEMALE ? 'أنثى' : 'لم يحدد'}</span>
+              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : client.laptop === LaptopStatus.WITHOUT ? 'بدون لابتوب' : 'لم يحدد'}</span>
+              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : client.mode === AttendanceMode.OFFLINE ? 'أوفلاين' : 'لم يحدد'}</span>
               {client.labels?.map(labelId => {
                 const label = allLabels.find(l => l.id === labelId);
                 if (!label) return null;
@@ -1074,8 +1083,15 @@ const ClientDetails: React.FC = () => {
                <div className="space-y-1.5 text-right">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">الاسم</label>
                   <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-right" value={editClientData.name} onChange={e => setEditClientData({...editClientData, name: e.target.value})} placeholder="الاسم" />
+                  <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-right mt-2" value={editClientData.position} onChange={e => setEditClientData({...editClientData, position: e.target.value})} placeholder="الصفة / الوظيفة (اختياري)" />
                </div>
-               
+               {canEditChatId && (
+                 <div className="space-y-1.5 text-right">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">Chat ID (اختياري)</label>
+                    <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white" dir="ltr" value={editClientData.chatId} onChange={e => setEditClientData({...editClientData, chatId: e.target.value})} placeholder="Chat ID" />
+                 </div>
+               )}
+
                <div className="space-y-1.5 text-right">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رقم الهاتف</label>
                   <input 
@@ -1107,13 +1123,13 @@ const ClientDetails: React.FC = () => {
 
                <div className="grid grid-cols-3 gap-3">
                   <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-xs" value={editClientData.gender} onChange={e => setEditClientData({...editClientData, gender: e.target.value as Gender})}>
-                    <option value={Gender.MALE}>ذكر</option><option value={Gender.FEMALE}>أنثى</option>
+                    <option value={Gender.MALE}>ذكر</option><option value={Gender.FEMALE}>أنثى</option><option value={Gender.UNSPECIFIED}>لم يحدد</option>
                   </select>
                   <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-xs" value={editClientData.laptop} onChange={e => setEditClientData({...editClientData, laptop: e.target.value as LaptopStatus})}>
-                    <option value={LaptopStatus.WITH}>لابتوب</option><option value={LaptopStatus.WITHOUT}>بدون</option>
+                    <option value={LaptopStatus.WITH}>لابتوب</option><option value={LaptopStatus.WITHOUT}>بدون</option><option value={LaptopStatus.UNSPECIFIED}>لم يحدد</option>
                   </select>
                   <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-xs" value={editClientData.mode} onChange={e => setEditClientData({...editClientData, mode: e.target.value as AttendanceMode})}>
-                    <option value={AttendanceMode.OFFLINE}>أوفلاين</option><option value={AttendanceMode.ONLINE}>أونلاين</option>
+                    <option value={AttendanceMode.OFFLINE}>أوفلاين</option><option value={AttendanceMode.ONLINE}>أونلاين</option><option value={AttendanceMode.UNSPECIFIED}>لم يحدد</option>
                   </select>
                </div>
                <div className="space-y-1.5">

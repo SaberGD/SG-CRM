@@ -241,7 +241,7 @@ const Layout: React.FC = () => {
       )}
 
       <aside className={`fixed inset-y-0 right-0 z-[70] w-72 bg-white dark:bg-slate-900 border-l border-slate-100 dark:border-slate-800 transition-transform lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="flex flex-col h-full p-8">
+        <div className="flex flex-col h-full p-8 overflow-y-auto overscroll-contain">
           <div className="flex justify-between items-center mb-12 text-right">
             <div>
               <h1 className="text-xl font-black text-slate-950 dark:text-white uppercase tracking-tighter">SABER GROUP</h1>

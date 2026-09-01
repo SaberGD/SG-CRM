@@ -23,12 +23,14 @@ export enum CommMethod {
 
 export enum Gender {
   MALE = 'male',
-  FEMALE = 'female'
+  FEMALE = 'female',
+  UNSPECIFIED = 'unspecified'
 }
 
 export enum LaptopStatus {
   WITH = 'with',
-  WITHOUT = 'without'
+  WITHOUT = 'without',
+  UNSPECIFIED = 'unspecified'
 }
 
 export enum ClientSource {
@@ -43,7 +45,8 @@ export enum ClientSource {
 
 export enum AttendanceMode {
   ONLINE = 'online',
-  OFFLINE = 'offline'
+  OFFLINE = 'offline',
+  UNSPECIFIED = 'unspecified'
 }
 
 export const StatusLabels: Record<ClientStatus, { en: string, ar: string, color: string }> = {
@@ -132,6 +135,7 @@ export interface AiRecommendation {
 export interface Client {
   id: string;
   name: string;
+  position?: string;
   phone: string;
   gender: Gender;
   laptop: LaptopStatus;
@@ -170,6 +174,7 @@ export interface Client {
   deductionAmount?: number;
   deductionReason?: string;
   aiRecommendation?: AiRecommendation;
+  chatId?: string;
 }
 
 export interface FollowUp {

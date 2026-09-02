@@ -138,14 +138,14 @@ const Dashboard: React.FC = () => {
   );
 
   return (
-    <div className="space-y-10 animate-fade-in pb-10">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+    <div className="sg-page space-y-7 animate-fade-in">
+      <header className="sg-page-header">
         <div>
-          <h1 className="text-4xl font-black text-slate-950 dark:text-white uppercase tracking-tighter">لوحة <span className="text-primary-500">التحكم</span></h1>
-          <p className="text-slate-500 font-bold mt-1">مرحباً {user?.name ? user.name.split(' ')[0] : 'بك'}، إليك ملخص المهام العاجلة</p>
+          <h1 className="sg-title">لوحة <span className="text-primary-500">التحكم</span></h1>
+          <p className="sg-subtitle">مرحباً {user?.name ? user.name.split(' ')[0] : 'بك'}، إليك ملخص المهام والمتابعات المهمة</p>
         </div>
         {isHighRole && (
-          <div className="flex items-center gap-3 bg-white dark:bg-slate-900 p-3 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm">
+          <div className="sg-surface flex items-center gap-3 px-4 py-3">
             <Filter size={18} className="text-primary-500" />
             <select className="bg-transparent text-xs font-black outline-none border-none text-slate-900 dark:text-white" value={selectedAgentId} onChange={(e) => setSelectedAgentId(e.target.value)}>
               <option value="all">كل فريق المبيعات</option>
@@ -156,16 +156,16 @@ const Dashboard: React.FC = () => {
       </header>
 
       {emergencyTasks.length > 0 && (
-        <section className="space-y-6">
+        <section className="space-y-4">
           <div className="flex justify-between items-center px-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-rose-500 text-white rounded-xl animate-pulse"><AlertTriangle size={20}/></div>
-              <h2 className="text-2xl font-black uppercase tracking-tighter">متابعات عاجلة جداً <span className="text-rose-500">(فائتة)</span></h2>
+              <h2 className="text-xl font-black">متابعات عاجلة جداً <span className="text-rose-500">(فائتة)</span></h2>
             </div>
             <button onClick={() => { setActiveTab('overdue'); document.getElementById('tasks-table')?.scrollIntoView({ behavior: 'smooth' }); }} className="text-slate-400 hover:text-primary-500 transition-colors flex items-center gap-2 text-[10px] font-black uppercase">عرض الكل <ChevronLeft size={14}/></button>
           </div>
           
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {emergencyTasks.map(task => (
               <TaskCard key={task.id} task={task} type="emergency" onManualLog={() => setSelectedClientForManual(task)} />
             ))}
@@ -174,16 +174,16 @@ const Dashboard: React.FC = () => {
       )}
 
       {todayTasks.length > 0 && (
-        <section className="space-y-6">
+        <section className="space-y-4">
           <div className="flex justify-between items-center px-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-emerald-500 text-white rounded-xl"><Calendar size={20}/></div>
-              <h2 className="text-2xl font-black uppercase tracking-tighter">متابعات <span className="text-emerald-500">اليوم</span> المجدولة</h2>
+              <h2 className="text-xl font-black">متابعات <span className="text-emerald-500">اليوم</span> المجدولة</h2>
             </div>
             <button onClick={() => { setActiveTab('today'); document.getElementById('tasks-table')?.scrollIntoView({ behavior: 'smooth' }); }} className="text-slate-400 hover:text-primary-500 transition-colors flex items-center gap-2 text-[10px] font-black uppercase">عرض الكل <ChevronLeft size={14}/></button>
           </div>
           
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {todayTasks.map(task => (
               <TaskCard key={task.id} task={task} type="today" onManualLog={() => setSelectedClientForManual(task)} />
             ))}
@@ -191,7 +191,7 @@ const Dashboard: React.FC = () => {
         </section>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <QuickStat icon={Users} label="إجمالي العملاء" value={stats.total} color="bg-blue-500" />
         <QuickStat icon={CheckCircle2} label="إجمالي الحجوزات" value={stats.booked} color="bg-teal-500" />
         <QuickStat icon={Calendar} label="متابعات اليوم" value={stats.today} color="bg-emerald-500" highlight={stats.overdue > 0} />
@@ -200,8 +200,8 @@ const Dashboard: React.FC = () => {
         {isHighRole && <QuickStat icon={ArrowRightLeft} label="تحويلات اليوم" value={stats.transfersToday} color="bg-amber-500" />}
       </div>
 
-      <div id="tasks-table" className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 border border-slate-100 dark:border-slate-800 shadow-xl relative">
-        <div className="flex flex-wrap gap-4 mb-10 border-b border-slate-50 dark:border-slate-800 pb-6 overflow-x-auto no-scrollbar">
+      <div id="tasks-table" className="sg-surface p-5 relative">
+        <div className="flex flex-wrap gap-3 mb-6 border-b border-slate-100 dark:border-slate-800 pb-4 overflow-x-auto no-scrollbar">
           <TabBtn active={activeTab === 'today'} onClick={() => setActiveTab('today')} label="متابعات اليوم الكاملة" count={stats.today} icon={Calendar} />
           <TabBtn active={activeTab === 'overdue'} onClick={() => setActiveTab('overdue')} label="كل المتأخرات" count={stats.overdue} icon={AlertTriangle} danger={stats.overdue > 0} />
           <TabBtn active={activeTab === '3days'} onClick={() => setActiveTab('3days')} label="قادمة (3 أيام)" icon={CalendarDays} />
@@ -217,8 +217,8 @@ const Dashboard: React.FC = () => {
           ) : filteredTasks.map(task => {
             const isOverdue = (task.nextFollowUpDate || 0) < Date.now();
             return (
-              <div key={task.id} onClick={() => navigate(`/clients/${task.id}`)} className={`group flex items-center p-5 rounded-3xl border transition-all cursor-pointer ${isOverdue ? 'bg-rose-50/30 dark:bg-rose-500/5 border-rose-100 dark:border-rose-500/10 hover:border-rose-300' : 'bg-slate-50 dark:bg-slate-800/50 border-transparent hover:border-primary-500/30'}`}>
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ml-4 group-hover:scale-110 transition-transform ${isOverdue ? 'bg-rose-500 text-white' : 'bg-white dark:bg-slate-800 text-primary-500'}`}>
+              <div key={task.id} onClick={() => navigate(`/clients/${task.id}`)} className={`group flex items-center p-4 rounded-2xl border transition-all cursor-pointer ${isOverdue ? 'bg-rose-50/30 dark:bg-rose-500/5 border-rose-100 dark:border-rose-500/10 hover:border-rose-300' : 'bg-slate-50 dark:bg-slate-800/50 border-transparent hover:border-primary-500/30'}`}>
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center shadow-sm ml-4 transition-transform ${isOverdue ? 'bg-rose-500 text-white' : 'bg-white dark:bg-slate-800 text-primary-500'}`}>
                   {isOverdue ? <AlertTriangle size={20} className="animate-pulse" /> : <PhoneCall size={20} />}
                 </div>
                 <div className="flex-1 px-4 text-right">
@@ -239,7 +239,7 @@ const Dashboard: React.FC = () => {
                         e.stopPropagation();
                         setSelectedClientForManual(task);
                       }}
-                      className="p-1.5 bg-white dark:bg-slate-800 text-slate-400 hover:text-primary-500 rounded-lg transition-colors"
+                      className="sg-icon-btn !w-8 !h-8 bg-white dark:bg-slate-800 text-slate-400 hover:text-primary-500"
                       title="تم التواصل مسبقاً"
                     >
                       <History size={14} />
@@ -265,9 +265,9 @@ const Dashboard: React.FC = () => {
 };
 
 const QuickStat = ({ icon: Icon, label, value, color, highlight, animate }: any) => (
-  <div className={`bg-white dark:bg-slate-900 p-8 rounded-4xl border shadow-sm flex items-center gap-6 transition-all ${highlight ? 'border-amber-400 ring-4 ring-amber-500/5' : 'border-slate-100 dark:border-slate-800'}`}>
-    <div className={`w-14 h-14 ${color} text-white rounded-2xl flex items-center justify-center shadow-lg ${animate ? 'animate-pulse' : ''}`}><Icon size={28}/></div>
-    <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p><p className="text-3xl font-black">{value}</p></div>
+  <div className={`sg-surface p-5 flex items-center gap-4 transition-all ${highlight ? 'border-amber-400 ring-4 ring-amber-500/5' : ''}`}>
+    <div className={`w-11 h-11 ${color} text-white rounded-xl flex items-center justify-center ${animate ? 'animate-pulse' : ''}`}><Icon size={22}/></div>
+    <div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">{label}</p><p className="text-2xl font-black text-slate-900 dark:text-white">{value}</p></div>
   </div>
 );
 
@@ -283,16 +283,16 @@ const TaskCard: React.FC<{ task: Client, type: 'emergency' | 'today', onManualLo
   return (
     <div 
       onClick={() => navigate(`/clients/${task.id}`)}
-      className={`bg-white dark:bg-slate-900 rounded-[3rem] border-2 overflow-hidden group cursor-pointer hover:shadow-2xl transition-all active:scale-95 ${isEmergency ? 'border-rose-100 dark:border-rose-900/30 hover:shadow-rose-500/10' : 'border-emerald-100 dark:border-emerald-900/30 hover:shadow-emerald-500/10'}`}
+      className={`sg-surface overflow-hidden group cursor-pointer transition-all active:scale-[0.99] ${isEmergency ? 'border-rose-100 dark:border-rose-900/30' : 'border-emerald-100 dark:border-emerald-900/30'}`}
     >
        <div className="flex flex-col">
-          <div className={`${isEmergency ? 'bg-rose-500' : 'bg-emerald-500'} p-8 text-white text-center relative overflow-hidden`}>
+          <div className={`${isEmergency ? 'bg-rose-500' : 'bg-emerald-500'} p-6 text-white text-center relative overflow-hidden`}>
             <div className="absolute top-0 right-0 p-4 opacity-20"><Clock4 size={64}/></div>
-            <p className="text-[10px] font-black uppercase opacity-80 mb-2 tracking-widest flex items-center justify-center gap-2">
+            <p className="text-[10px] font-black uppercase opacity-85 mb-2 flex items-center justify-center gap-2">
               {isEmergency ? <><Timer size={14} className="animate-spin-slow"/> تجاوز الموعد منذ</> : <><Calendar size={14}/> موعد التواصل اليوم</>}
             </p>
             <div className="flex items-baseline justify-center gap-2">
-              <span className="text-5xl font-black tracking-tighter">{hours}:{minutes}</span>
+              <span className="text-4xl font-black">{hours}:{minutes}</span>
               <span className="text-sm font-black">{period}</span>
             </div>
             <div className="mt-4 pt-3 border-t border-white/20">
@@ -300,10 +300,10 @@ const TaskCard: React.FC<{ task: Client, type: 'emergency' | 'today', onManualLo
             </div>
           </div>
 
-          <div className="p-8 space-y-4">
+          <div className="p-5 space-y-4">
             <div className="text-center">
-              <h3 className="text-xl font-black text-slate-900 dark:text-white truncate">{task.name}</h3>
-              <p className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-widest">{task.serviceName}</p>
+              <h3 className="text-lg font-black text-slate-900 dark:text-white truncate">{task.name}</h3>
+              <p className="text-[10px] font-black text-slate-400 mt-1 uppercase">{task.serviceName}</p>
             </div>
             <div className="flex justify-between items-center pt-4 border-t border-slate-50 dark:border-slate-800">
                <div className="flex items-center gap-2">
@@ -316,12 +316,12 @@ const TaskCard: React.FC<{ task: Client, type: 'emergency' | 'today', onManualLo
                      e.stopPropagation();
                      onManualLog();
                    }}
-                   className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl hover:bg-primary-500 hover:text-white transition-all shadow-lg shadow-slate-500/5"
+                   className="sg-icon-btn bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-primary-500 hover:text-white"
                    title="تم التواصل مسبقاً"
                  >
                    <History size={18} />
                  </button>
-                 <div className={`p-3 rounded-2xl transition-all shadow-lg ${isEmergency ? 'bg-rose-50 text-rose-500 group-hover:bg-rose-500 group-hover:text-white shadow-rose-500/10' : 'bg-emerald-50 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white shadow-emerald-500/10'}`}>
+                 <div className={`sg-icon-btn ${isEmergency ? 'bg-rose-50 text-rose-500 group-hover:bg-rose-500 group-hover:text-white' : 'bg-emerald-50 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white'}`}>
                    <PhoneCall size={18} />
                  </div>
                </div>
@@ -333,7 +333,7 @@ const TaskCard: React.FC<{ task: Client, type: 'emergency' | 'today', onManualLo
 };
 
 const TabBtn = ({ active, onClick, label, count, icon: Icon, danger }: any) => (
-  <button onClick={onClick} className={`flex items-center gap-2 px-6 py-4 rounded-2xl text-[10px] md:text-xs font-black transition-all shrink-0 ${active ? 'bg-primary-500 text-white shadow-xl shadow-primary-500/20' : (danger ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-500' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-slate-900 dark:hover:text-white')}`}>
+  <button onClick={onClick} className={`flex items-center gap-2 px-4 py-3 rounded-xl text-[10px] md:text-xs font-black transition-all shrink-0 ${active ? 'bg-primary-500 text-white shadow-xl shadow-primary-500/20' : (danger ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-500' : 'bg-slate-50 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white')}`}>
     <Icon size={16} />{label}{count !== undefined && <span className={`mr-2 px-2 py-0.5 rounded-full text-[10px] ${active ? 'bg-white text-primary-500' : (danger ? 'bg-rose-500 text-white' : 'bg-slate-200 text-slate-500')}`}>{count}</span>}
   </button>
 );

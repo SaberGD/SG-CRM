@@ -205,8 +205,8 @@ const Layout: React.FC = () => {
     <div className="min-h-screen flex flex-col lg:flex-row bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       <AlarmManager user={user} />
       
-      <header className="lg:hidden flex items-center justify-between p-4 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 sticky top-0 z-50">
-        <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-600 dark:text-slate-300">
+      <header className="lg:hidden flex items-center justify-between p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-100 dark:border-slate-800 sticky top-0 z-50">
+        <button onClick={() => setIsSidebarOpen(true)} className="sg-icon-btn text-slate-600 dark:text-slate-300">
           <Menu size={24} />
         </button>
         <div className="text-center">
@@ -217,7 +217,7 @@ const Layout: React.FC = () => {
         </div>
       </header>
 
-      <nav className="lg:hidden flex overflow-x-auto no-scrollbar bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 p-2 gap-2 sticky top-[65px] z-40">
+      <nav className="lg:hidden flex overflow-x-auto no-scrollbar bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-100 dark:border-slate-800 p-2 gap-2 sticky top-[65px] z-40">
         {navItems.map((item) => (
           <Link 
             key={item.path} 
@@ -240,29 +240,29 @@ const Layout: React.FC = () => {
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-[60] lg:hidden" onClick={() => setIsSidebarOpen(false)}></div>
       )}
 
-      <aside className={`fixed inset-y-0 right-0 z-[70] w-72 bg-white dark:bg-slate-900 border-l border-slate-100 dark:border-slate-800 transition-transform lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="flex flex-col h-full p-8 overflow-y-auto overscroll-contain">
-          <div className="flex justify-between items-center mb-12 text-right">
+      <aside className={`fixed inset-y-0 right-0 z-[70] w-72 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-l border-slate-100 dark:border-slate-800 transition-transform lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="flex flex-col h-full p-6 overflow-y-auto overscroll-contain">
+          <div className="flex justify-between items-center mb-8 text-right">
             <div>
               <h1 className="text-xl font-black text-slate-950 dark:text-white uppercase tracking-tighter">SABER GROUP</h1>
-              <p className="text-primary-500 font-black text-[10px] uppercase tracking-widest mt-1">CRM SYSTEM</p>
+              <p className="text-primary-500 font-black text-[10px] uppercase mt-1">CRM SYSTEM</p>
             </div>
-            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 text-slate-400">
+            <button onClick={() => setIsSidebarOpen(false)} className="sg-icon-btn lg:hidden text-slate-400">
               <X size={20} />
             </button>
           </div>
 
           <nav className="flex-1 space-y-2">
             {navItems.map((item) => (
-              <Link key={item.path} to={item.path} className={`flex items-center px-4 py-4 text-sm font-black rounded-2xl transition-all ${location.pathname === item.path ? 'bg-primary-500 text-white shadow-xl shadow-primary-500/20' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+              <Link key={item.path} to={item.path} className={`flex items-center px-4 py-3 text-sm font-black rounded-xl transition-all ${location.pathname === item.path ? 'bg-primary-500 text-white shadow-xl shadow-primary-500/20' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                 <item.icon className="ml-3" size={20} /> {item.name}
               </Link>
             ))}
           </nav>
 
-          <div className="pt-8 space-y-4">
+          <div className="pt-6 space-y-3">
             {user?.role === UserRole.ADMIN && (
-              <div className="p-4 bg-amber-50 dark:bg-amber-500/10 rounded-3xl border border-amber-100 dark:border-amber-500/20">
+              <div className="p-4 bg-amber-50 dark:bg-amber-500/10 rounded-2xl border border-amber-100 dark:border-amber-500/20">
                 <div className="flex items-center gap-2 mb-3 text-amber-600">
                   <Eye size={16} /> <span className="text-[10px] font-black uppercase">عرض بصلاحية:</span>
                 </div>
@@ -275,11 +275,11 @@ const Layout: React.FC = () => {
                 </select>
               </div>
             )}
-            <button onClick={toggleTheme} className="flex items-center w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-2xl text-sm font-black text-slate-600 dark:text-slate-300">
+            <button onClick={toggleTheme} className="flex items-center w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-black text-slate-600 dark:text-slate-300">
               {isDark ? <Sun className="ml-3" size={18} /> : <Moon className="ml-3" size={18} />}
               {isDark ? 'الوضع النهاري' : 'الوضع الليلي'}
             </button>
-            <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-[2rem] border border-slate-100 dark:border-slate-700">
+            <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
               <div className="flex items-center mb-4">
                 <div className="w-10 h-10 bg-primary-500 rounded-2xl flex items-center justify-center text-white font-black">
                   {user?.name?.[0] || '?'}
@@ -298,7 +298,7 @@ const Layout: React.FC = () => {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-x-hidden p-4 lg:p-10">
+      <main className="flex-1 overflow-x-hidden p-4 lg:p-6 xl:p-8">
         <div className="max-w-7xl mx-auto">
           <Outlet />
         </div>

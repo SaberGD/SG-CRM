@@ -429,14 +429,14 @@ const ClientDetails: React.FC = () => {
   if (!client) return <div className="text-center py-40">العميل غير موجود</div>;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-20">
-      <header className="bg-white dark:bg-slate-900 p-8 rounded-[3.5rem] shadow-xl border border-slate-100 dark:border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6">
-        <div className="flex items-center gap-6">
-          <div className="w-20 h-20 bg-primary-500 text-white rounded-[2.5rem] flex items-center justify-center text-3xl font-black">{client.name[0]}</div>
+    <div className="sg-page max-w-6xl mx-auto space-y-6 animate-fade-in">
+      <header className="sg-surface p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-5">
+        <div className="flex items-center gap-5">
+          <div className="w-16 h-16 bg-primary-500 text-white rounded-2xl flex items-center justify-center text-2xl font-black">{client.name[0]}</div>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-black text-slate-900 dark:text-white">{client.name}</h1>
-              <button onClick={() => setIsEditModalOpen(true)} className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 hover:text-primary-500 transition-colors"><Edit2 size={16}/></button>
+              <h1 className="text-2xl font-black text-slate-900 dark:text-white">{client.name}</h1>
+              <button onClick={() => setIsEditModalOpen(true)} className="sg-icon-btn !w-9 !h-9 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-primary-500"><Edit2 size={16}/></button>
             </div>
             {client.position && (
               <p className="text-slate-400 font-bold text-xs mt-0.5">{client.position}</p>
@@ -476,34 +476,34 @@ const ClientDetails: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="flex gap-3">
+        <div className="sg-actions">
            {!isCommunicating && !showForm && (
             <>
-              <button onClick={() => handleStartCall()} className="bg-primary-500 text-white px-10 py-4 rounded-2xl font-black shadow-xl flex items-center gap-3 text-xs uppercase hover:bg-primary-600 transition-all">
+              <button onClick={() => handleStartCall()} className="sg-btn sg-btn-primary px-6">
                 <Play size={18} /> بدء المتابعة
               </button>
-              <button onClick={() => setIsScheduleModalOpen(true)} className="bg-amber-500 text-white px-6 py-4 rounded-2xl font-black shadow-xl flex items-center gap-3 text-xs uppercase hover:bg-amber-600 transition-all">
+              <button onClick={() => setIsScheduleModalOpen(true)} className="sg-btn sg-btn-warning">
                 <CalendarPlus size={18} /> جدولة موعد
               </button>
-              <button onClick={() => setIsManualModalOpen(true)} className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-6 py-4 rounded-2xl font-black shadow-sm flex items-center gap-3 text-xs uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-all border border-slate-200 dark:border-slate-700">
+              <button onClick={() => setIsManualModalOpen(true)} className="sg-btn sg-btn-secondary">
                 <HistoryIcon size={18} /> تم التواصل مسبقاً
               </button>
             </>
           )}
           {isCommunicating && (
-            <button onClick={() => { setIsCommunicating(false); setShowForm(true); }} className="bg-rose-500 text-white px-10 py-4 rounded-2xl font-black shadow-xl flex items-center gap-3 text-xs uppercase animate-pulse">
+            <button onClick={() => { setIsCommunicating(false); setShowForm(true); }} className="sg-btn sg-btn-danger px-6 animate-pulse">
               <Square size={18} /> إنهاء وتسجيل
             </button>
           )}
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-5">
-           <div className="w-14 h-14 bg-blue-50 dark:bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center"><Clock size={28}/></div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="sg-surface p-5 flex items-center gap-4">
+           <div className="w-11 h-11 bg-blue-50 dark:bg-blue-500/10 text-blue-500 rounded-xl flex items-center justify-center"><Clock size={22}/></div>
            <div><p className="text-[10px] font-black text-slate-400 uppercase">وقت التسجيل في النظام</p><p className="text-xs font-black text-slate-900 dark:text-white">{new Date(client.createdAt).toLocaleString('ar-EG')}</p></div>
         </div>
-        <div className={`p-8 rounded-[2.5rem] shadow-xl text-center flex flex-col items-center justify-center relative overflow-hidden ${client.nextFollowUpDate && client.nextFollowUpDate < Date.now() ? 'bg-rose-500 text-white' : 'bg-primary-500 text-white'}`}>
+        <div className={`p-5 rounded-2xl text-center flex flex-col items-center justify-center relative overflow-hidden ${client.nextFollowUpDate && client.nextFollowUpDate < Date.now() ? 'bg-rose-500 text-white' : 'bg-primary-500 text-white'}`}>
            <p className="text-[10px] font-black uppercase opacity-80 mb-2">الموعد المجدول القادم</p>
            <p className="text-xl font-black">{client.nextFollowUpDate ? new Date(client.nextFollowUpDate).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'غير محدد'}</p>
            {client.nextFollowUpDate && client.nextFollowUpMethod && (
@@ -518,23 +518,23 @@ const ClientDetails: React.FC = () => {
              </button>
            )}
         </div>
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-5">
-           <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 rounded-2xl flex items-center justify-center"><UserCheck size={28}/></div>
+        <div className="sg-surface p-5 flex items-center gap-4">
+           <div className="w-11 h-11 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 rounded-xl flex items-center justify-center"><UserCheck size={22}/></div>
            <div><p className="text-[10px] font-black text-slate-400 uppercase">الحالة الحالية</p><p className="text-xs font-black text-slate-900 dark:text-white">{StatusLabels[client.status].ar}</p></div>
         </div>
       </div>
 
       {/* AI Sales Assistant Card for this Client */}
-      <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-8 rounded-[3rem] text-white shadow-2xl border border-slate-800 space-y-6 relative overflow-hidden">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-6">
+      <div className="bg-slate-900 p-6 rounded-3xl text-white border border-slate-800 space-y-5 relative overflow-hidden">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-5">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-primary-500/20 text-primary-400 rounded-2xl flex items-center justify-center border border-primary-500/30 shrink-0">
               <Sparkles size={24} />
             </div>
             <div>
-              <h3 className="text-xl font-black flex items-center gap-2">
+              <h3 className="text-lg font-black flex items-center gap-2">
                 <span>اقتراحات مارو بالذكاء الاصطناعي (Maro AI)</span>
-                <Sparkles size={18} className="text-primary-400 animate-pulse" />
+                <Sparkles size={18} className="text-primary-400" />
               </h3>
               <p className="text-xs font-bold text-slate-400">تحليل تلقائي ذكي وسيناريو إقناع مخصص بناءً على سجل هذا العميل</p>
             </div>
@@ -543,10 +543,10 @@ const ClientDetails: React.FC = () => {
           <button
             onClick={handleRunAiAnalysis}
             disabled={isAnalyzingAi}
-            className="px-6 py-3 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white rounded-2xl font-black text-xs transition flex items-center gap-2 shadow-lg shadow-primary-500/20 disabled:opacity-50"
+            className="sg-btn sg-btn-ai disabled:opacity-50"
           >
             <RefreshCw size={14} className={isAnalyzingAi ? 'animate-spin' : ''} />
-            <span>{isAnalyzingAi ? 'جاري استخراج اقتراحات مارو...' : '✨ استخراج / تحديث اقتراحات مارو'}</span>
+            <span>{isAnalyzingAi ? 'جاري استخراج اقتراحات مارو...' : 'استخراج / تحديث اقتراحات مارو'}</span>
           </button>
         </div>
 
@@ -600,7 +600,7 @@ const ClientDetails: React.FC = () => {
 
             {client.aiRecommendation.salesTip && (
               <p className="text-xs font-bold text-amber-300 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">
-                💡 <strong>نصيحة ذهبية:</strong> {client.aiRecommendation.salesTip}
+                <strong>نصيحة ذهبية:</strong> {client.aiRecommendation.salesTip}
               </p>
             )}
 
@@ -613,7 +613,7 @@ const ClientDetails: React.FC = () => {
               ) : (
                 <button
                   onClick={handleApplyAiRecommendation}
-                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-2xl transition shadow-xl flex items-center justify-center gap-2"
+                  className="sg-btn sg-btn-success w-full"
                 >
                   <CheckCircle2 size={18} />
                   <span>اعتماد توصية مارو وتحويلها لمتابعة حقيقية في جدولك</span>
@@ -627,23 +627,23 @@ const ClientDetails: React.FC = () => {
             <button
               onClick={handleRunAiAnalysis}
               disabled={isAnalyzingAi}
-              className="px-6 py-3 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white rounded-2xl font-black text-xs transition flex items-center gap-2 mx-auto shadow-lg"
+              className="sg-btn sg-btn-ai mx-auto"
             >
               <Sparkles size={16} />
-              <span>{isAnalyzingAi ? 'جاري التحليل...' : '✨ استخراج اقتراحات مارو لتحليل العميل'}</span>
+              <span>{isAnalyzingAi ? 'جاري التحليل...' : 'استخراج اقتراحات مارو لتحليل العميل'}</span>
             </button>
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-        <div className="lg:col-span-2 space-y-6">
-          <h2 className="text-2xl font-black flex items-center gap-3"><History className="text-primary-500" /> التايم لاين (سجل التواصل)</h2>
-          <div className="relative border-r-2 border-slate-100 dark:border-slate-800 pr-8 space-y-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-4">
+          <h2 className="text-xl font-black flex items-center gap-3 text-slate-900 dark:text-white"><History className="text-primary-500" /> التايم لاين (سجل التواصل)</h2>
+          <div className="relative border-r-2 border-slate-100 dark:border-slate-800 pr-6 space-y-5">
             {unifiedTimeline.map((item: any) => (
               <div key={item.id} className="relative">
-                <div className={`absolute -right-[41px] top-1 w-5 h-5 rounded-full border-4 border-white dark:border-slate-950 ${item.type === 'followup' ? 'bg-primary-500' : 'bg-slate-300'}`}></div>
-                <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm">
+                <div className={`absolute -right-[33px] top-1 w-4 h-4 rounded-full border-4 border-white dark:border-slate-950 ${item.type === 'followup' ? 'bg-primary-500' : 'bg-slate-300'}`}></div>
+                <div className="sg-surface p-5">
                   <div className="flex justify-between items-start mb-3">
                     <span className="text-[10px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-full">{new Date(item.timestamp).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
                     <span className="text-[9px] font-black uppercase text-primary-500">{item.type === 'followup' ? 'متابعة سيلز' : 'تحديث نظام'}</span>
@@ -695,9 +695,9 @@ const ClientDetails: React.FC = () => {
           </div>
         </div>
 
-        <aside className="space-y-6">
+        <aside className="space-y-5">
           {client.isBooked && (
-            <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-slate-900 dark:to-amber-950/10 p-6 rounded-[2.5rem] border border-amber-200 dark:border-amber-500/10 shadow-sm space-y-4 animate-fade-in">
+            <div className="sg-surface p-5 border-amber-200 dark:border-amber-500/10 space-y-4 animate-fade-in">
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-black text-amber-800 dark:text-amber-400">تفاصيل الحجز الحالي</h4>
                 {client.isExternalTransfer && (
@@ -743,7 +743,7 @@ const ClientDetails: React.FC = () => {
                 </div>
                 <div className="flex justify-between items-center py-2 text-xs">
                   <span className="font-bold text-slate-500">المدفوع النهائي:</span>
-                  <span className="font-black text-emerald-600 dark:text-emerald-400">{client.paidAmount} ج.m</span>
+                  <span className="font-black text-emerald-600 dark:text-emerald-400">{client.paidAmount} ج.م</span>
                 </div>
                 <div className="flex justify-between items-center py-2 text-xs">
                   <span className="font-bold text-slate-500">المتبقي:</span>
@@ -756,7 +756,7 @@ const ClientDetails: React.FC = () => {
           )}
 
           {showForm ? (
-            <div className="bg-white dark:bg-slate-900 p-8 rounded-[3.5rem] shadow-2xl border-2 border-primary-500/30 sticky top-10 animate-fade-in">
+            <div className="sg-surface p-6 border-2 border-primary-500/30 sticky top-6 animate-fade-in">
               <h3 className="text-xl font-black mb-6 flex items-center gap-2"><LayoutList className="text-primary-500"/> توثيق المتابعة</h3>
               <form onSubmit={submitFollowUp} className="space-y-5">
                 <div className="space-y-1">

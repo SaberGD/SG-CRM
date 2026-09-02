@@ -811,127 +811,112 @@ const ClientsList: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 animate-fade-in pb-20">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="sg-page space-y-6 animate-fade-in">
+      <header className="sg-page-header">
         <div>
-          <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">قائمة <span className="text-primary-500">العملاء</span></h1>
-          <p className="text-slate-500 font-bold mt-1">إدارة بيانات المتقدمين والمتابعات (المحمل: {clients.length})</p>
+          <h1 className="sg-title">قائمة <span className="text-primary-500">العملاء</span></h1>
+          <p className="sg-subtitle">إدارة بيانات المتقدمين والمتابعات، المعروض حالياً: {clients.length}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button 
-            onClick={() => navigate('/ai-assistant')} 
-            className="bg-gradient-to-r from-primary-500 via-indigo-600 to-purple-600 text-white px-5 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:opacity-95 transition-all flex items-center gap-2"
-            title="فتح المساعد الذكي (مارو) وتحليل العملاء واقتراحات المتابعة"
-          >
-            <Sparkles size={18} className="text-amber-300 animate-pulse" /> اقتراحات مارو (AI)
+        <div className="sg-actions">
+          <button onClick={() => setIsAddModalOpen(true)} className="sg-btn sg-btn-primary">
+            <Plus size={18} /> إضافة عميل جديد
           </button>
 
           <button 
-            onClick={() => exportBookingsToExcel(clients)} 
-            className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-5 py-4 rounded-3xl font-black text-xs uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-all flex items-center gap-2"
-            title="تصدير الحجوزات الحالية إلى ملف Excel"
+            onClick={() => navigate('/ai-assistant')} 
+            className="sg-btn sg-btn-ai"
+            title="فتح المساعد الذكي (مارو) وتحليل العملاء واقتراحات المتابعة"
           >
-            <Download size={18} /> تصدير Excel
+            <Sparkles size={18} className="text-amber-300" /> اقتراحات مارو (AI)
           </button>
-          
+
           <button 
             onClick={() => setIsBulkImportOpen(true)} 
-            className="bg-emerald-600 text-white px-5 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-emerald-700 transition-all flex items-center gap-2"
+            className="sg-btn sg-btn-success"
           >
             <Upload size={18} /> استيراد جماعي
           </button>
 
-          {canDelete && (
-            <button 
-              onClick={handleBulkDelete}
-              disabled={selectedClientIds.length === 0 || isBulkDeleting}
-              className={`px-5 py-4 rounded-3xl font-black text-xs uppercase shadow-xl transition-all flex items-center gap-2 ${
-                selectedClientIds.length === 0 || isBulkDeleting
-                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-800'
-                  : 'bg-rose-600 text-white hover:bg-rose-700'
-              }`}
-              title="حذف العملاء المحددين نهائياً"
-            >
-              <Trash2 size={18} /> {isBulkDeleting ? 'جاري الحذف...' : selectedClientIds.length > 0 ? `حذف ${selectedClientIds.length}` : 'حذف جماعي'}
-            </button>
-          )}
-
           {canBulkTransfer && (
-            <button onClick={() => setIsBulkTransferOpen(true)} className="bg-amber-500 text-white px-5 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-amber-600 transition-all flex items-center gap-2">
+            <button onClick={() => setIsBulkTransferOpen(true)} className="sg-btn sg-btn-warning">
               <Layers size={18} /> تحويل جماعي
             </button>
           )}
 
-          <button onClick={() => setIsAddModalOpen(true)} className="bg-primary-500 text-white px-6 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-primary-600 transition-all flex items-center gap-2">
-            <Plus size={18} /> إضافة عميل جديد
+          <button 
+            onClick={() => exportBookingsToExcel(clients)} 
+            className="sg-btn sg-btn-secondary"
+            title="تصدير الحجوزات الحالية إلى ملف Excel"
+          >
+            <Download size={18} /> تصدير Excel
           </button>
         </div>
       </header>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 space-y-6">
+      <div className="sg-surface sg-filter-surface space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="relative">
               <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                 type="text" placeholder="بحث بالاسم أو الهاتف..." 
-                className="w-full pr-12 pl-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold text-sm dark:text-white"
+                className="sg-soft-control w-full pr-12 pl-4 py-3 outline-none font-bold text-sm dark:text-white"
                 value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}>
+            <select className="sg-soft-control px-5 py-3 font-black text-xs text-slate-600 outline-none dark:text-slate-300" value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}>
               <option value="createdAt">الأحدث تسجيلاً</option>
               <option value="lastChatwootContactAsc">الأقدم تواصل في Chatwoot</option>
             </select>
-            <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+            <select className="sg-soft-control px-5 py-3 font-black text-xs text-slate-600 outline-none dark:text-slate-300" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
               <option value="all">كل الحالات</option>
               {Object.entries(StatusLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
             </select>
-            <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterService} onChange={e => setFilterService(e.target.value)}>
+            <select className="sg-soft-control px-5 py-3 font-black text-xs text-slate-600 outline-none dark:text-slate-300" value={filterService} onChange={e => setFilterService(e.target.value)}>
               <option value="all">كل الخدمات المطلوبة</option>
               {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             {isHighRole && (
-               <select className="bg-slate-50 dark:bg-slate-800 px-6 py-4 rounded-2xl font-black text-xs text-slate-500 outline-none dark:text-slate-300" value={filterSalesAgent} onChange={e => setFilterSalesAgent(e.target.value)}>
+               <select className="sg-soft-control px-5 py-3 font-black text-xs text-slate-600 outline-none dark:text-slate-300" value={filterSalesAgent} onChange={e => setFilterSalesAgent(e.target.value)}>
                <option value="all">كل السيلز</option>
                {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
              </select>
             )}
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
               <option value="all">كل التصنيفات (Labels)</option>
               {allLabels.map(l => <option key={l.id} value={l.id}>{l.text}</option>)}
             </select>
             
-            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterBookedCourse} onChange={e => setFilterBookedCourse(e.target.value)}>
+            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterBookedCourse} onChange={e => setFilterBookedCourse(e.target.value)}>
               <option value="all">الكورس المحجوز</option>
               {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
 
-            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterLaptop} onChange={e => setFilterLaptop(e.target.value)}>
+            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterLaptop} onChange={e => setFilterLaptop(e.target.value)}>
               <option value="all">حالة اللابتوب</option>
               <option value={LaptopStatus.WITH}>مع لابتوب</option>
               <option value={LaptopStatus.WITHOUT}>بدون لابتوب</option>
               <option value={LaptopStatus.UNSPECIFIED}>لم يحدد</option>
             </select>
 
-            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterMode} onChange={e => setFilterMode(e.target.value)}>
+            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterMode} onChange={e => setFilterMode(e.target.value)}>
               <option value="all">نظام الحضور</option>
               <option value={AttendanceMode.ONLINE}>أونلاين</option>
               <option value={AttendanceMode.OFFLINE}>أوفلاين</option>
               <option value={AttendanceMode.UNSPECIFIED}>لم يحدد</option>
             </select>
 
-            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterGender} onChange={e => setFilterGender(e.target.value)}>
+            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterGender} onChange={e => setFilterGender(e.target.value)}>
               <option value="all">الجنس</option>
               <option value={Gender.MALE}>ذكر</option>
               <option value={Gender.FEMALE}>أنثى</option>
               <option value={Gender.UNSPECIFIED}>لم يحدد</option>
             </select>
 
-            <select className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-xl font-bold text-[10px] text-slate-500 outline-none dark:text-slate-300" value={filterTransferType} onChange={e => setFilterTransferType(e.target.value)}>
+            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterTransferType} onChange={e => setFilterTransferType(e.target.value)}>
               <option value="all">طرق الحجز والدفع</option>
               <option value="external">تحويل خارجي (خارج مصر)</option>
               <option value="local">دفع محلي (داخل مصر)</option>
@@ -940,7 +925,7 @@ const ClientsList: React.FC = () => {
       </div>
 
       {canDelete && (
-        <div className="bg-rose-50 dark:bg-rose-500/10 border border-rose-100 dark:border-rose-500/20 rounded-[2rem] px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="sg-danger-strip px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-lg">
               <Trash2 size={20} />
@@ -958,14 +943,14 @@ const ClientsList: React.FC = () => {
             <button
               onClick={toggleVisibleSelection}
               disabled={filteredClients.length === 0}
-              className="bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-200 px-5 py-3 rounded-2xl font-black text-[10px] uppercase border border-rose-100 dark:border-rose-500/20 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="sg-btn sg-btn-secondary text-[10px] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {allVisibleSelected ? 'إلغاء تحديد الظاهر' : 'تحديد كل الظاهر'}
             </button>
             <button
               onClick={handleBulkDelete}
               disabled={selectedClientIds.length === 0 || isBulkDeleting}
-              className={`px-6 py-3 rounded-2xl font-black text-[10px] uppercase shadow-lg transition-all flex items-center gap-2 ${
+              className={`sg-btn text-[10px] ${
                 selectedClientIds.length === 0 || isBulkDeleting
                   ? 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-800'
                   : 'bg-rose-600 text-white hover:bg-rose-700 active:scale-95'
@@ -979,10 +964,10 @@ const ClientsList: React.FC = () => {
       )}
 
       {/* Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+      <div className="sg-surface sg-table-shell">
         <div className="overflow-x-auto">
-          <table className="w-full text-right">
-            <thead className="bg-slate-50 dark:bg-slate-800/50">
+          <table className="sg-table w-full text-right">
+            <thead>
               <tr>
                 {canDelete && (
                   <th className="w-14 px-6 py-5 text-center">
@@ -990,7 +975,7 @@ const ClientsList: React.FC = () => {
                       type="checkbox"
                       checked={allVisibleSelected}
                       onChange={toggleVisibleSelection}
-                      className="w-4 h-4 accent-rose-600"
+                      className="w-5 h-5 accent-rose-600"
                       title="تحديد كل العملاء الظاهرين"
                     />
                   </th>
@@ -1016,14 +1001,14 @@ const ClientsList: React.FC = () => {
               {filteredClients.length === 0 ? (
                 <tr><td colSpan={canDelete ? 6 : 5} className="py-20 text-center text-slate-400 font-bold italic">لا يوجد عملاء حالياً</td></tr>
               ) : filteredClients.map((client) => (
-                <tr key={client.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-all ${selectedClientSet.has(client.id) ? 'bg-rose-50/60 dark:bg-rose-500/5' : ''}`}>
+                <tr key={client.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all ${selectedClientSet.has(client.id) ? 'bg-rose-50/60 dark:bg-rose-500/5' : ''}`}>
                   {canDelete && (
                     <td className="px-6 py-6 text-center">
                       <input
                         type="checkbox"
                         checked={selectedClientSet.has(client.id)}
                         onChange={() => toggleClientSelection(client.id)}
-                        className="w-4 h-4 accent-rose-600"
+                        className="w-5 h-5 accent-rose-600"
                         title={`تحديد ${client.name}`}
                       />
                     </td>
@@ -1090,13 +1075,13 @@ const ClientsList: React.FC = () => {
                   <td className="px-8 py-6 text-center text-[10px] text-slate-500 font-bold italic">{client.salesAgentName}</td>
                   <td className="px-8 py-6">
                     <div className="flex justify-center gap-2">
-                      <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="p-2.5 bg-emerald-50 text-emerald-500 rounded-xl hover:scale-110 transition-all dark:bg-emerald-500/10"><MessageCircle size={16} /></a>
-                      <a href={`tel:${client.phone}`} title="اتصال هاتفي" className="p-2.5 bg-blue-50 text-blue-500 rounded-xl hover:scale-110 transition-all dark:bg-blue-500/10"><Phone size={16} /></a>
-                      <button onClick={() => navigate(`/clients/${client.id}`)} title="عرض السجل والمتابعة" className="p-2.5 bg-primary-50 text-primary-500 rounded-xl hover:scale-110 transition-all dark:bg-primary-500/10"><History size={16} /></button>
+                      <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="sg-icon-btn bg-emerald-50 text-emerald-500 dark:bg-emerald-500/10"><MessageCircle size={16} /></a>
+                      <a href={`tel:${client.phone}`} title="اتصال هاتفي" className="sg-icon-btn bg-blue-50 text-blue-500 dark:bg-blue-500/10"><Phone size={16} /></a>
+                      <button onClick={() => navigate(`/clients/${client.id}`)} title="عرض السجل والمتابعة" className="sg-icon-btn bg-primary-50 text-primary-500 dark:bg-primary-500/10"><History size={16} /></button>
                       <button 
                         onClick={() => navigate(`/clients/${client.id}`)} 
                         title={client.aiRecommendation ? "عرض اقتراحات مارو (AI)" : "استخراج اقتراحات مارو (AI)"} 
-                        className={`p-2.5 rounded-xl hover:scale-110 transition-all ${
+                        className={`sg-icon-btn ${
                           client.aiRecommendation 
                             ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 shadow-sm' 
                             : 'bg-slate-100 text-slate-400 hover:text-indigo-600 dark:bg-slate-800 dark:text-slate-500'
@@ -1105,7 +1090,7 @@ const ClientsList: React.FC = () => {
                         <Sparkles size={16} className={client.aiRecommendation ? 'text-amber-500' : ''} />
                       </button>
                       {isHighRole && (
-                        <button onClick={() => { setSelectedClient(client); setIsTransferModalOpen(true); }} title="تحويل العميل لموظف آخر" className="p-2.5 bg-amber-50 text-amber-500 rounded-xl hover:scale-110 transition-all dark:bg-amber-500/10"><ArrowRightLeft size={16} /></button>
+                        <button onClick={() => { setSelectedClient(client); setIsTransferModalOpen(true); }} title="تحويل العميل لموظف آخر" className="sg-icon-btn bg-amber-50 text-amber-500 dark:bg-amber-500/10"><ArrowRightLeft size={16} /></button>
                       )}
                       {canDelete && (
                         <button onClick={async () => { 
@@ -1126,7 +1111,7 @@ const ClientsList: React.FC = () => {
                           } else if (confirmation !== null) {
                             alert("كلمة التأكيد غير صحيحة، لم يتم الحذف.");
                           }
-                        }} title="حذف العميل" className="p-2.5 bg-rose-50 text-rose-500 rounded-xl hover:scale-110 transition-all dark:bg-rose-500/10"><Trash2 size={16} /></button>
+                        }} title="حذف العميل" className="sg-icon-btn bg-rose-50 text-rose-500 dark:bg-rose-500/10"><Trash2 size={16} /></button>
                       )}
                     </div>
                   </td>
@@ -1158,7 +1143,7 @@ const ClientsList: React.FC = () => {
       >
         <form onSubmit={handleAddClient} className="space-y-6">
           {isHighRole && (
-            <div className="space-y-1.5 p-4 bg-primary-500/5 dark:bg-primary-500/10 rounded-2xl border border-primary-500/20">
+            <div className="sg-form-section space-y-1.5 border-primary-500/20 bg-primary-500/5 dark:bg-primary-500/10">
               <label className="text-[10px] font-black text-primary-600 dark:text-primary-400 uppercase mr-2 flex items-center gap-1">
                 <User size={14} />
                 <span>السيلز / الموظف المسؤول عن العميل (اختياري)</span>
@@ -1332,7 +1317,7 @@ const ClientsList: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-6 bg-blue-50 dark:bg-blue-500/5 rounded-[2rem] border border-blue-100 dark:border-blue-500/20 space-y-4">
+          <div className="sg-form-section space-y-4 border-blue-100 bg-blue-50 dark:bg-blue-500/5 dark:border-blue-500/20">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-black uppercase text-blue-600 dark:text-blue-400">آخر متابعة مع العميل</h3>
               <div className="flex items-center gap-2">
@@ -1382,7 +1367,7 @@ const ClientsList: React.FC = () => {
             )}
           </div>
 
-          <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-[2rem] space-y-4">
+          <div className="sg-form-section space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-black uppercase text-slate-400">جدولة أول متابعة</h3>
               <div className="flex items-center gap-2">
@@ -1417,7 +1402,7 @@ const ClientsList: React.FC = () => {
             )}
           </div>
 
-          <div className="p-6 bg-amber-50 dark:bg-amber-500/5 rounded-[2rem] border border-amber-200 dark:border-amber-500/20 space-y-4">
+          <div className="sg-form-section space-y-4 border-amber-200 bg-amber-50 dark:bg-amber-500/5 dark:border-amber-500/20">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-black uppercase text-amber-600">تسجيل حجز فوري</h3>
               <div className="flex items-center gap-2">
@@ -1595,7 +1580,7 @@ const ClientsList: React.FC = () => {
           <button 
             type="submit" 
             disabled={isSubmitting}
-            className={`w-full py-5 rounded-3xl font-black shadow-xl transition-all uppercase text-xs ${isSubmitting ? 'bg-slate-400 cursor-not-allowed' : 'bg-primary-500 hover:bg-primary-600 text-white'}`}
+            className={`sg-btn w-full py-5 ${isSubmitting ? 'bg-slate-400 cursor-not-allowed text-white' : 'sg-btn-primary'}`}
           >
             {isSubmitting ? 'جاري التسجيل...' : 'إضافة العميل وتوثيق وقت التسجيل'}
           </button>

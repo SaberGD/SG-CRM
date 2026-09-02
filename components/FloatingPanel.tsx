@@ -30,7 +30,7 @@ const FloatingPanel: React.FC<FloatingPanelProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-slate-950/20 backdrop-blur-[2px] z-[100]"
+            className="fixed inset-0 bg-slate-950/40 backdrop-blur-[2px] z-[100]"
           />
           
           {/* Panel - Floating from the right, not centered */}
@@ -38,32 +38,32 @@ const FloatingPanel: React.FC<FloatingPanelProps> = ({
             initial={{ x: '100%', opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: '100%', opacity: 0 }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className={`fixed top-4 right-4 bottom-4 w-[calc(100%-2rem)] ${width} bg-white dark:bg-slate-900 shadow-[0_20px_50px_rgba(0,0,0,0.15)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.4)] rounded-[2.5rem] border border-slate-100 dark:border-slate-800 z-[101] flex flex-col overflow-hidden`}
+            transition={{ type: 'spring', damping: 32, stiffness: 320 }}
+            className={`fixed top-4 right-4 bottom-4 w-[calc(100%-2rem)] ${width} bg-white dark:bg-slate-900 shadow-[0_20px_50px_rgba(0,0,0,0.15)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.4)] rounded-3xl border border-slate-100 dark:border-slate-800 z-[101] flex flex-col overflow-hidden`}
           >
             {/* Header */}
-            <div className="p-6 sm:p-8 border-b border-slate-50 dark:border-slate-800 flex justify-between items-center shrink-0">
+            <div className="p-5 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center shrink-0">
                <div className="flex items-center gap-4">
                   {icon && (
-                    <div className="p-3 bg-primary-500/10 text-primary-500 rounded-2xl">
+                    <div className="p-3 bg-primary-500/10 text-primary-500 rounded-xl">
                       {icon}
                     </div>
                   )}
                   <div>
-                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">{title}</h2>
-                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-0.5">Saber Group CRM</p>
+                    <h2 className="text-lg font-black text-slate-900 dark:text-white uppercase">{title}</h2>
+                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mt-0.5">Saber Group CRM</p>
                   </div>
                </div>
                <button 
                 onClick={onClose} 
-                className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-all hover:rotate-90 text-slate-400 group"
+                className="sg-icon-btn hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 group"
                >
                   <X size={24} className="group-hover:text-slate-900 dark:group-hover:text-white transition-colors" />
                </button>
             </div>
 
             {/* Content Container - Independent Scroll */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 sm:p-8 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-5 sm:p-6 custom-scrollbar">
               <div className="max-w-3xl mx-auto">
                 {children}
               </div>

@@ -16,7 +16,8 @@ import { exportBookingsToExcel } from '../utils/exportClients';
 import { 
   Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2, 
   Phone, Calendar, MessageSquare, User, Laptop, Globe, Clock, X,
-  ExternalLink, Layers, AlertTriangle, Upload, Download, Sparkles
+  ExternalLink, Layers, AlertTriangle, Upload, Download, Sparkles,
+  SlidersHorizontal, ChevronDown
 } from 'lucide-react';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
@@ -67,6 +68,7 @@ const ClientsList: React.FC = () => {
   const [filterSalesAgent, setFilterSalesAgent] = useState<string>('all');
   const [filterTransferType, setFilterTransferType] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'createdAt' | 'lastChatwootContactAsc'>('createdAt');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -372,6 +374,15 @@ const ClientsList: React.FC = () => {
     [clients, selectedClientSet]
   );
   const allVisibleSelected = filteredClients.length > 0 && filteredClients.every(client => selectedClientSet.has(client.id));
+  const advancedFiltersCount = useMemo(() => (
+    [filterLabel, filterBookedCourse, filterLaptop, filterMode, filterGender, filterTransferType]
+      .filter(value => value !== 'all').length
+  ), [filterLabel, filterBookedCourse, filterLaptop, filterMode, filterGender, filterTransferType]);
+  const isAdvancedFiltersOpen = showAdvancedFilters;
+
+  useEffect(() => {
+    if (advancedFiltersCount > 0) setShowAdvancedFilters(true);
+  }, [advancedFiltersCount]);
 
   useEffect(() => {
     const visibleClientIds = new Set(filteredClients.map(client => client.id));
@@ -855,7 +866,7 @@ const ClientsList: React.FC = () => {
 
       {/* Filters */}
       <div className="sg-surface sg-filter-surface space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
             <div className="relative">
               <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
@@ -884,7 +895,29 @@ const ClientsList: React.FC = () => {
             )}
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setShowAdvancedFilters(prev => !prev)}
+              className="sg-btn sg-btn-secondary"
+              aria-expanded={isAdvancedFiltersOpen}
+            >
+              <SlidersHorizontal size={16} />
+              <span>فلاتر متقدمة</span>
+              {advancedFiltersCount > 0 && (
+                <span className="min-w-5 h-5 px-1.5 rounded-full bg-primary-500 text-white text-[10px] flex items-center justify-center">
+                  {advancedFiltersCount}
+                </span>
+              )}
+              <ChevronDown size={16} className={`transition-transform ${isAdvancedFiltersOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <p className="hidden md:block text-[10px] font-bold text-slate-400">
+              {isAdvancedFiltersOpen ? 'فلتر حسب التصنيف والحجز والمواصفات وطريقة الدفع' : 'الفلاتر الأساسية ظاهرة دائماً، والباقي هنا عند الحاجة'}
+            </p>
+          </div>
+
+          {isAdvancedFiltersOpen && (
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 animate-fade-in">
             <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
               <option value="all">كل التصنيفات (Labels)</option>
               {allLabels.map(l => <option key={l.id} value={l.id}>{l.text}</option>)}
@@ -922,6 +955,7 @@ const ClientsList: React.FC = () => {
               <option value="local">دفع محلي (داخل مصر)</option>
             </select>
           </div>
+          )}
       </div>
 
       {canDelete && (

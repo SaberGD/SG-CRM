@@ -165,7 +165,7 @@ const ClientDetails: React.FC = () => {
     name: '', position: '', phone: '', serviceName: '', serviceId: '', customServiceName: '', status: ClientStatus.INTERESTED,
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
     labels: [] as string[],
-    source: ClientSource.WHATSAPP, profileLink: '', chatId: ''
+    source: ClientSource.WHATSAPP, profileLink: '', chatId: '', notes: ''
   });
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
@@ -192,7 +192,8 @@ const ClientDetails: React.FC = () => {
           labels: data.labels || [],
           source: data.source || ClientSource.WHATSAPP,
           profileLink: data.profileLink || '',
-          chatId: data.chatId || ''
+          chatId: data.chatId || '',
+          notes: data.notes || ''
         });
         setStatus(data.status);
         setLabels(data.labels || []);
@@ -523,6 +524,18 @@ const ClientDetails: React.FC = () => {
            <div><p className="text-[10px] font-black text-slate-400 uppercase">الحالة الحالية</p><p className="text-xs font-black text-slate-900 dark:text-white">{StatusLabels[client.status].ar}</p></div>
         </div>
       </div>
+
+      {client.notes && (
+        <div className="sg-surface p-5 flex items-start gap-4">
+          <div className="w-11 h-11 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 rounded-xl flex items-center justify-center shrink-0">
+            <FileText size={22} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">ملاحظات العميل</p>
+            <p className="text-sm font-bold text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">{client.notes}</p>
+          </div>
+        </div>
+      )}
 
       {/* AI Sales Assistant Card for this Client */}
       <div className="bg-slate-900 p-6 rounded-3xl text-white border border-slate-800 space-y-5 relative overflow-hidden">
@@ -1085,6 +1098,19 @@ const ClientDetails: React.FC = () => {
                   <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-right" value={editClientData.name} onChange={e => setEditClientData({...editClientData, name: e.target.value})} placeholder="الاسم" />
                   <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-right mt-2" value={editClientData.position} onChange={e => setEditClientData({...editClientData, position: e.target.value})} placeholder="الصفة / الوظيفة (اختياري)" />
                </div>
+
+               <div className="space-y-1.5 text-right">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">حالة العميل</label>
+                  <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none text-slate-900 dark:text-white" value={editClientData.status} onChange={e => setEditClientData({...editClientData, status: e.target.value as ClientStatus})}>
+                    {(Object.entries(StatusLabels) as [ClientStatus, any][]).map(([k, v]) => (
+                      <option key={k} value={k}>{v.ar}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] font-bold text-slate-400 mr-2">
+                    تغيير الحالة هنا تحديث مباشر لبيانات العميل فقط، بدون تسجيل متابعة.
+                  </p>
+               </div>
+
                {canEditChatId && (
                  <div className="space-y-1.5 text-right">
                     <label className="text-[10px] font-black text-slate-400 uppercase mr-2">Chat ID (اختياري)</label>
@@ -1161,6 +1187,15 @@ const ClientDetails: React.FC = () => {
                     })}
                   </div>
                 </div>
+               <div className="space-y-1.5 text-right">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">ملاحظات العميل</label>
+                  <textarea
+                    className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white outline-none min-h-28 leading-relaxed"
+                    placeholder="اكتب أي ملاحظة عامة عن العميل بدون تسجيل متابعة..."
+                    value={editClientData.notes}
+                    onChange={e => setEditClientData({...editClientData, notes: e.target.value})}
+                  />
+               </div>
                <button onClick={handleUpdateClient} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all active:scale-[0.98]">حفظ التغييرات</button>
              </div>
       </FloatingPanel>

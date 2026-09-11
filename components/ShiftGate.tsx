@@ -9,17 +9,20 @@ import { Sparkles, CheckCircle2, Clock, PlayCircle, Eye, ArrowLeft, MessageSquar
 
 const ShiftGate: React.FC = () => {
   const { user } = useAuth();
-  const { shift, startShift } = useShift();
+  const { startShift, isGateOpen, dismissGate } = useShift();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<'welcome' | 'review'>('welcome');
-  const [peeked, setPeeked] = useState(false);
   const [pendingClients, setPendingClients] = useState<Client[]>([]);
   const [pendingFollowUpClients, setPendingFollowUpClients] = useState<Client[]>([]);
   const [todayFollowUps, setTodayFollowUps] = useState<Client[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [starting, setStarting] = useState(false);
   const [unackedReport, setUnackedReport] = useState<DailyReport | null>(null);
+
+  useEffect(() => {
+    if (isGateOpen) setStep('welcome');
+  }, [isGateOpen]);
 
   useEffect(() => {
     if (!user) return;
@@ -80,7 +83,7 @@ const ShiftGate: React.FC = () => {
     })();
   }, [user, step]);
 
-  if (!shift || shift.status !== 'reviewing' || peeked) return null;
+  if (!isGateOpen) return null;
 
   const handleStart = async () => {
     setStarting(true);
@@ -121,7 +124,7 @@ const ShiftGate: React.FC = () => {
                 <PlayCircle size={18} /> يلا نبدأ شغل!
               </button>
               <button
-                onClick={() => setPeeked(true)}
+                onClick={dismissGate}
                 className="sg-btn sg-btn-secondary py-4 justify-center text-sm"
               >
                 <Eye size={18} /> داخل ألقي نظرة سريعة

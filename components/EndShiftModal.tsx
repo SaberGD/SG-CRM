@@ -7,16 +7,11 @@ import { useShift } from '../ShiftContext';
 import { Client } from '../types';
 import { X, AlertTriangle, MessageCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
 
-interface Props {
-  isOpen: boolean;
-  onClose: () => void;
-}
-
 type Step = 'pending' | 'overdue' | 'whatsapp' | 'done';
 
-const EndShiftModal: React.FC<Props> = ({ isOpen, onClose }) => {
+const EndShiftModal: React.FC = () => {
   const { user } = useAuth();
-  const { endShift } = useShift();
+  const { endShift, isEndModalOpen: isOpen, closeEndModal: onClose } = useShift();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>('pending');

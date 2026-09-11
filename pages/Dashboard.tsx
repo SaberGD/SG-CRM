@@ -4,15 +4,17 @@ import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase
 import { db } from '../firebase';
 import { useAuth } from '../App';
 import { Client, User, UserRole, ClientStatus } from '../types';
-import { 
-  Users, Calendar, PhoneCall, Clock, CalendarDays, AlertTriangle, Filter, ArrowRightLeft, Timer, ChevronLeft, BellRing, Clock4, History, CheckCircle2
+import {
+  Users, Calendar, PhoneCall, Clock, CalendarDays, AlertTriangle, Filter, ArrowRightLeft, Timer, ChevronLeft, BellRing, Clock4, History, CheckCircle2, PlayCircle, Square, Coffee
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
+import { useShift } from '../ShiftContext';
 
 const Dashboard: React.FC = () => {
   const { user, effectiveRole } = useAuth();
   const navigate = useNavigate();
+  const { shift, isShiftApplicable, openGate, openEndModal, startBreak, endBreak } = useShift();
   const [stats, setStats] = useState({ total: 0, today: 0, upcoming: 0, overdue: 0, transfersToday: 0, booked: 0 });
   const [clients, setClients] = useState<Client[]>([]);
   const [salesAgents, setSalesAgents] = useState<User[]>([]);
@@ -154,6 +156,43 @@ const Dashboard: React.FC = () => {
           </div>
         )}
       </header>
+
+      {isShiftApplicable && shift && (
+        <div className={`sg-surface p-5 flex flex-wrap items-center justify-between gap-4 ${
+          shift.status === 'reviewing' ? 'bg-primary-50 dark:bg-primary-500/10 border border-primary-200 dark:border-primary-500/20'
+          : shift.status === 'on_break' ? 'bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20'
+          : 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20'
+        }`}>
+          <div>
+            <p className="text-[10px] font-black uppercase text-slate-400">حالة الشيفت</p>
+            <p className="font-black text-sm text-slate-900 dark:text-white">
+              {shift.status === 'reviewing' ? 'لسه ما بدأتش الشيفت النهاردة' : shift.status === 'on_break' ? 'انت في بريك دلوقتي' : shift.status === 'active' ? 'الشيفت شغال' : 'الشيفت خلص النهاردة'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {shift.status === 'reviewing' && (
+              <button onClick={openGate} className="sg-btn sg-btn-primary !py-2.5 !px-5 text-xs">
+                <PlayCircle size={16} /> ابدأ الشيفت
+              </button>
+            )}
+            {shift.status === 'active' && (
+              <>
+                <button onClick={startBreak} className="sg-btn sg-btn-secondary !py-2.5 !px-4 text-xs">
+                  <Coffee size={16} /> بريك
+                </button>
+                <button onClick={openEndModal} className="sg-btn sg-btn-danger !py-2.5 !px-4 text-xs">
+                  <Square size={16} /> إنهاء الشيفت
+                </button>
+              </>
+            )}
+            {shift.status === 'on_break' && (
+              <button onClick={endBreak} className="sg-btn sg-btn-warning !py-2.5 !px-4 text-xs">
+                <Coffee size={16} /> إنهاء البريك
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {emergencyTasks.length > 0 && (
         <section className="space-y-4">

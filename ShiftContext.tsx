@@ -20,6 +20,12 @@ interface ShiftContextType {
   startBreak: () => Promise<void>;
   endBreak: () => Promise<void>;
   endShift: () => Promise<Shift | null>;
+  isGateOpen: boolean;
+  openGate: () => void;
+  dismissGate: () => void;
+  isEndModalOpen: boolean;
+  openEndModal: () => void;
+  closeEndModal: () => void;
 }
 
 const ShiftContext = createContext<ShiftContextType>({
@@ -30,6 +36,12 @@ const ShiftContext = createContext<ShiftContextType>({
   startBreak: async () => {},
   endBreak: async () => {},
   endShift: async () => null,
+  isGateOpen: false,
+  openGate: () => {},
+  dismissGate: () => {},
+  isEndModalOpen: false,
+  openEndModal: () => {},
+  closeEndModal: () => {},
 });
 
 export const useShift = () => useContext(ShiftContext);
@@ -38,8 +50,11 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { user, effectiveRole } = useAuth();
   const [shift, setShift] = useState<Shift | null>(null);
   const [loading, setLoading] = useState(true);
+  const [gateDismissed, setGateDismissed] = useState(false);
+  const [isEndModalOpen, setIsEndModalOpen] = useState(false);
 
   const isShiftApplicable = effectiveRole === UserRole.SALES_AGENT;
+  const isGateOpen = !!shift && shift.status === 'reviewing' && !gateDismissed;
 
   useEffect(() => {
     if (!user || !isShiftApplicable) {
@@ -122,8 +137,16 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return { ...shift, status: 'ended' as const, endedAt: now };
   }, [shift]);
 
+  const openGate = useCallback(() => setGateDismissed(false), []);
+  const dismissGate = useCallback(() => setGateDismissed(true), []);
+  const openEndModal = useCallback(() => setIsEndModalOpen(true), []);
+  const closeEndModal = useCallback(() => setIsEndModalOpen(false), []);
+
   return (
-    <ShiftContext.Provider value={{ shift, loading, isShiftApplicable, startShift, startBreak, endBreak, endShift }}>
+    <ShiftContext.Provider value={{
+      shift, loading, isShiftApplicable, startShift, startBreak, endBreak, endShift,
+      isGateOpen, openGate, dismissGate, isEndModalOpen, openEndModal, closeEndModal,
+    }}>
       {children}
     </ShiftContext.Provider>
   );

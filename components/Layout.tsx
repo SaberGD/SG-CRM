@@ -11,6 +11,7 @@ import {
 import { UserRole, Client } from '../types';
 import ShiftGate from './ShiftGate';
 import ShiftWidget from './ShiftWidget';
+import EndShiftModal from './EndShiftModal';
 
 const AlarmManager: React.FC<{ user: any }> = ({ user }) => {
   const [activeAlarm, setActiveAlarm] = useState<Client | null>(null);
@@ -207,6 +208,7 @@ const Layout: React.FC = () => {
     <div className="min-h-screen flex flex-col lg:flex-row bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       <AlarmManager user={user} />
       <ShiftGate />
+      <EndShiftModal />
 
       <header className="lg:hidden flex items-center justify-between p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-100 dark:border-slate-800 sticky top-0 z-50">
         <button onClick={() => setIsSidebarOpen(true)} className="sg-icon-btn text-slate-600 dark:text-slate-300">

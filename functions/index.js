@@ -876,6 +876,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         if (shouldUpdateNextFollowUp) {
           updateData.nextFollowUpDate = nextFollowUpTs;
           updateData.nextFollowUpMethod = mappedMethod;
+          updateData.nextFollowUpSetVia = "ai_automation";
+          updateData.nextFollowUpReviewedBySales = false;
         }
       }
       if (phoneFull && !existingClient.phone) {
@@ -998,6 +1000,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     if (nextFollowUpTs) {
       newClientData.nextFollowUpDate = nextFollowUpTs;
       newClientData.nextFollowUpMethod = mappedMethod;
+      newClientData.nextFollowUpSetVia = "ai_automation";
+      newClientData.nextFollowUpReviewedBySales = false;
     }
 
     const batch = db.batch();

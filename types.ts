@@ -150,6 +150,10 @@ export interface Client {
   lastFollowUpDate?: number;
   nextFollowUpDate?: number;
   nextFollowUpMethod?: CommMethod;
+  nextFollowUpSetVia?: 'ai_automation' | 'manual';
+  nextFollowUpReviewedBySales?: boolean;
+  nextFollowUpReviewedByName?: string;
+  nextFollowUpReviewedAt?: number;
   notes?: string;
   preferredMethod?: CommMethod;
   country: string;
@@ -199,6 +203,11 @@ export interface FollowUp {
   scheduledTime: number;
   delayStatus: 'on_time' | 'acceptable' | 'large_delay';
   isEarly?: boolean;
+  isAutomated?: boolean;
+  chatwootConversationId?: string | null;
+  reviewedBySales?: boolean;
+  reviewedByName?: string;
+  reviewedAt?: number;
 }
 
 export interface ClientTransfer {

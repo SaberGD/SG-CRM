@@ -398,14 +398,53 @@ const ClientDetails: React.FC = () => {
   const handleScheduleFollowUp = async () => {
     if (!client || !user || !nextDate) return;
     const nextTs = calculateTimestamp(nextDate, nextTime, nextPeriod);
+    const wasAiSet = client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales;
     try {
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
         nextFollowUpDate: nextTs,
-        nextFollowUpMethod: nextFollowUpMethod
+        nextFollowUpMethod: nextFollowUpMethod,
+        ...(wasAiSet ? {
+          nextFollowUpReviewedBySales: true,
+          nextFollowUpReviewedByName: user.name,
+          nextFollowUpReviewedAt: Date.now(),
+        } : {}),
       });
-      await logActivity(user.uid, user.name, `جدولة متابعة جديدة: ${new Date(nextTs).toLocaleString()}`, client.id, client.name);
+      await logActivity(
+        user.uid, user.name,
+        wasAiSet
+          ? `تعديل موعد متابعة كان مُقترح من الأتمتة: ${new Date(nextTs).toLocaleString()}`
+          : `جدولة متابعة جديدة: ${new Date(nextTs).toLocaleString()}`,
+        client.id, client.name
+      );
       setIsScheduleModalOpen(false);
       setNextDate('');
+    } catch (err) { console.error(err); }
+  };
+
+  const handleConfirmAiFollowUp = async () => {
+    if (!client || !user) return;
+    try {
+      const reviewedAt = Date.now();
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+        nextFollowUpReviewedBySales: true,
+        nextFollowUpReviewedByName: user.name,
+        nextFollowUpReviewedAt: reviewedAt,
+      });
+      await logActivity(user.uid, user.name, `تأكيد صحة موعد متابعة مقترح من الأتمتة`, client.id, client.name);
+      setClient({ ...client, nextFollowUpReviewedBySales: true, nextFollowUpReviewedByName: user.name, nextFollowUpReviewedAt: reviewedAt });
+    } catch (err) { console.error(err); }
+  };
+
+  const handleMarkFollowUpReviewed = async (followUpId: string) => {
+    if (!user) return;
+    try {
+      const reviewedAt = Date.now();
+      await firestore.updateDoc(firestore.doc(db, 'followups', followUpId), {
+        reviewedBySales: true,
+        reviewedByName: user.name,
+        reviewedAt,
+      });
+      setFollowUps(prev => prev.map(f => f.id === followUpId ? { ...f, reviewedBySales: true, reviewedByName: user.name, reviewedAt } : f));
     } catch (err) { console.error(err); }
   };
 
@@ -543,14 +582,40 @@ const ClientDetails: React.FC = () => {
            <div className="w-11 h-11 bg-blue-50 dark:bg-blue-500/10 text-blue-500 rounded-xl flex items-center justify-center"><Clock size={22}/></div>
            <div><p className="text-[10px] font-black text-slate-400 uppercase">وقت التسجيل في النظام</p><p className="text-xs font-black text-slate-900 dark:text-white">{new Date(client.createdAt).toLocaleString('ar-EG')}</p></div>
         </div>
-        <div className={`p-5 rounded-2xl text-center flex flex-col items-center justify-center relative overflow-hidden ${client.nextFollowUpDate && client.nextFollowUpDate < Date.now() ? 'bg-rose-500 text-white' : 'bg-primary-500 text-white'}`}>
-           <p className="text-[10px] font-black uppercase opacity-80 mb-2">الموعد المجدول القادم</p>
+        <div className={`p-5 rounded-2xl text-center flex flex-col items-center justify-center relative overflow-hidden ${
+          client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales
+            ? 'bg-orange-500 text-white'
+            : client.nextFollowUpDate && client.nextFollowUpDate < Date.now() ? 'bg-rose-500 text-white' : 'bg-primary-500 text-white'
+        }`}>
+           <p className="text-[10px] font-black uppercase opacity-80 mb-2 flex items-center gap-1.5">
+             {client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales && <Sparkles size={11} />}
+             الموعد المجدول القادم
+             {client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales && ' (مُقترح من الأتمتة)'}
+           </p>
            <p className="text-xl font-black">{client.nextFollowUpDate ? new Date(client.nextFollowUpDate).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'غير محدد'}</p>
            {client.nextFollowUpDate && client.nextFollowUpMethod && (
              <p className="text-[10px] font-black mt-1 bg-white/20 px-3 py-1 rounded-full">{CommMethodLabels[client.nextFollowUpMethod].ar}</p>
            )}
+           {client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales ? (
+             <div className="mt-4 flex items-center gap-2">
+               <button
+                 onClick={() => setIsScheduleModalOpen(true)}
+                 className="bg-white/20 text-white px-3 py-2 rounded-xl text-[10px] font-black shadow-lg hover:bg-white/30 transition-all flex items-center gap-1"
+               >
+                 <Edit2 size={12} /> عدّل الموعد
+               </button>
+               <button
+                 onClick={handleConfirmAiFollowUp}
+                 className="bg-white text-orange-600 px-3 py-2 rounded-xl text-[10px] font-black shadow-lg hover:scale-105 transition-all flex items-center gap-1"
+               >
+                 <CheckCircle2 size={12} /> الموعد صح (Check)
+               </button>
+             </div>
+           ) : client.nextFollowUpSetVia === 'ai_automation' && client.nextFollowUpReviewedBySales && client.nextFollowUpReviewedByName ? (
+             <p className="text-[9px] font-bold mt-2 opacity-80">تمت المراجعة بواسطة {client.nextFollowUpReviewedByName}</p>
+           ) : null}
            {client.nextFollowUpDate && !isCommunicating && !showForm && (
-             <button 
+             <button
                onClick={() => handleStartCall('scheduled')}
                className="mt-4 bg-white text-primary-500 px-4 py-2 rounded-xl text-[10px] font-black shadow-lg hover:scale-105 transition-all"
              >
@@ -692,13 +757,18 @@ const ClientDetails: React.FC = () => {
         <div className="lg:col-span-2 space-y-4">
           <h2 className="text-xl font-black flex items-center gap-3 text-slate-900 dark:text-white"><History className="text-primary-500" /> التايم لاين (سجل التواصل)</h2>
           <div className="relative border-r-2 border-slate-100 dark:border-slate-800 pr-6 space-y-5">
-            {unifiedTimeline.map((item: any) => (
+            {unifiedTimeline.map((item: any) => {
+              const isUnreviewedAiFollowUp = item.type === 'followup' && item.isAutomated && !item.reviewedBySales;
+              return (
               <div key={item.id} className="relative">
-                <div className={`absolute -right-[33px] top-1 w-4 h-4 rounded-full border-4 border-white dark:border-slate-950 ${item.type === 'followup' ? 'bg-primary-500' : 'bg-slate-300'}`}></div>
-                <div className="sg-surface p-5">
+                <div className={`absolute -right-[33px] top-1 w-4 h-4 rounded-full border-4 border-white dark:border-slate-950 ${isUnreviewedAiFollowUp ? 'bg-orange-500' : item.type === 'followup' ? 'bg-primary-500' : 'bg-slate-300'}`}></div>
+                <div className={`sg-surface p-5 ${isUnreviewedAiFollowUp ? 'bg-orange-50/60 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20' : ''}`}>
                   <div className="flex justify-between items-start mb-3">
                     <span className="text-[10px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-full">{new Date(item.timestamp).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-                    <span className="text-[9px] font-black uppercase text-primary-500">{item.type === 'followup' ? 'متابعة سيلز' : 'تحديث نظام'}</span>
+                    <span className={`text-[9px] font-black uppercase flex items-center gap-1 ${isUnreviewedAiFollowUp ? 'text-orange-600 dark:text-orange-400' : 'text-primary-500'}`}>
+                      {isUnreviewedAiFollowUp && <Sparkles size={10} />}
+                      {item.type === 'followup' ? (item.isAutomated ? 'متابعة أتمتة' : 'متابعة سيلز') : 'تحديث نظام'}
+                    </span>
                   </div>
                   {item.type === 'followup' ? (
                     <div className="space-y-3">
@@ -713,6 +783,17 @@ const ClientDetails: React.FC = () => {
                        </div>
                        <p className="text-xs text-slate-500 dark:text-slate-400 font-bold leading-relaxed">النتيجة: {item.result}</p>
                        <p className="text-[11px] text-slate-400 italic">ملاحظات: {item.note}</p>
+                       {isUnreviewedAiFollowUp && (
+                         <button
+                           onClick={() => handleMarkFollowUpReviewed(item.id)}
+                           className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 transition-all"
+                         >
+                           <CheckCircle2 size={13} /> تأكيد صحة هذه المتابعة (Check)
+                         </button>
+                       )}
+                       {item.isAutomated && item.reviewedBySales && item.reviewedByName && (
+                         <p className="text-[9px] font-bold text-emerald-500 flex items-center gap-1"><CheckCircle2 size={11} /> تمت مراجعة هذه المتابعة بواسطة {item.reviewedByName}</p>
+                       )}
                     </div>
                   ) : item.type === 'transfer' ? (
                     <div className="space-y-2 p-4 bg-amber-50 dark:bg-amber-500/5 rounded-2xl border border-amber-100 dark:border-amber-500/10">
@@ -743,7 +824,8 @@ const ClientDetails: React.FC = () => {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

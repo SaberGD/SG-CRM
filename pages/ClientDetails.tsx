@@ -268,6 +268,15 @@ const ClientDetails: React.FC = () => {
     await logActivity(user.uid, user.name, appointmentId ? "بدء متابعة لموعد مجدول" : "بدء جلسة تواصل", client.id, client.name);
   };
 
+  const handleCancelCall = async () => {
+    if (!user || !client) return;
+    setIsCommunicating(false);
+    setShowForm(false);
+    setStartTime(null);
+    setActiveAppointmentId(null);
+    await logActivity(user.uid, user.name, "تراجع عن متابعة بدأت بالخطأ", client.id, client.name);
+  };
+
   const calculateTimestamp = (d: string, t: string, p: string) => {
     if (!d) return 0;
     const [h, m] = t.split(':').map(Number);
@@ -570,9 +579,14 @@ const ClientDetails: React.FC = () => {
             </>
           )}
           {isCommunicating && (
-            <button onClick={() => { setIsCommunicating(false); setShowForm(true); }} className="sg-btn sg-btn-danger px-6 animate-pulse">
-              <Square size={18} /> إنهاء وتسجيل
-            </button>
+            <>
+              <button onClick={() => { setIsCommunicating(false); setShowForm(true); }} className="sg-btn sg-btn-danger px-6 animate-pulse">
+                <Square size={18} /> إنهاء وتسجيل
+              </button>
+              <button onClick={handleCancelCall} className="sg-btn sg-btn-secondary px-5" title="لو اتضغطت بالغلط">
+                <X size={16} /> تراجع
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -1156,6 +1170,9 @@ const ClientDetails: React.FC = () => {
                 </div>
 
                 <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all active:scale-[0.98]">حفظ وإتمام المتابعة</button>
+                <button type="button" onClick={handleCancelCall} className="w-full py-3 text-slate-400 hover:text-rose-500 font-black text-xs transition-colors flex items-center justify-center gap-1.5">
+                  <X size={14} /> تراجع عن المتابعة دي (اتضغطت بالغلط)
+                </button>
               </form>
             </div>
           ) : (

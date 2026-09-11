@@ -261,9 +261,10 @@ const TaskCard: React.FC<{
   const period = d.getHours() >= 12 ? 'مساءً' : 'صباحاً';
 
   const timeStatusColor = isOverdue ? 'bg-rose-500 text-white shadow-rose-500/20' : (isToday ? 'bg-amber-500 text-white shadow-amber-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300');
+  const isUnreviewedAi = task.nextFollowUpSetVia === 'ai_automation' && !task.nextFollowUpReviewedBySales;
 
   return (
-    <div className={`bg-white dark:bg-slate-900 p-2 md:p-3 rounded-[3.5rem] border-2 transition-all hover:shadow-2xl flex flex-col md:flex-row items-stretch gap-2 ${isOverdue ? 'border-rose-200 dark:border-rose-900/40 shadow-rose-500/10' : 'border-slate-100 dark:border-slate-800'}`}>
+    <div className={`bg-white dark:bg-slate-900 p-2 md:p-3 rounded-[3.5rem] border-2 transition-all hover:shadow-2xl flex flex-col md:flex-row items-stretch gap-2 ${isUnreviewedAi ? 'border-orange-300 dark:border-orange-500/40 shadow-orange-500/10' : isOverdue ? 'border-rose-200 dark:border-rose-900/40 shadow-rose-500/10' : 'border-slate-100 dark:border-slate-800'}`}>
       
       {/* Time Block Section */}
       <div className={`flex flex-col items-center justify-center p-6 md:p-8 rounded-[3rem] md:w-60 shrink-0 shadow-lg ${timeStatusColor}`}>
@@ -294,6 +295,14 @@ const TaskCard: React.FC<{
               <h3 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white leading-none">{task.name}</h3>
               {isOverdue && <span className="w-3.5 h-3.5 bg-rose-500 rounded-full animate-ping shrink-0 shadow-lg shadow-rose-500/50"></span>}
             </div>
+            {isUnreviewedAi && (
+              <button
+                onClick={onContact}
+                className="mt-2 bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 text-[9px] font-black px-3 py-1.5 rounded-full border border-orange-200 dark:border-orange-500/20 flex items-center gap-1.5 hover:bg-orange-200 dark:hover:bg-orange-500/20 transition-all mx-auto md:mx-0"
+              >
+                <Clock4 size={10} /> موعد مقترح من الأتمتة — بانتظار تأكيدك أو تعديله
+              </button>
+            )}
           </div>
 
           {/* Details Grid */}

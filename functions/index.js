@@ -548,6 +548,14 @@ function shouldReprocessSameConversation(body, existingClient, lastChatwootConta
   return Boolean(hasNewerChatwootContact || canAddMissingPhone || canAddMissingName || hasExplicitNextFollowUp);
 }
 
+function calculateFollowUpDelayStatus(startTime, scheduledTime) {
+  if (!scheduledTime || scheduledTime <= 0) return "on_time";
+  const delayMins = (startTime - scheduledTime) / (1000 * 60);
+  if (delayMins > 15) return "large_delay";
+  if (delayMins > 5) return "acceptable";
+  return "on_time";
+}
+
 let cachedDefaultAgent = null;
 let cachedDefaultAgentAt = 0;
 async function getDefaultAutomationAgent() {
@@ -784,6 +792,9 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     const parsed = new Date(body.next_followup_date).getTime();
     if (!Number.isNaN(parsed)) nextFollowUpTs = parsed;
   }
+  const followUpStartTime = lastChatwootContactAt || automationNow;
+  const followUpDurationSeconds = 5 * 60;
+  const followUpEndTime = followUpStartTime + (followUpDurationSeconds * 1000);
 
   try {
     let sameConversationClientDoc = null;
@@ -846,7 +857,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       const batch = db.batch();
 
       const updateData = {
-        lastFollowUpDate: automationNow,
+        lastFollowUpDate: followUpStartTime,
       };
 
       if (existingClient.status !== "not_interested") {
@@ -893,6 +904,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       batch.update(existingDoc.ref, updateData);
 
       const followUpRef = db.collection("followups").doc();
+      const scheduledTime = existingClient.nextFollowUpDate || 0;
       batch.set(followUpRef, {
         clientId: existingDoc.id,
         clientName: updateData.name || existingClient.name || "عميل",
@@ -903,14 +915,24 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         salesBrief: body.sales_brief || "",
         method: mappedMethod,
         timestamp: automationNow,
-        startTime: automationNow,
-        endTime: automationNow,
-        duration: 0,
-        scheduledTime: updateData.nextFollowUpDate || existingClient.nextFollowUpDate || 0,
-        delayStatus: "on_time",
+        startTime: followUpStartTime,
+        endTime: followUpEndTime,
+        duration: followUpDurationSeconds,
+        scheduledTime,
+        delayStatus: calculateFollowUpDelayStatus(followUpStartTime, scheduledTime),
         appointmentId: null,
         isAutomated: true,
         chatwootConversationId: body.chatwoot_conversation_id || null,
+      });
+
+      const logRef = db.collection("logs").doc();
+      batch.set(logRef, {
+        userId: resolvedAgent.id,
+        userName: `${resolvedAgent.name} (تحليل تلقائي)`,
+        action: `تسجيل متابعة خارجية تلقائية: ${body.sales_brief || "محادثة Chatwoot"}`,
+        targetId: existingDoc.id,
+        targetName: updateData.name || existingClient.name || "عميل",
+        timestamp: automationNow,
       });
 
       if (processingClaim?.ref) {
@@ -954,6 +976,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       salesAgentId: resolvedAgent.id,
       salesAgentName: resolvedAgent.name,
       createdAt: automationNow,
+      lastFollowUpDate: followUpStartTime,
       country: "مصر",
       countryCode: body.country_code || "+20",
       source: mappedSource,
@@ -989,9 +1012,9 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       salesBrief: body.sales_brief || "",
       method: mappedMethod,
       timestamp: automationNow,
-      startTime: automationNow,
-      endTime: automationNow,
-      duration: 0,
+      startTime: followUpStartTime,
+      endTime: followUpEndTime,
+      duration: followUpDurationSeconds,
       scheduledTime: 0,
       delayStatus: "on_time",
       appointmentId: null,

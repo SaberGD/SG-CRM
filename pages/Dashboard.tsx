@@ -14,7 +14,7 @@ import { useShift } from '../ShiftContext';
 const Dashboard: React.FC = () => {
   const { user, effectiveRole } = useAuth();
   const navigate = useNavigate();
-  const { shift, isShiftApplicable, openGate, openEndModal, startBreak, endBreak } = useShift();
+  const { shift, isShiftApplicable, openGate, openEndModal, startBreak, endBreak, startNewShift } = useShift();
   const [stats, setStats] = useState({ total: 0, today: 0, upcoming: 0, overdue: 0, transfersToday: 0, booked: 0 });
   const [clients, setClients] = useState<Client[]>([]);
   const [salesAgents, setSalesAgents] = useState<User[]>([]);
@@ -188,6 +188,11 @@ const Dashboard: React.FC = () => {
             {shift.status === 'on_break' && (
               <button onClick={endBreak} className="sg-btn sg-btn-warning !py-2.5 !px-4 text-xs">
                 <Coffee size={16} /> إنهاء البريك
+              </button>
+            )}
+            {shift.status === 'ended' && (
+              <button onClick={startNewShift} className="sg-btn sg-btn-primary !py-2.5 !px-5 text-xs">
+                <PlayCircle size={16} /> ابدأ شيفت جديد
               </button>
             )}
           </div>

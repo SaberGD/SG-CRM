@@ -20,6 +20,7 @@ interface ShiftContextType {
   startBreak: () => Promise<void>;
   endBreak: () => Promise<void>;
   endShift: () => Promise<Shift | null>;
+  startNewShift: () => Promise<void>;
   isGateOpen: boolean;
   openGate: () => void;
   dismissGate: () => void;
@@ -36,6 +37,7 @@ const ShiftContext = createContext<ShiftContextType>({
   startBreak: async () => {},
   endBreak: async () => {},
   endShift: async () => null,
+  startNewShift: async () => {},
   isGateOpen: false,
   openGate: () => {},
   dismissGate: () => {},
@@ -45,6 +47,21 @@ const ShiftContext = createContext<ShiftContextType>({
 });
 
 export const useShift = () => useContext(ShiftContext);
+
+async function createFreshShift(userId: string, userName: string) {
+  const now = Date.now();
+  const newShift: Omit<Shift, 'id'> = {
+    userId,
+    userName,
+    date: todayDateStr(),
+    createdAt: now,
+    status: 'reviewing',
+    preShiftReviewStartedAt: now,
+    breaks: [],
+  };
+  const ref = await firestore.addDoc(firestore.collection(db, 'shifts'), newShift);
+  return ref.id;
+}
 
 export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, effectiveRole } = useAuth();
@@ -62,26 +79,26 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setLoading(false);
       return;
     }
-    const shiftId = `${user.uid}_${todayDateStr()}`;
-    const ref = firestore.doc(db, 'shifts', shiftId);
 
     let unsub: (() => void) | undefined;
     (async () => {
-      const snap = await firestore.getDoc(ref);
-      if (!snap.exists()) {
-        const newShift: Omit<Shift, 'id'> = {
-          userId: user.uid,
-          userName: user.name,
-          date: todayDateStr(),
-          status: 'reviewing',
-          preShiftReviewStartedAt: Date.now(),
-          breaks: [],
-        };
-        await firestore.setDoc(ref, newShift);
+      const q = firestore.query(
+        firestore.collection(db, 'shifts'),
+        firestore.where('userId', '==', user.uid),
+        firestore.where('date', '==', todayDateStr()),
+        firestore.orderBy('createdAt', 'desc'),
+        firestore.limit(1)
+      );
+      const snap = await firestore.getDocs(q);
+      if (snap.empty) {
+        await createFreshShift(user.uid, user.name);
       }
-      unsub = firestore.onSnapshot(ref, (s) => {
-        if (s.exists()) {
-          setShift({ id: s.id, ...s.data() } as Shift);
+      unsub = firestore.onSnapshot(q, (s) => {
+        if (!s.empty) {
+          const d = s.docs[0];
+          setShift({ id: d.id, ...d.data() } as Shift);
+        } else {
+          setShift(null);
         }
         setLoading(false);
       });
@@ -137,6 +154,12 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return { ...shift, status: 'ended' as const, endedAt: now };
   }, [shift]);
 
+  const startNewShift = useCallback(async () => {
+    if (!user) return;
+    setGateDismissed(false);
+    await createFreshShift(user.uid, user.name);
+  }, [user]);
+
   const openGate = useCallback(() => setGateDismissed(false), []);
   const dismissGate = useCallback(() => setGateDismissed(true), []);
   const openEndModal = useCallback(() => setIsEndModalOpen(true), []);
@@ -144,7 +167,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   return (
     <ShiftContext.Provider value={{
-      shift, loading, isShiftApplicable, startShift, startBreak, endBreak, endShift,
+      shift, loading, isShiftApplicable, startShift, startBreak, endBreak, endShift, startNewShift,
       isGateOpen, openGate, dismissGate, isEndModalOpen, openEndModal, closeEndModal,
     }}>
       {children}

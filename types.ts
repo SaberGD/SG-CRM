@@ -296,6 +296,7 @@ export interface Shift {
   userId: string;
   userName: string;
   date: string; // YYYY-MM-DD local
+  createdAt: number; // used to order same-day shifts
   status: 'reviewing' | 'active' | 'on_break' | 'ended';
   preShiftReviewStartedAt: number;
   startedAt?: number;
@@ -303,6 +304,8 @@ export interface Shift {
   breaks: ShiftBreakEntry[];
   endedAt?: number;
   reportId?: string;
+  resetByAdmin?: boolean;
+  resetByAdminName?: string;
 }
 
 export interface ReportEditLog {

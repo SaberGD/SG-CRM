@@ -3,10 +3,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 // Added missing import for useNavigate
 import { useNavigate } from 'react-router-dom';
 // Added limit to firebase/firestore imports
-import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy, getDocs, where, limit } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy, getDocs, addDoc, setDoc, where, limit } from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
-import { User, UserRole, Client, FollowUp, ActivityLog } from '../types';
+import { User, UserRole, Client, FollowUp, ActivityLog, Shift } from '../types';
 import { 
   ShieldCheck, UserCog, Mail, ShieldAlert, Trash2, Search, Edit3, 
   X, Check, Users, Calendar, BarChart, Phone, Eye, ArrowLeft,
@@ -32,6 +32,12 @@ const AdminPanel: React.FC = () => {
   const [userLogs, setUserLogs] = useState<ActivityLog[]>([]);
   
   const [editFormData, setEditFormData] = useState({ name: '', email: '', role: UserRole.SALES_AGENT });
+
+  // Shift Reset Modal States
+  const [isResetShiftModalOpen, setIsResetShiftModalOpen] = useState(false);
+  const [resettingUser, setResettingUser] = useState<User | null>(null);
+  const [resetStartAt, setResetStartAt] = useState('');
+  const [isResettingShift, setIsResettingShift] = useState(false);
 
   // Deactivation & Reassignment Modal States
   const [isDeactivateModalOpen, setIsDeactivateModalOpen] = useState(false);
@@ -137,6 +143,65 @@ const AdminPanel: React.FC = () => {
     } catch (err) {
       console.error(err);
       alert("حدث خطأ أثناء التحديث");
+    }
+  };
+
+  // Shift Reset (Admin corrects a mistaken start/end)
+  const handleOpenResetShiftModal = (u: User) => {
+    setResettingUser(u);
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    setResetStartAt(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`);
+    setIsResetShiftModalOpen(true);
+  };
+
+  const handleResetShift = async () => {
+    if (!resettingUser || !user || !resetStartAt || isResettingShift) return;
+    setIsResettingShift(true);
+    try {
+      const chosenTs = new Date(resetStartAt).getTime();
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+      const q = query(
+        collection(db, 'shifts'),
+        where('userId', '==', resettingUser.uid),
+        where('date', '==', todayStr),
+        orderBy('createdAt', 'desc'),
+        limit(1)
+      );
+      const snap = await getDocs(q);
+
+      const freshShift: Omit<Shift, 'id'> = {
+        userId: resettingUser.uid,
+        userName: resettingUser.name,
+        date: todayStr,
+        createdAt: Date.now(),
+        status: 'active',
+        preShiftReviewStartedAt: chosenTs,
+        preShiftReviewDurationMs: 0,
+        startedAt: chosenTs,
+        breaks: [],
+        resetByAdmin: true,
+        resetByAdminName: user.name,
+      };
+
+      if (!snap.empty) {
+        await setDoc(doc(db, 'shifts', snap.docs[0].id), freshShift);
+      } else {
+        await addDoc(collection(db, 'shifts'), freshShift);
+      }
+
+      await logActivity(user.uid, user.name, `Reset شيفت الموظف [${resettingUser.name}] ليبدأ الساعة ${new Date(chosenTs).toLocaleString('ar-EG')}`, resettingUser.uid, resettingUser.name);
+      alert(`تم Reset شيفت ${resettingUser.name} — هيبدأ من الساعة ${new Date(chosenTs).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}`);
+      setIsResetShiftModalOpen(false);
+      setResettingUser(null);
+    } catch (err) {
+      console.error(err);
+      alert("حدث خطأ أثناء عمل Reset للشيفت");
+    } finally {
+      setIsResettingShift(false);
     }
   };
 
@@ -556,6 +621,15 @@ const AdminPanel: React.FC = () => {
                           )
                         )}
 
+                        {u.role === UserRole.SALES_AGENT && !u.isDeactivated && (
+                          <button
+                            onClick={() => handleOpenResetShiftModal(u)}
+                            className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 rounded-xl hover:scale-105 transition-all"
+                            title="Reset لشيفت الموظف النهاردة"
+                          >
+                            <RefreshCw size={16} />
+                          </button>
+                        )}
                         <button onClick={() => handleViewDetails(u)} className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-xl hover:text-primary-500 transition-all" title="التفاصيل والنشاط"><Eye size={16} /></button>
                         <button onClick={() => handleEditClick(u)} className="p-2.5 bg-primary-50 text-primary-500 rounded-xl hover:scale-105 transition-all dark:bg-primary-500/10" title="تعديل الاسم أو الرتبة"><UserCog size={16} /></button>
                         {u.uid !== user?.uid && (
@@ -570,6 +644,50 @@ const AdminPanel: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* SHIFT RESET MODAL */}
+      {isResetShiftModalOpen && resettingUser && (
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-7 max-w-md w-full border border-slate-200 dark:border-slate-800 space-y-6 shadow-2xl relative">
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black">
+                  <RefreshCw size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">Reset شيفت الموظف</h3>
+                  <p className="text-xs font-bold text-slate-400">{resettingUser.name} — سيبدأ الشيفت من الوقت اللي تحدده</p>
+                </div>
+              </div>
+              <button onClick={() => setIsResetShiftModalOpen(false)} className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl hover:bg-slate-200 transition">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-2xl text-[11px] font-bold text-amber-700 dark:text-amber-400">
+              الـ Reset هيمسح أي شيفت شغال أو منتهي عنده النهاردة (بريكات، أوقات) ويبدأ شيفت جديد "شغال" من الوقت اللي تختاره — من غير ما يعدي على شاشة المراجعة.
+            </div>
+
+            <div className="space-y-1.5 text-right">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">وقت بداية الشيفت الجديد</label>
+              <input
+                type="datetime-local"
+                value={resetStartAt}
+                onChange={e => setResetStartAt(e.target.value)}
+                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-primary-500"
+              />
+            </div>
+
+            <button
+              onClick={handleResetShift}
+              disabled={isResettingShift || !resetStartAt}
+              className="w-full py-4 bg-indigo-500 hover:bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
+            >
+              <RefreshCw size={16} /> {isResettingShift ? 'جاري التنفيذ...' : 'تأكيد الـ Reset'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* DEACTIVATION & CLIENT REASSIGNMENT MODAL */}
       {isDeactivateModalOpen && deactivatingUser && (

@@ -176,6 +176,10 @@ export interface Client {
   aiRecommendation?: AiRecommendation;
   lastChatwootContactAt?: number;
   chatId?: string;
+  createdVia?: 'ai_automation' | 'manual';
+  reviewedBySales?: boolean;
+  reviewedByName?: string;
+  reviewedAt?: number;
 }
 
 export interface FollowUp {

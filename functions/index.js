@@ -983,6 +983,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       profileLink: body.profile_link ? String(body.profile_link).trim() : "",
       preferredMethod: mappedMethod,
       lastChatwootContactAt: lastChatwootContactAt || null,
+      createdVia: "ai_automation",
+      reviewedBySales: false,
       notes: [
         "🤖 تم إنشاء هذا العميل تلقائيًا من تحليل محادثة غير نشطة (Chatwoot).",
         body.sales_brief ? `الملخص: ${body.sales_brief}` : "",

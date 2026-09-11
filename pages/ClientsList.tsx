@@ -506,14 +506,16 @@ const ClientsList: React.FC = () => {
         }
       }
 
-      const dataToSave: any = { 
-        ...clientToSave, 
+      const dataToSave: any = {
+        ...clientToSave,
         phone: phoneFull,
         serviceName,
         nextFollowUpDate: nextTs,
-        salesAgentId: targetAgentId, 
-        salesAgentName: targetAgentName, 
-        createdAt: Date.now() 
+        salesAgentId: targetAgentId,
+        salesAgentName: targetAgentName,
+        createdAt: Date.now(),
+        createdVia: 'manual',
+        reviewedBySales: true,
       };
       
       if (nextTs) {
@@ -1034,8 +1036,10 @@ const ClientsList: React.FC = () => {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredClients.length === 0 ? (
                 <tr><td colSpan={canDelete ? 6 : 5} className="py-20 text-center text-slate-400 font-bold italic">لا يوجد عملاء حالياً</td></tr>
-              ) : filteredClients.map((client) => (
-                <tr key={client.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all ${selectedClientSet.has(client.id) ? 'bg-rose-50/60 dark:bg-rose-500/5' : ''}`}>
+              ) : filteredClients.map((client) => {
+                const isUnreviewedAi = client.createdVia === 'ai_automation' && !client.reviewedBySales;
+                return (
+                <tr key={client.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all ${selectedClientSet.has(client.id) ? 'bg-rose-50/60 dark:bg-rose-500/5' : isUnreviewedAi ? 'bg-orange-50/60 dark:bg-orange-500/10 border-r-2 border-orange-400' : ''}`}>
                   {canDelete && (
                     <td className="px-6 py-6 text-center">
                       <input
@@ -1057,7 +1061,16 @@ const ClientsList: React.FC = () => {
                       </div>
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <p onClick={() => navigate(`/clients/${client.id}`)} className="font-black text-sm text-slate-900 dark:text-white cursor-pointer hover:text-primary-500">{client.name}</p>
+                          <p onClick={() => navigate(`/clients/${client.id}`)} className={`font-black text-sm cursor-pointer hover:text-primary-500 ${isUnreviewedAi ? 'text-orange-600 dark:text-orange-400' : 'text-slate-900 dark:text-white'}`}>{client.name}</p>
+                          {isUnreviewedAi && (
+                            <span
+                              onClick={() => navigate(`/clients/${client.id}`)}
+                              title="عميل مسجّل تلقائيًا بواسطة الأتمتة، محتاج مراجعة سيلز"
+                              className="cursor-pointer bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 text-[8px] font-black px-1.5 py-0.5 rounded border border-orange-200 dark:border-orange-500/20 flex items-center gap-1"
+                            >
+                              <Sparkles size={9} /> AI - محتاج مراجعة
+                            </span>
+                          )}
                           {client.isExternalTransfer && (
                             <span className="bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[8px] font-black px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-500/10">
                               تحويل خارجي ({client.originalCurrency})
@@ -1150,7 +1163,8 @@ const ClientsList: React.FC = () => {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

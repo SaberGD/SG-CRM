@@ -426,11 +426,50 @@ const ClientDetails: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
+  const handleMarkReviewed = async () => {
+    if (!client || !user) return;
+    try {
+      const reviewedAt = Date.now();
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+        reviewedBySales: true,
+        reviewedByName: user.name,
+        reviewedAt,
+      });
+      await logActivity(user.uid, user.name, `مراجعة وتأكيد بيانات عميل مسجّل تلقائيًا`, client.id, client.name);
+      setClient({ ...client, reviewedBySales: true, reviewedByName: user.name, reviewedAt });
+    } catch (err) { console.error(err); }
+  };
+
   if (loading) return <div className="text-center py-40 animate-pulse font-black text-primary-500">جاري تحميل السجل...</div>;
   if (!client) return <div className="text-center py-40">العميل غير موجود</div>;
 
   return (
     <div className="sg-page max-w-6xl mx-auto space-y-6 animate-fade-in">
+      {client.createdVia === 'ai_automation' && !client.reviewedBySales && (
+        <div className="sg-surface p-5 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <Sparkles size={22} className="text-orange-500 shrink-0" />
+            <div>
+              <p className="font-black text-orange-700 dark:text-orange-400 text-sm">العميل ده مسجّل تلقائيًا بواسطة الأتمتة (AI) — محتاج مراجعة سيلز</p>
+              <p className="text-[11px] font-bold text-orange-600/80 dark:text-orange-400/70 mt-0.5">راجع الاسم، رقم الهاتف، رابط الحساب، ومنصة التواصل — عدّل لو محتاج، وبعدين أكّد إن البيانات صح.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => setIsEditModalOpen(true)} className="sg-btn sg-btn-secondary !py-3 !px-5 text-xs">
+              <Edit2 size={16} /> عدّل البيانات
+            </button>
+            <button onClick={handleMarkReviewed} className="sg-btn sg-btn-primary !py-3 !px-5 text-xs bg-orange-500 hover:bg-orange-600">
+              <CheckCircle2 size={16} /> تأكيد البيانات (Check)
+            </button>
+          </div>
+        </div>
+      )}
+      {client.createdVia === 'ai_automation' && client.reviewedBySales && client.reviewedByName && (
+        <p className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5 -mb-2">
+          <CheckCircle2 size={12} className="text-emerald-500" /> تمت مراجعة بيانات هذا العميل (المُسجّل تلقائيًا) بواسطة {client.reviewedByName}
+          {client.reviewedAt && ` - ${new Date(client.reviewedAt).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
+        </p>
+      )}
       <header className="sg-surface p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-5">
         <div className="flex items-center gap-5">
           <div className="w-16 h-16 bg-primary-500 text-white rounded-2xl flex items-center justify-center text-2xl font-black">{client.name[0]}</div>

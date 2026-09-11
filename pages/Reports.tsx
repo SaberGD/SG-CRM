@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../App';
+import { useShift } from '../ShiftContext';
 import { 
   DailyReport, Client, ClientStatus, UserRole, 
   FollowUp, Target, DefaultTarget, User, Label 
@@ -20,6 +21,7 @@ import { analyzeDailyReport } from '../geminiService';
 
 const Reports: React.FC = () => {
   const { user, effectiveRole } = useAuth();
+  const { shift } = useShift();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'my-report' | 'manager-dashboard'>('my-report');
   
@@ -309,17 +311,32 @@ const Reports: React.FC = () => {
       notes
     };
 
+    const shiftForToday = shift && shift.date === todayStr && shift.status === 'ended' && !shift.reportId ? shift : null;
+    if (shiftForToday) {
+      reportData.shiftId = shiftForToday.id;
+      reportData.shiftStartedAt = shiftForToday.startedAt;
+      reportData.shiftEndedAt = shiftForToday.endedAt;
+      reportData.preShiftReviewDurationMs = shiftForToday.preShiftReviewDurationMs;
+      reportData.breaks = shiftForToday.breaks;
+      if (shiftForToday.startedAt && shiftForToday.endedAt) {
+        const breaksMs = (shiftForToday.breaks || []).reduce((sum, b) => sum + (b.endedAt ? b.endedAt - b.startedAt : 0), 0);
+        reportData.totalWorkedMs = (shiftForToday.endedAt - shiftForToday.startedAt) - breaksMs;
+      }
+    }
+
     try {
       console.log("Attempting to submit report with data:", reportData);
       const aiAnalysis = await analyzeDailyReport(reportData as DailyReport);
       const finalData = { ...reportData, aiAnalysis };
-      
+
       if (existingReport) {
         await updateDoc(doc(db, 'reports', existingReport.id), finalData);
+        if (shiftForToday) await updateDoc(doc(db, 'shifts', shiftForToday.id), { reportId: existingReport.id });
       } else {
-        await addDoc(collection(db, 'reports'), finalData);
+        const newReportRef = await addDoc(collection(db, 'reports'), finalData);
+        if (shiftForToday) await updateDoc(doc(db, 'shifts', shiftForToday.id), { reportId: newReportRef.id });
       }
-      
+
       console.log("Report submitted successfully");
       await logActivity(user.uid, user.name, "إرسال تقرير يومي", "report", todayStr);
       alert("تم إرسال التقرير بنجاح");
@@ -856,7 +873,33 @@ const CheckItem = ({ label, checked, onChange }: { label: string, checked: boole
   </label>
 );
 
+function formatWorkedDuration(ms?: number): string {
+  if (!ms || ms <= 0) return '';
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h}س ${m}د`;
+}
+
 const ReportCard: React.FC<{ report: DailyReport, onEdit: () => void, onDelete?: () => void, isManager?: boolean }> = ({ report, onEdit, onDelete, isManager }) => {
+  const { user } = useAuth();
+  const [replyDraft, setReplyDraft] = useState(report.supervisorReply || '');
+  const [isSendingReply, setIsSendingReply] = useState(false);
+
+  const handleSendReply = async () => {
+    if (!user || !replyDraft.trim() || isSendingReply) return;
+    setIsSendingReply(true);
+    try {
+      await updateDoc(doc(db, 'reports', report.id), {
+        supervisorReply: replyDraft.trim(),
+        supervisorReplyBy: user.name,
+        supervisorReplyAt: Date.now(),
+        acknowledgedBySales: false,
+      });
+    } catch (err) { console.error(err); }
+    setIsSendingReply(false);
+  };
+
   const achievement = Math.round((
     (report.newClients / (report.targetNewClients || 1)) + 
     (report.booked / (report.targetBookings || 1)) + 
@@ -920,6 +963,17 @@ const ReportCard: React.FC<{ report: DailyReport, onEdit: () => void, onDelete?:
         </div>
       </div>
 
+      {report.shiftStartedAt && (
+        <div className="p-3 bg-blue-50 dark:bg-blue-500/5 rounded-xl flex items-center justify-between text-[9px] font-black text-blue-600 dark:text-blue-400">
+          <span>
+            الشيفت: {new Date(report.shiftStartedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+            {report.shiftEndedAt && ` - ${new Date(report.shiftEndedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}`}
+            {report.totalWorkedMs ? ` (${formatWorkedDuration(report.totalWorkedMs)} فعلي)` : ''}
+          </span>
+          {report.breaks && report.breaks.length > 0 && <span>{report.breaks.length} بريك</span>}
+        </div>
+      )}
+
       {report.notes && (
         <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
           <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300 line-clamp-2">{report.notes}</p>
@@ -929,6 +983,29 @@ const ReportCard: React.FC<{ report: DailyReport, onEdit: () => void, onDelete?:
       {report.aiAnalysis && (
         <div className="p-3 bg-primary-50 dark:bg-primary-500/5 rounded-xl border-r-4 border-primary-500">
           <p className="text-[10px] font-bold text-primary-700 dark:text-primary-400 italic">"{report.aiAnalysis}"</p>
+        </div>
+      )}
+
+      {isManager ? (
+        <div className="pt-2 border-t border-slate-50 dark:border-slate-800 space-y-2">
+          <label className="text-[9px] font-black text-slate-400 uppercase">رد السوبرفايزر (اختياري)</label>
+          <textarea
+            value={replyDraft}
+            onChange={e => setReplyDraft(e.target.value)}
+            placeholder="اكتب رد أو ملاحظة للموظف..."
+            className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-[11px] font-bold outline-none h-16"
+          />
+          <button onClick={handleSendReply} disabled={isSendingReply || !replyDraft.trim()} className="w-full py-2 bg-primary-500 hover:bg-primary-600 text-white rounded-xl text-[10px] font-black disabled:opacity-50">
+            {isSendingReply ? 'جاري الإرسال...' : 'إرسال الرد'}
+          </button>
+          {report.supervisorReplyAt && (
+            <p className="text-[9px] text-slate-400 font-bold">آخر رد بواسطة {report.supervisorReplyBy} - {new Date(report.supervisorReplyAt).toLocaleString('ar-EG')}{report.acknowledgedBySales ? ' - شاف الرد ✓' : ''}</p>
+          )}
+        </div>
+      ) : report.supervisorReply && (
+        <div className="p-3 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl border border-indigo-100 dark:border-indigo-500/20">
+          <p className="text-[9px] font-black text-indigo-500 uppercase mb-1">رد السوبرفايزر ({report.supervisorReplyBy})</p>
+          <p className="text-[11px] font-bold text-slate-700 dark:text-slate-200">{report.supervisorReply}</p>
         </div>
       )}
 

@@ -268,6 +268,41 @@ export interface DailyReport {
   editedAt?: number;
   aiAnalysis?: string;
   editHistory?: ReportEditLog[];
+
+  // Shift metrics
+  shiftId?: string;
+  shiftStartedAt?: number;
+  shiftEndedAt?: number;
+  preShiftReviewDurationMs?: number;
+  breaks?: ShiftBreakEntry[];
+  totalWorkedMs?: number;
+
+  // Supervisor reply
+  supervisorReply?: string;
+  supervisorReplyBy?: string;
+  supervisorReplyAt?: number;
+  acknowledgedBySales?: boolean;
+  acknowledgedAt?: number;
+}
+
+export interface ShiftBreakEntry {
+  startedAt: number;
+  endedAt?: number;
+  lateMinutes?: number;
+}
+
+export interface Shift {
+  id: string;
+  userId: string;
+  userName: string;
+  date: string; // YYYY-MM-DD local
+  status: 'reviewing' | 'active' | 'on_break' | 'ended';
+  preShiftReviewStartedAt: number;
+  startedAt?: number;
+  preShiftReviewDurationMs?: number;
+  breaks: ShiftBreakEntry[];
+  endedAt?: number;
+  reportId?: string;
 }
 
 export interface ReportEditLog {

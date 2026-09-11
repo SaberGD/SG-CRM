@@ -8,6 +8,7 @@ import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import { User, UserRole } from './types';
 
 import Layout from './components/Layout';
+import { ShiftProvider } from './ShiftContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import ClientsList from './pages/ClientsList';
@@ -184,7 +185,7 @@ const App: React.FC = () => {
       <HashRouter>
         <Routes>
           <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
-          <Route element={user ? <Layout /> : <Navigate to="/login" />}>
+          <Route element={user ? <ShiftProvider><Layout /></ShiftProvider> : <Navigate to="/login" />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/clients" element={<ClientsList />} />
             <Route path="/clients/:id" element={<ClientDetails />} />

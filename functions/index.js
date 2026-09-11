@@ -376,7 +376,7 @@ const db = admin.firestore();
 const ALLOWED_AUTO_STATUSES = ["interested", "potential", "not_interested"];
 const ALLOWED_METHODS = ["phone", "whatsapp", "meeting", "other"];
 const ALLOWED_SOURCES = ["whatsapp", "messenger", "facebook", "instagram", "tiktok", "google", "other"];
-const PLACEHOLDER_NAME_RE = /^(john\s*doe|unknown|غير معروف)$/i;
+const PLACEHOLDER_NAME_RE = /^(john\s*doe|unknown|user|غير معروف|عميل تلقائي(?:\s*[-(].*)?)$/i;
 
 function mapSuggestedStatus(raw) {
   const key = String(raw || "").toLowerCase().trim();
@@ -471,16 +471,38 @@ async function claimAutomationConversation(body, startedAt) {
   const info = getAutomationConversationRef(body);
   if (!info) return null;
 
+  const incomingLastChatwootContactAt = parseAutomationTimestamp(
+    body.last_contact_at,
+    body.last_followup_date,
+    body.last_followup_at,
+    body.last_contacted_at,
+    body.last_message_at,
+    body.chatwoot_last_activity_at
+  );
+
   const existing = await info.ref.get();
   if (existing.exists) {
     const data = existing.data() || {};
     if (data.status !== "failed") {
-      return {
-        alreadyProcessed: true,
+      const previousLastChatwootContactAt = data.lastChatwootContactAt || 0;
+      const hasNewerChatwootContact =
+        incomingLastChatwootContactAt &&
+        incomingLastChatwootContactAt > previousLastChatwootContactAt;
+
+      if (!hasNewerChatwootContact) {
+        return {
+          alreadyProcessed: true,
+          conversationId: info.conversationId,
+          clientId: data.clientId || null,
+          action: data.action || null,
+        };
+      }
+
+      console.log("upsertClientFromAutomation: reprocessing conversation with newer Chatwoot contact", {
         conversationId: info.conversationId,
-        clientId: data.clientId || null,
-        action: data.action || null,
-      };
+        previousLastChatwootContactAt,
+        incomingLastChatwootContactAt,
+      });
     }
   }
 
@@ -491,6 +513,7 @@ async function claimAutomationConversation(body, startedAt) {
     runMode: body.automation_mode || body.run_mode || "hourly",
     startedAt,
     updatedAt: startedAt,
+    ...(incomingLastChatwootContactAt ? { lastChatwootContactAt: incomingLastChatwootContactAt } : {}),
   }, { merge: true });
 
   return {
@@ -498,6 +521,31 @@ async function claimAutomationConversation(body, startedAt) {
     conversationId: info.conversationId,
     ref: info.ref,
   };
+}
+
+function isAutomationSuggestedDate(body) {
+  return Array.isArray(body.missing_or_ambiguous_fields) &&
+    body.missing_or_ambiguous_fields.includes("next_followup_date_suggested_not_explicit");
+}
+
+function hasBetterAutomationName(body, existingClient) {
+  const incomingName = body.customer_name && String(body.customer_name).trim();
+  if (!incomingName || PLACEHOLDER_NAME_RE.test(incomingName)) return false;
+  const existingName = existingClient?.name && String(existingClient.name).trim();
+  return !existingName || PLACEHOLDER_NAME_RE.test(existingName);
+}
+
+function shouldReprocessSameConversation(body, existingClient, lastChatwootContactAt, nextFollowUpTs, phoneFull) {
+  if (!existingClient) return true;
+
+  const hasNewerChatwootContact =
+    lastChatwootContactAt &&
+    lastChatwootContactAt > (existingClient.lastChatwootContactAt || 0);
+  const canAddMissingPhone = phoneFull && !existingClient.phone;
+  const canAddMissingName = hasBetterAutomationName(body, existingClient);
+  const hasExplicitNextFollowUp = nextFollowUpTs && !isAutomationSuggestedDate(body);
+
+  return Boolean(hasNewerChatwootContact || canAddMissingPhone || canAddMissingName || hasExplicitNextFollowUp);
 }
 
 let cachedDefaultAgent = null;
@@ -722,7 +770,23 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     });
   }
 
+  const lastChatwootContactAt = parseAutomationTimestamp(
+    body.last_contact_at,
+    body.last_followup_date,
+    body.last_followup_at,
+    body.last_contacted_at,
+    body.last_message_at,
+    body.chatwoot_last_activity_at
+  );
+
+  let nextFollowUpTs = 0;
+  if (body.next_followup_date) {
+    const parsed = new Date(body.next_followup_date).getTime();
+    if (!Number.isNaN(parsed)) nextFollowUpTs = parsed;
+  }
+
   try {
+    let sameConversationClientDoc = null;
     if (body.chatwoot_conversation_id) {
       const alreadyProcessed = await db
         .collection("clients")
@@ -730,29 +794,40 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         .limit(1)
         .get();
       if (!alreadyProcessed.empty) {
-        if (processingClaim?.ref) {
-          await processingClaim.ref.set({
-            status: "skipped",
-            reason: "conversation_already_processed",
+        const existingDoc = alreadyProcessed.docs[0];
+        const existingClient = existingDoc.data() || {};
+        if (!shouldReprocessSameConversation(body, existingClient, lastChatwootContactAt, nextFollowUpTs, phoneFull)) {
+          if (processingClaim?.ref) {
+            await processingClaim.ref.set({
+              status: "skipped",
+              reason: "conversation_already_processed",
+              action: "skipped",
+              clientId: existingDoc.id,
+              completedAt: Date.now(),
+              updatedAt: Date.now(),
+              ...(lastChatwootContactAt ? { lastChatwootContactAt } : {}),
+            }, { merge: true });
+          }
+          return res.json({
+            success: true,
             action: "skipped",
-            clientId: alreadyProcessed.docs[0].id,
-            completedAt: Date.now(),
-            updatedAt: Date.now(),
-          }, { merge: true });
+            reason: "conversation_already_processed",
+            clientId: existingDoc.id,
+          });
         }
-        return res.json({
-          success: true,
-          action: "skipped",
-          reason: "conversation_already_processed",
-          clientId: alreadyProcessed.docs[0].id,
-        });
+        sameConversationClientDoc = existingDoc;
       }
     }
 
     let existingSnap;
-    if (phoneFull) {
+    if (sameConversationClientDoc) {
+      existingSnap = { empty: false, docs: [sameConversationClientDoc] };
+    } else if (phoneFull) {
       const variations = buildPhoneVariations(phoneFull);
       existingSnap = await db.collection("clients").where("phone", "in", variations).limit(1).get();
+      if (existingSnap.empty && hasChatwootContactId) {
+        existingSnap = await db.collection("clients").where("chatwootContactId", "==", String(body.chatwoot_contact_id)).limit(1).get();
+      }
     } else {
       existingSnap = await db.collection("clients").where("chatwootContactId", "==", String(body.chatwoot_contact_id)).limit(1).get();
     }
@@ -763,21 +838,6 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     const requestedAgent = body.sales_rep_name ? await findAgentByName(body.sales_rep_name) : null;
     const resolvedAgent = requestedAgent || defaultAgent;
     const matchedLabelIds = await matchLabelIds(body.suggested_labels);
-
-    let nextFollowUpTs = 0;
-    if (body.next_followup_date) {
-      const parsed = new Date(body.next_followup_date).getTime();
-      if (!Number.isNaN(parsed)) nextFollowUpTs = parsed;
-    }
-
-    const lastChatwootContactAt = parseAutomationTimestamp(
-      body.last_contact_at,
-      body.last_followup_date,
-      body.last_followup_at,
-      body.last_contacted_at,
-      body.last_message_at,
-      body.chatwoot_last_activity_at
-    );
 
     if (!existingSnap.empty) {
       // ----- Existing client: log a follow-up, apply conservative updates -----
@@ -795,18 +855,27 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       if (matchedLabelIds.length > 0) {
         updateData.labels = Array.from(new Set([...(existingClient.labels || []), ...matchedLabelIds]));
       }
-      if (!existingClient.nextFollowUpDate || existingClient.nextFollowUpDate < Date.now()) {
-        if (nextFollowUpTs) {
+      if (nextFollowUpTs) {
+        const isSuggestedDate = isAutomationSuggestedDate(body);
+        const shouldUpdateNextFollowUp =
+          !isSuggestedDate ||
+          !existingClient.nextFollowUpDate ||
+          existingClient.nextFollowUpDate < Date.now();
+
+        if (shouldUpdateNextFollowUp) {
           updateData.nextFollowUpDate = nextFollowUpTs;
           updateData.nextFollowUpMethod = mappedMethod;
         }
       }
-      if (
-        body.customer_name &&
-        body.customer_name.trim() &&
-        (!existingClient.name || PLACEHOLDER_NAME_RE.test(existingClient.name.trim()))
-      ) {
-        updateData.name = body.customer_name.trim();
+      if (phoneFull && !existingClient.phone) {
+        updateData.phone = phoneFull;
+        updateData.countryCode = body.country_code || existingClient.countryCode || "+20";
+      }
+      if (hasChatwootContactId && !existingClient.chatwootContactId) {
+        updateData.chatwootContactId = String(body.chatwoot_contact_id);
+      }
+      if (hasBetterAutomationName(body, existingClient)) {
+        updateData.name = String(body.customer_name).trim();
       }
       if (!existingClient.position && body.position && String(body.position).trim()) {
         updateData.position = String(body.position).trim();
@@ -837,7 +906,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         startTime: automationNow,
         endTime: automationNow,
         duration: 0,
-        scheduledTime: existingClient.nextFollowUpDate || 0,
+        scheduledTime: updateData.nextFollowUpDate || existingClient.nextFollowUpDate || 0,
         delayStatus: "on_time",
         appointmentId: null,
         isAutomated: true,
@@ -853,6 +922,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
           bookedMentioned,
           completedAt: automationNow,
           updatedAt: automationNow,
+          ...(lastChatwootContactAt ? { lastChatwootContactAt } : {}),
         }, { merge: true });
       }
 
@@ -948,6 +1018,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         bookedMentioned,
         completedAt: automationNow,
         updatedAt: automationNow,
+        ...(lastChatwootContactAt ? { lastChatwootContactAt } : {}),
       }, { merge: true });
     }
 

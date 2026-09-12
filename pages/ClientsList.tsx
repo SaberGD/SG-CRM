@@ -13,11 +13,12 @@ import {
 import FloatingPanel from '../components/FloatingPanel';
 import { BulkImportModal } from '../components/BulkImportModal';
 import { exportBookingsToExcel } from '../utils/exportClients';
+import { getLabelColorStyle } from '../utils/labelColors';
 import { 
   Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2, 
-  Phone, Calendar, MessageSquare, User, Laptop, Globe, Clock, X,
+  Phone, MessageSquare, User, Clock, X,
   ExternalLink, Layers, AlertTriangle, Upload, Download, Sparkles,
-  SlidersHorizontal, ChevronDown
+  SlidersHorizontal, ChevronDown, Facebook, Instagram, Music2, Globe2
 } from 'lucide-react';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
@@ -34,6 +35,25 @@ const ARAB_COUNTRIES = [
   { name: 'البحرين', code: '+973' },
   { name: 'أخرى', code: '' }
 ];
+
+const getClientSourceMeta = (source?: ClientSource) => {
+  switch (source) {
+    case ClientSource.WHATSAPP:
+      return { label: 'واتساب', Icon: MessageCircle, box: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' };
+    case ClientSource.MESSENGER:
+      return { label: 'ماسينجر', Icon: MessageSquare, box: 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-400' };
+    case ClientSource.FACEBOOK:
+      return { label: 'فيسبوك', Icon: Facebook, box: 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400' };
+    case ClientSource.INSTAGRAM:
+      return { label: 'انستجرام', Icon: Instagram, box: 'bg-pink-50 text-pink-600 dark:bg-pink-500/10 dark:text-pink-400' };
+    case ClientSource.TIKTOK:
+      return { label: 'تيك توك', Icon: Music2, box: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200' };
+    case ClientSource.GOOGLE:
+      return { label: 'جوجل', Icon: Globe2, box: 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400' };
+    default:
+      return { label: 'أخرى', Icon: Layers, box: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' };
+  }
+};
 
 // Global cache for clients to reduce reads
 const clientsCache: {
@@ -1038,6 +1058,12 @@ const ClientsList: React.FC = () => {
                 <tr><td colSpan={canDelete ? 6 : 5} className="py-20 text-center text-slate-400 font-bold italic">لا يوجد عملاء حالياً</td></tr>
               ) : filteredClients.map((client) => {
                 const isUnreviewedAi = client.createdVia === 'ai_automation' && !client.reviewedBySales;
+                const sourceMeta = getClientSourceMeta(client.source);
+                const SourceIcon = sourceMeta.Icon;
+                const clientLabels = (client.labels || [])
+                  .map(labelId => allLabels.find(label => label.id === labelId))
+                  .filter(Boolean) as Label[];
+
                 return (
                 <tr key={client.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all ${selectedClientSet.has(client.id) ? 'bg-rose-50/60 dark:bg-rose-500/5' : isUnreviewedAi ? 'bg-orange-50/60 dark:bg-orange-500/10 border-r-2 border-orange-400' : ''}`}>
                   {canDelete && (
@@ -1053,15 +1079,19 @@ const ClientsList: React.FC = () => {
                   )}
                   <td className="px-8 py-6">
                     <div className="flex items-center gap-3">
-                      <div className="shrink-0 w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-primary-500">
-                        {client.source === ClientSource.WHATSAPP && <MessageCircle size={16}/>}
-                        {client.source === ClientSource.MESSENGER && <MessageSquare size={16}/>}
-                        {(client.source === ClientSource.FACEBOOK || client.source === ClientSource.TIKTOK) && <Globe size={16}/>}
-                        {client.source === ClientSource.OTHER && <Layers size={16}/>}
+                      <div
+                        className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${sourceMeta.box}`}
+                        title={`مصدر العميل: ${sourceMeta.label}`}
+                        aria-label={`مصدر العميل: ${sourceMeta.label}`}
+                      >
+                        <SourceIcon size={18}/>
                       </div>
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <p onClick={() => navigate(`/clients/${client.id}`)} className={`font-black text-sm cursor-pointer hover:text-primary-500 ${isUnreviewedAi ? 'text-orange-600 dark:text-orange-400' : 'text-slate-900 dark:text-white'}`}>{client.name}</p>
+                          <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black border border-current/10 ${sourceMeta.box}`}>
+                            {sourceMeta.label}
+                          </span>
                           {isUnreviewedAi && (
                             <span
                               onClick={() => navigate(`/clients/${client.id}`)}
@@ -1111,6 +1141,25 @@ const ClientsList: React.FC = () => {
                       {StatusLabels[client.status]?.ar}
                     </span>
                     <p className="text-[10px] font-bold text-slate-500 mt-1">{client.serviceName}</p>
+                    {clientLabels.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {clientLabels.slice(0, 3).map(label => (
+                          <span
+                            key={label.id}
+                            className="max-w-[120px] truncate whitespace-nowrap px-2 py-0.5 rounded-lg text-[8px] font-black border"
+                            style={getLabelColorStyle(label.color)}
+                            title={label.text}
+                          >
+                            {label.text}
+                          </span>
+                        ))}
+                        {clientLabels.length > 3 && (
+                          <span className="px-2 py-0.5 rounded-lg text-[8px] font-black bg-slate-100 dark:bg-slate-800 text-slate-500">
+                            +{clientLabels.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="px-8 py-6">
                     <div className="flex flex-wrap gap-1">
@@ -1337,11 +1386,7 @@ const ClientsList: React.FC = () => {
                       setNewClient({...newClient, labels});
                     }}
                     className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2`}
-                    style={{
-                      backgroundColor: isSelected ? label.color : 'transparent',
-                      borderColor: label.color,
-                      color: isSelected ? '#fff' : label.color,
-                    }}
+                    style={getLabelColorStyle(label.color, isSelected)}
                   >
                     {label.text}
                     {isSelected && <X size={12} />}

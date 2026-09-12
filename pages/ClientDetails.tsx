@@ -15,13 +15,34 @@ import {
   Play, Square, Clock, Calendar, History, PhoneIncoming, Clock4, 
   MessageSquare, Edit2, X, Save, User, CalendarPlus, 
   Download, FileText, UserCheck, Settings, Timer, LayoutList, History as HistoryIcon,
-  MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw
+  MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw,
+  Facebook, Instagram, Music2, Globe2
 } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
+import { getLabelColorStyle } from '../utils/labelColors';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
 } from '../utils/currency';
+
+const getClientSourceMeta = (source?: ClientSource) => {
+  switch (source) {
+    case ClientSource.WHATSAPP:
+      return { label: 'واتساب', Icon: MessageCircle, chip: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' };
+    case ClientSource.MESSENGER:
+      return { label: 'ماسينجر', Icon: MessageSquare, chip: 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-400' };
+    case ClientSource.FACEBOOK:
+      return { label: 'فيسبوك', Icon: Facebook, chip: 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400' };
+    case ClientSource.INSTAGRAM:
+      return { label: 'انستجرام', Icon: Instagram, chip: 'bg-pink-50 text-pink-600 dark:bg-pink-500/10 dark:text-pink-400' };
+    case ClientSource.TIKTOK:
+      return { label: 'تيك توك', Icon: Music2, chip: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200' };
+    case ClientSource.GOOGLE:
+      return { label: 'جوجل', Icon: Globe2, chip: 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400' };
+    default:
+      return { label: 'أخرى', Icon: Layers, chip: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' };
+  }
+};
 
 const ClientDetails: React.FC = () => {
   const { id } = useParams();
@@ -490,6 +511,8 @@ const ClientDetails: React.FC = () => {
 
   if (loading) return <div className="text-center py-40 animate-pulse font-black text-primary-500">جاري تحميل السجل...</div>;
   if (!client) return <div className="text-center py-40">العميل غير موجود</div>;
+  const sourceMeta = getClientSourceMeta(client.source);
+  const SourceIcon = sourceMeta.Icon;
 
   return (
     <div className="sg-page max-w-6xl mx-auto space-y-6 animate-fade-in">
@@ -534,11 +557,9 @@ const ClientDetails: React.FC = () => {
               <p className="text-slate-400 font-bold flex items-center gap-2 mt-1 text-xs">Chat ID: <span dir="ltr">{client.chatId}</span></p>
             )}
             <div className="flex flex-wrap gap-2 mt-3">
-              <span className="bg-primary-100 dark:bg-primary-500/10 text-primary-500 px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1">
-                {client.source === ClientSource.WHATSAPP && <MessageCircle size={10}/>}
-                {client.source === ClientSource.MESSENGER && <MessageSquare size={10}/>}
-                {(client.source === ClientSource.FACEBOOK || client.source === ClientSource.TIKTOK) && <Globe size={10}/>}
-                {SourceLabels[client.source || ClientSource.OTHER].ar}
+              <span className={`${sourceMeta.chip} px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1`} title={`مصدر العميل: ${sourceMeta.label}`}>
+                <SourceIcon size={10}/>
+                {sourceMeta.label}
               </span>
               {client.profileLink && (
                 <a href={client.profileLink} target="_blank" className="bg-blue-100 dark:bg-blue-500/10 text-blue-500 px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1 hover:underline">
@@ -555,7 +576,7 @@ const ClientDetails: React.FC = () => {
                   <span 
                     key={labelId} 
                     className="px-3 py-1 rounded-full text-[9px] font-black text-white"
-                    style={{ backgroundColor: label.color }}
+                    style={getLabelColorStyle(label.color)}
                   >
                     {label.text}
                   </span>
@@ -973,11 +994,7 @@ const ClientDetails: React.FC = () => {
                             setLabels(prev => isSelected ? prev.filter(id => id !== label.id) : [...prev, label.id]);
                           }}
                           className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2`}
-                          style={{
-                            backgroundColor: isSelected ? label.color : 'transparent',
-                            borderColor: label.color,
-                            color: isSelected ? '#fff' : label.color,
-                          }}
+                          style={getLabelColorStyle(label.color, isSelected)}
                         >
                           {label.text}
                           {isSelected && <X size={12} />}
@@ -1312,11 +1329,7 @@ const ClientDetails: React.FC = () => {
                             setEditClientData({...editClientData, labels});
                           }}
                           className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2`}
-                          style={{
-                            backgroundColor: isSelected ? label.color : 'transparent',
-                            borderColor: label.color,
-                            color: isSelected ? '#fff' : label.color,
-                          }}
+                          style={getLabelColorStyle(label.color, isSelected)}
                         >
                           {label.text}
                           {isSelected && <X size={12} />}

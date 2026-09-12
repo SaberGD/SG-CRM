@@ -18,6 +18,7 @@ import {
   ChevronUp, Edit3, Save, X, LayoutDashboard, ListChecks, Download
 } from 'lucide-react';
 import { analyzeDailyReport } from '../geminiService';
+import { normalizeLabelColor } from '../utils/labelColors';
 
 const Reports: React.FC = () => {
   const { user, effectiveRole } = useAuth();
@@ -580,7 +581,7 @@ const Reports: React.FC = () => {
                     if (!label) return null;
                     return (
                       <div key={labelId} className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: label.color }}></div>
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: normalizeLabelColor(label.color) }}></div>
                         <div>
                           <p className="text-[10px] font-black text-slate-400 uppercase">{label.text}</p>
                           <p className="text-lg font-black">{count}</p>

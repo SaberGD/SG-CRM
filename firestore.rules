@@ -82,7 +82,10 @@ service cloud.firestore {
     match /clients/{clientId} {
       allow read: if isAuthenticated(); 
       allow create: if isAuthenticated();
-      allow update: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['aiRecommendation'])
+      );
       allow delete: if isAdmin();
     }
     

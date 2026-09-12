@@ -190,7 +190,7 @@ const App: React.FC = () => {
             <Route path="/clients" element={<ClientsList />} />
             <Route path="/clients/:id" element={<ClientDetails />} />
             <Route path="/notifications" element={<Notifications />} />
-            <Route path="/ai-assistant" element={<AiAssistant />} />
+            <Route path="/ai-assistant" element={user?.role === UserRole.ADMIN ? <AiAssistant /> : <Navigate to="/clients" replace />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/services" element={<ServicesManager />} />
             <Route path="/labels" element={<LabelsManager />} />

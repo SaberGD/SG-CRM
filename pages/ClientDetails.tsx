@@ -48,6 +48,7 @@ const ClientDetails: React.FC = () => {
   const { id } = useParams();
   const { user, effectiveRole } = useAuth();
   const navigate = useNavigate();
+  const isAdmin = user?.role === UserRole.ADMIN;
   
   const [client, setClient] = useState<Client | null>(null);
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
@@ -98,6 +99,10 @@ const ClientDetails: React.FC = () => {
 
   const handleRunAiAnalysis = async () => {
     if (!client) return;
+    if (!isAdmin) {
+      alert("المساعد الذكي مارو متاح للإدمن فقط.");
+      return;
+    }
     setIsAnalyzingAi(true);
     try {
       const result = await analyzeClientWithAi(client, followUps);
@@ -134,6 +139,10 @@ const ClientDetails: React.FC = () => {
 
   const handleApplyAiRecommendation = async () => {
     if (!client || !client.aiRecommendation) return;
+    if (!isAdmin) {
+      alert("توصيات مارو متاحة للإدمن فقط.");
+      return;
+    }
     try {
       const rec = client.aiRecommendation;
       let method: CommMethod = CommMethod.WHATSAPP;
@@ -677,6 +686,7 @@ const ClientDetails: React.FC = () => {
       )}
 
       {/* AI Sales Assistant Card for this Client */}
+      {isAdmin && (
       <div className="bg-slate-900 p-6 rounded-3xl text-white border border-slate-800 space-y-5 relative overflow-hidden">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-5">
           <div className="flex items-center gap-3">
@@ -787,6 +797,7 @@ const ClientDetails: React.FC = () => {
           </div>
         )}
       </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">

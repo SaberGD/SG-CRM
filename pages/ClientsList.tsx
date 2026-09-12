@@ -855,13 +855,15 @@ const ClientsList: React.FC = () => {
             <Plus size={18} /> إضافة عميل جديد
           </button>
 
-          <button 
-            onClick={() => navigate('/ai-assistant')} 
-            className="sg-btn sg-btn-ai"
-            title="فتح المساعد الذكي (مارو) وتحليل العملاء واقتراحات المتابعة"
-          >
-            <Sparkles size={18} className="text-amber-300" /> اقتراحات مارو (AI)
-          </button>
+          {isAdmin && (
+            <button 
+              onClick={() => navigate('/ai-assistant')} 
+              className="sg-btn sg-btn-ai"
+              title="فتح المساعد الذكي (مارو) وتحليل العملاء واقتراحات المتابعة"
+            >
+              <Sparkles size={18} className="text-amber-300" /> اقتراحات مارو (AI)
+            </button>
+          )}
 
           <button 
             onClick={() => setIsBulkImportOpen(true)} 
@@ -1046,7 +1048,7 @@ const ClientsList: React.FC = () => {
                     <span>واتساب</span>
                     <span>اتصال</span>
                     <span>السجل</span>
-                    <span>مارو AI</span>
+                    {isAdmin && <span>مارو AI</span>}
                     {isHighRole && <span>تحويل</span>}
                     {canDelete && <span>حذف</span>}
                   </div>
@@ -1106,7 +1108,7 @@ const ClientsList: React.FC = () => {
                               تحويل خارجي ({client.originalCurrency})
                             </span>
                           )}
-                          {client.aiRecommendation && (
+                          {isAdmin && client.aiRecommendation && (
                             <span 
                               onClick={() => navigate(`/clients/${client.id}`)}
                               className="cursor-pointer bg-gradient-to-r from-purple-500/10 to-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[8px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 hover:opacity-80"
@@ -1174,17 +1176,19 @@ const ClientsList: React.FC = () => {
                       <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="sg-icon-btn bg-emerald-50 text-emerald-500 dark:bg-emerald-500/10"><MessageCircle size={16} /></a>
                       <a href={`tel:${client.phone}`} title="اتصال هاتفي" className="sg-icon-btn bg-blue-50 text-blue-500 dark:bg-blue-500/10"><Phone size={16} /></a>
                       <button onClick={() => navigate(`/clients/${client.id}`)} title="عرض السجل والمتابعة" className="sg-icon-btn bg-primary-50 text-primary-500 dark:bg-primary-500/10"><History size={16} /></button>
-                      <button 
-                        onClick={() => navigate(`/clients/${client.id}`)} 
-                        title={client.aiRecommendation ? "عرض اقتراحات مارو (AI)" : "استخراج اقتراحات مارو (AI)"} 
-                        className={`sg-icon-btn ${
-                          client.aiRecommendation 
-                            ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 shadow-sm' 
-                            : 'bg-slate-100 text-slate-400 hover:text-indigo-600 dark:bg-slate-800 dark:text-slate-500'
-                        }`}
-                      >
-                        <Sparkles size={16} className={client.aiRecommendation ? 'text-amber-500' : ''} />
-                      </button>
+                      {isAdmin && (
+                        <button 
+                          onClick={() => navigate(`/clients/${client.id}`)} 
+                          title={client.aiRecommendation ? "عرض اقتراحات مارو (AI)" : "استخراج اقتراحات مارو (AI)"} 
+                          className={`sg-icon-btn ${
+                            client.aiRecommendation 
+                              ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 shadow-sm' 
+                              : 'bg-slate-100 text-slate-400 hover:text-indigo-600 dark:bg-slate-800 dark:text-slate-500'
+                          }`}
+                        >
+                          <Sparkles size={16} className={client.aiRecommendation ? 'text-amber-500' : ''} />
+                        </button>
+                      )}
                       {isHighRole && (
                         <button onClick={() => { setSelectedClient(client); setIsTransferModalOpen(true); }} title="تحويل العميل لموظف آخر" className="sg-icon-btn bg-amber-50 text-amber-500 dark:bg-amber-500/10"><ArrowRightLeft size={16} /></button>
                       )}

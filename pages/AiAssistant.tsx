@@ -119,9 +119,9 @@ export const AiAssistant: React.FC = () => {
   // Copy feedback state
   const [copiedClientId, setCopiedClientId] = useState<string | null>(null);
 
-  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
-  const isSupervisorOrAbove = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
-  const isAdmin = effectiveRole === UserRole.ADMIN;
+  const isAdmin = user?.role === UserRole.ADMIN;
+  const isHighRole = isAdmin || effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isSupervisorOrAbove = isAdmin || effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
 
   const todayDateStr = new Date().toISOString().split('T')[0];
 
@@ -156,6 +156,12 @@ export const AiAssistant: React.FC = () => {
   // Fetch Clients and Sales Agents
   useEffect(() => {
     if (!user) return;
+    if (!isAdmin) {
+      setClients([]);
+      setSalesAgents([]);
+      setLoading(false);
+      return;
+    }
 
     const fetchAgents = async () => {
       try {
@@ -191,7 +197,26 @@ export const AiAssistant: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [user, effectiveRole, selectedAgentId, isHighRole]);
+  }, [user, effectiveRole, selectedAgentId, isHighRole, isAdmin]);
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center text-center p-6">
+        <div className="sg-surface max-w-md p-8 space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
+            <ShieldAlert size={28} />
+          </div>
+          <h1 className="text-xl font-black text-slate-900 dark:text-white">مارو متاح للإدمن فقط</h1>
+          <p className="text-sm font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
+            صفحة المساعد الذكي وتحليل العملاء مقفولة على حسابات الإدارة فقط.
+          </p>
+          <button onClick={() => navigate('/clients')} className="sg-btn sg-btn-primary mx-auto">
+            الرجوع لقائمة العملاء
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Handle single client analysis with target round tagging
   const handleAnalyzeClient = async (client: Client, targetRound?: number, skipAdminCheck = true) => {
@@ -1984,4 +2009,3 @@ export const AiAssistant: React.FC = () => {
     </div>
   );
 };
-

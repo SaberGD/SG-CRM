@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { signInWithRedirect, getRedirectResult, GoogleAuthProvider, User as FirebaseUser } from 'firebase/auth';
+import React, { useState } from 'react';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { doc, setDoc, getDocs, collection, query, where, updateDoc, getDoc } from 'firebase/firestore';
 import { auth, db, logActivity } from '../firebase';
 import { UserRole, Invitation } from '../types';
@@ -9,104 +9,80 @@ import { LayoutDashboard, AlertCircle, Chrome } from 'lucide-react';
 const Login: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [checkingRedirect, setCheckingRedirect] = useState(true);
-
-  // Validates the signed-in email against the invitations list and provisions
-  // the Firestore user doc on first login. Shared between the redirect-result
-  // handler below since signInWithRedirect leaves the page and comes back.
-  const validateAndProvisionUser = async (user: FirebaseUser) => {
-    if (!user.email) throw new Error("فشل الحصول على البريد الإلكتروني من جوجل.");
-
-    // 1. التحقق من أن الإيميل مسموح له بالدخول
-    const invitesRef = collection(db, 'invitations');
-    const q = query(invitesRef, where('email', '==', user.email.toLowerCase().trim()));
-    const snap = await getDocs(q);
-
-    if (snap.empty) {
-      // إذا لم يكن مضافاً كدعوة، نتحقق إذا كان موجوداً كأدمن رئيسي
-      if (user.email.toLowerCase().trim() !== "saber.gd.fl@gmail.com") {
-        await auth.signOut();
-        throw new Error("عذراً، هذا البريد غير مسجل في قائمة المسموح لهم بالانضمام. يرجى مراجعة الإدارة.");
-      }
-    }
-
-    // 2. التحقق من وجود وثيقة المستخدم في Firestore
-    const userDocRef = doc(db, 'users', user.uid);
-    const userDocSnap = await getDoc(userDocRef);
-
-    if (!userDocSnap.exists()) {
-      let role = UserRole.SALES_AGENT;
-      let invitedBy = 'system';
-
-      if (!snap.empty) {
-        const inviteDoc = snap.docs[0];
-        const inviteData = inviteDoc.data() as Invitation;
-        role = inviteData.role;
-        invitedBy = inviteData.invitedBy;
-
-        // تحديث حالة الدعوة
-        await updateDoc(doc(db, 'invitations', inviteDoc.id), {
-          status: 'used'
-        });
-      } else if (user.email.toLowerCase().trim() === "saber.gd.fl@gmail.com") {
-        role = UserRole.ADMIN;
-      }
-
-      // إنشاء وثيقة المستخدم
-      await setDoc(userDocRef, {
-        name: user.displayName || 'موظف جديد',
-        email: user.email.toLowerCase().trim(),
-        role: role,
-        invitedBy: invitedBy,
-        createdAt: Date.now()
-      });
-
-      await logActivity(user.uid, user.displayName || 'موظف جديد', `تسجيل دخول لأول مرة عبر جوجل برتبة (${role})`, user.uid, user.displayName || 'موظف جديد');
-    }
-  };
-
-  // signInWithPopup relies on the popup window sharing sessionStorage with the
-  // opener to hand back the auth result -- Safari (and several mobile browser
-  // privacy modes) increasingly block that, which surfaces as an "Unable to
-  // save initial state" error page hosted on the authDomain itself, with no
-  // way for this component to catch or recover from it. signInWithRedirect
-  // avoids that entirely: it's a normal top-level navigation away to Google
-  // and back, so it only ever touches this origin's own storage.
-  useEffect(() => {
-    getRedirectResult(auth)
-      .then(async (result) => {
-        if (result?.user) {
-          await validateAndProvisionUser(result.user);
-        }
-      })
-      .catch((err: any) => {
-        console.error(err);
-        setError(err.message || 'فشل تسجيل الدخول عبر جوجل');
-      })
-      .finally(() => setCheckingRedirect(false));
-  }, []);
 
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError('');
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithRedirect(auth, provider);
-      // Execution stops here -- the browser navigates away to Google now.
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      
+      if (!user.email) throw new Error("فشل الحصول على البريد الإلكتروني من جوجل.");
+
+      // 1. التحقق من أن الإيميل مسموح له بالدخول
+      const invitesRef = collection(db, 'invitations');
+      const q = query(invitesRef, where('email', '==', user.email.toLowerCase().trim()));
+      const snap = await getDocs(q);
+      
+      if (snap.empty) {
+        // إذا لم يكن مضافاً كدعوة، نتحقق إذا كان موجوداً كأدمن رئيسي
+        if (user.email.toLowerCase().trim() !== "saber.gd.fl@gmail.com") {
+          await auth.signOut();
+          throw new Error("عذراً، هذا البريد غير مسجل في قائمة المسموح لهم بالانضمام. يرجى مراجعة الإدارة.");
+        }
+      }
+
+      // 2. التحقق من وجود وثيقة المستخدم في Firestore
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (!userDocSnap.exists()) {
+        let role = UserRole.SALES_AGENT;
+        let invitedBy = 'system';
+
+        if (!snap.empty) {
+          const inviteDoc = snap.docs[0];
+          const inviteData = inviteDoc.data() as Invitation;
+          role = inviteData.role;
+          invitedBy = inviteData.invitedBy;
+
+          // تحديث حالة الدعوة
+          await updateDoc(doc(db, 'invitations', inviteDoc.id), {
+            status: 'used'
+          });
+        } else if (user.email.toLowerCase().trim() === "saber.gd.fl@gmail.com") {
+          role = UserRole.ADMIN;
+        }
+
+        // إنشاء وثيقة المستخدم
+        await setDoc(userDocRef, {
+          name: user.displayName || 'موظف جديد',
+          email: user.email.toLowerCase().trim(),
+          role: role,
+          invitedBy: invitedBy,
+          createdAt: Date.now()
+        });
+
+        await logActivity(user.uid, user.displayName || 'موظف جديد', `تسجيل دخول لأول مرة عبر جوجل برتبة (${role})`, user.uid, user.displayName || 'موظف جديد');
+      }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'فشل تسجيل الدخول عبر جوجل');
+      let errorMsg = err.message || 'فشل تسجيل الدخول عبر جوجل';
+      if (err.code === 'auth/popup-closed-by-user' || err.message?.includes('closed-by-user')) {
+        errorMsg = 'تم إغلاق نافذة تسجيل الدخول من قبل المستخدم أو حجبها من المتصفح (بسبب قيود الإطار المدمج). يرجى محاولة الضغط مجدداً، أو افتح الموقع بتبويب مستقل باستخدام الزر بالأسفل.';
+      } else if (err.code === 'auth/cancelled-popup-request') {
+        errorMsg = 'تم إلغاء عملية تسجيل الدخول بسبب تكرار الضغط. يرجى الانتظار قليلاً ثم المحاولة مرة واحدة.';
+      }
+      setError(errorMsg);
+    } finally {
       setLoading(false);
     }
   };
 
-  if (checkingRedirect) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <p className="text-xs font-black text-slate-400 uppercase tracking-widest animate-pulse">جاري التحقق...</p>
-      </div>
-    );
-  }
+  const openInNewTab = () => {
+    window.open(window.location.href, '_blank');
+  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 relative overflow-hidden">
@@ -149,7 +125,15 @@ const Login: React.FC = () => {
                   className="w-full py-6 rounded-3xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-black shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-4 border border-slate-100 dark:border-slate-700 text-base"
                 >
                   <Chrome className="text-rose-500" size={24} />
-                  {loading ? 'جاري التحويل لجوجل...' : 'الدخول عبر Gmail'}
+                  {loading ? 'جاري التحقق...' : 'الدخول عبر Gmail'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openInNewTab}
+                  className="w-full py-4 rounded-3xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs transition-all flex items-center justify-center gap-2 border border-transparent"
+                >
+                  فتح في تبويب مستقل (حل مشكلة حظر النافذة المنبثقة)
                 </button>
 
                 <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">

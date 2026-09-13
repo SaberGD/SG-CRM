@@ -27,14 +27,18 @@ const ShiftGate: React.FC = () => {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const snap = await firestore.getDocs(firestore.query(
-        firestore.collection(db, 'reports'),
-        firestore.where('userId', '==', user.uid),
-        firestore.where('acknowledgedBySales', '==', false)
-      ));
-      const withReply = snap.docs.map(d => ({ id: d.id, ...d.data() } as DailyReport)).filter(r => !!r.supervisorReply);
-      withReply.sort((a, b) => (b.supervisorReplyAt || 0) - (a.supervisorReplyAt || 0));
-      setUnackedReport(withReply[0] || null);
+      try {
+        const snap = await firestore.getDocs(firestore.query(
+          firestore.collection(db, 'reports'),
+          firestore.where('userId', '==', user.uid),
+          firestore.where('acknowledgedBySales', '==', false)
+        ));
+        const withReply = snap.docs.map(d => ({ id: d.id, ...d.data() } as DailyReport)).filter(r => !!r.supervisorReply);
+        withReply.sort((a, b) => (b.supervisorReplyAt || 0) - (a.supervisorReplyAt || 0));
+        setUnackedReport(withReply[0] || null);
+      } catch (err) {
+        console.error('ShiftGate unacked-report query failed:', err);
+      }
     })();
   }, [user]);
 
@@ -51,35 +55,39 @@ const ShiftGate: React.FC = () => {
     if (!user || step !== 'review') return;
     setLoadingData(true);
     (async () => {
-      const clientsRef = firestore.collection(db, 'clients');
+      try {
+        const clientsRef = firestore.collection(db, 'clients');
 
-      const unreviewedSnap = await firestore.getDocs(firestore.query(
-        clientsRef,
-        firestore.where('salesAgentId', '==', user.uid),
-        firestore.where('reviewedBySales', '==', false)
-      ));
-      const unreviewed = unreviewedSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
-      setPendingClients(unreviewed.filter(c => c.createdVia === 'ai_automation'));
+        const unreviewedSnap = await firestore.getDocs(firestore.query(
+          clientsRef,
+          firestore.where('salesAgentId', '==', user.uid),
+          firestore.where('reviewedBySales', '==', false)
+        ));
+        const unreviewed = unreviewedSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+        setPendingClients(unreviewed.filter(c => c.createdVia === 'ai_automation'));
 
-      const unreviewedFollowUpSnap = await firestore.getDocs(firestore.query(
-        clientsRef,
-        firestore.where('salesAgentId', '==', user.uid),
-        firestore.where('nextFollowUpReviewedBySales', '==', false)
-      ));
-      setPendingFollowUpClients(unreviewedFollowUpSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+        const unreviewedFollowUpSnap = await firestore.getDocs(firestore.query(
+          clientsRef,
+          firestore.where('salesAgentId', '==', user.uid),
+          firestore.where('nextFollowUpReviewedBySales', '==', false)
+        ));
+        setPendingFollowUpClients(unreviewedFollowUpSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
 
-      const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
-      const todaySnap = await firestore.getDocs(firestore.query(
-        clientsRef,
-        firestore.where('salesAgentId', '==', user.uid),
-        firestore.where('nextFollowUpDate', '>=', startOfDay.getTime()),
-        firestore.where('nextFollowUpDate', '<=', endOfDay.getTime())
-      ));
-      const todayList = todaySnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).sort((a, b) => (a.nextFollowUpDate || 0) - (b.nextFollowUpDate || 0));
-      setTodayFollowUps(todayList);
-
-      setLoadingData(false);
+        const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+        const todaySnap = await firestore.getDocs(firestore.query(
+          clientsRef,
+          firestore.where('salesAgentId', '==', user.uid),
+          firestore.where('nextFollowUpDate', '>=', startOfDay.getTime()),
+          firestore.where('nextFollowUpDate', '<=', endOfDay.getTime())
+        ));
+        const todayList = todaySnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).sort((a, b) => (a.nextFollowUpDate || 0) - (b.nextFollowUpDate || 0));
+        setTodayFollowUps(todayList);
+      } catch (err) {
+        console.error('ShiftGate review-data query failed (likely a missing Firestore index):', err);
+      } finally {
+        setLoadingData(false);
+      }
     })();
   }, [user, step]);
 

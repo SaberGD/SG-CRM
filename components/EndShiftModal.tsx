@@ -25,31 +25,35 @@ const EndShiftModal: React.FC = () => {
     setStep('pending');
     setLoading(true);
     (async () => {
-      const clientsRef = firestore.collection(db, 'clients');
+      try {
+        const clientsRef = firestore.collection(db, 'clients');
 
-      const unreviewedSnap = await firestore.getDocs(firestore.query(
-        clientsRef,
-        firestore.where('salesAgentId', '==', user.uid),
-        firestore.where('reviewedBySales', '==', false)
-      ));
-      setPendingClients(unreviewedSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(c => c.createdVia === 'ai_automation'));
+        const unreviewedSnap = await firestore.getDocs(firestore.query(
+          clientsRef,
+          firestore.where('salesAgentId', '==', user.uid),
+          firestore.where('reviewedBySales', '==', false)
+        ));
+        setPendingClients(unreviewedSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(c => c.createdVia === 'ai_automation'));
 
-      const unreviewedFollowUpSnap = await firestore.getDocs(firestore.query(
-        clientsRef,
-        firestore.where('salesAgentId', '==', user.uid),
-        firestore.where('nextFollowUpReviewedBySales', '==', false)
-      ));
-      setPendingFollowUpClients(unreviewedFollowUpSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+        const unreviewedFollowUpSnap = await firestore.getDocs(firestore.query(
+          clientsRef,
+          firestore.where('salesAgentId', '==', user.uid),
+          firestore.where('nextFollowUpReviewedBySales', '==', false)
+        ));
+        setPendingFollowUpClients(unreviewedFollowUpSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
 
-      const overdueSnap = await firestore.getDocs(firestore.query(
-        clientsRef,
-        firestore.where('salesAgentId', '==', user.uid),
-        firestore.where('nextFollowUpDate', '<', Date.now()),
-        firestore.where('nextFollowUpDate', '>', 0)
-      ));
-      setOverdueClients(overdueSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-
-      setLoading(false);
+        const overdueSnap = await firestore.getDocs(firestore.query(
+          clientsRef,
+          firestore.where('salesAgentId', '==', user.uid),
+          firestore.where('nextFollowUpDate', '<', Date.now()),
+          firestore.where('nextFollowUpDate', '>', 0)
+        ));
+        setOverdueClients(overdueSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+      } catch (err) {
+        console.error('EndShiftModal query failed (likely a missing Firestore index):', err);
+      } finally {
+        setLoading(false);
+      }
     })();
   }, [isOpen, user]);
 

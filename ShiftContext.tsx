@@ -82,26 +82,34 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     let unsub: (() => void) | undefined;
     (async () => {
-      const q = firestore.query(
-        firestore.collection(db, 'shifts'),
-        firestore.where('userId', '==', user.uid),
-        firestore.where('date', '==', todayDateStr()),
-        firestore.orderBy('createdAt', 'desc'),
-        firestore.limit(1)
-      );
-      const snap = await firestore.getDocs(q);
-      if (snap.empty) {
-        await createFreshShift(user.uid, user.name);
-      }
-      unsub = firestore.onSnapshot(q, (s) => {
-        if (!s.empty) {
-          const d = s.docs[0];
-          setShift({ id: d.id, ...d.data() } as Shift);
-        } else {
-          setShift(null);
+      try {
+        const q = firestore.query(
+          firestore.collection(db, 'shifts'),
+          firestore.where('userId', '==', user.uid),
+          firestore.where('date', '==', todayDateStr()),
+          firestore.orderBy('createdAt', 'desc'),
+          firestore.limit(1)
+        );
+        const snap = await firestore.getDocs(q);
+        if (snap.empty) {
+          await createFreshShift(user.uid, user.name);
         }
+        unsub = firestore.onSnapshot(q, (s) => {
+          if (!s.empty) {
+            const d = s.docs[0];
+            setShift({ id: d.id, ...d.data() } as Shift);
+          } else {
+            setShift(null);
+          }
+          setLoading(false);
+        }, (err) => {
+          console.error('ShiftContext onSnapshot error:', err);
+          setLoading(false);
+        });
+      } catch (err) {
+        console.error('ShiftContext init error (likely a missing Firestore index -- check the console for a create-index link):', err);
         setLoading(false);
-      });
+      }
     })();
 
     return () => { if (unsub) unsub(); };

@@ -9,7 +9,7 @@ import { useAuth } from '../App';
 import { useShift, getUsedBreakMs, MAX_BREAK_SEGMENTS } from '../ShiftContext';
 import {
   DailyReport, Client, ClientStatus, UserRole,
-  FollowUp, Target, DefaultTarget, User, Label
+  FollowUp, Target, DefaultTarget, User, Label, ShiftBreakEntry
 } from '../types';
 import {
   FileText, Send, BarChart3, Users, Star,
@@ -545,11 +545,7 @@ const Reports: React.FC = () => {
                     <div className="flex flex-wrap gap-2">
                       {(shift.breaks || []).map((b, i) => (
                         <span key={i} className="text-[11px] font-bold bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-full">
-                          {new Date(b.startedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
-                          {b.endedAt
-                            ? ` - ${new Date(b.endedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })} (${formatWorkedDuration(b.endedAt - b.startedAt) || '<1د'})`
-                            : ' (لسه شغال)'}
-                          {b.lateMinutes ? ` — متأخر ${b.lateMinutes}د` : ''}
+                          {formatBreakEntry(b)}
                         </span>
                       ))}
                     </div>
@@ -918,6 +914,15 @@ function formatWorkedDuration(ms?: number): string {
   return `${h}س ${m}د`;
 }
 
+function formatBreakEntry(b: ShiftBreakEntry): string {
+  const start = new Date(b.startedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+  if (!b.endedAt) return `${start} (لسه شغال)`;
+  const end = new Date(b.endedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+  const dur = formatWorkedDuration(b.endedAt - b.startedAt) || '<1د';
+  const late = b.lateMinutes ? ` — متأخر ${b.lateMinutes}د` : '';
+  return `${start} - ${end} (${dur})${late}`;
+}
+
 const ReportCard: React.FC<{ report: DailyReport, onEdit: () => void, onDelete?: () => void, isManager?: boolean }> = ({ report, onEdit, onDelete, isManager }) => {
   const { user } = useAuth();
   const [replyDraft, setReplyDraft] = useState(report.supervisorReply || '');
@@ -1001,13 +1006,24 @@ const ReportCard: React.FC<{ report: DailyReport, onEdit: () => void, onDelete?:
       </div>
 
       {report.shiftStartedAt && (
-        <div className="p-3 bg-blue-50 dark:bg-blue-500/5 rounded-xl flex items-center justify-between text-[9px] font-black text-blue-600 dark:text-blue-400">
-          <span>
-            الشيفت: {new Date(report.shiftStartedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
-            {report.shiftEndedAt && ` - ${new Date(report.shiftEndedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}`}
-            {report.totalWorkedMs ? ` (${formatWorkedDuration(report.totalWorkedMs)} فعلي)` : ''}
-          </span>
-          {report.breaks && report.breaks.length > 0 && <span>{report.breaks.length} بريك</span>}
+        <div className="p-3 bg-blue-50 dark:bg-blue-500/5 rounded-xl space-y-2 text-blue-600 dark:text-blue-400">
+          <div className="flex items-center justify-between text-[9px] font-black">
+            <span>
+              الشيفت: {new Date(report.shiftStartedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+              {report.shiftEndedAt && ` - ${new Date(report.shiftEndedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}`}
+              {report.totalWorkedMs ? ` (${formatWorkedDuration(report.totalWorkedMs)} فعلي)` : ''}
+            </span>
+            {report.preShiftReviewDurationMs ? <span>مراجعة: {formatWorkedDuration(report.preShiftReviewDurationMs)}</span> : null}
+          </div>
+          {report.breaks && report.breaks.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {report.breaks.map((b, i) => (
+                <span key={i} className="text-[8px] font-bold bg-white/70 dark:bg-slate-800/70 px-2 py-1 rounded-full">
+                  {formatBreakEntry(b)}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

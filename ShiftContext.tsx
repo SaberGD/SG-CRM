@@ -4,12 +4,21 @@ import { db } from './firebase';
 import { useAuth } from './App';
 import { UserRole, Shift, ShiftBreakEntry } from './types';
 
-const BREAK_DURATION_MS = 30 * 60 * 1000;
+// One cumulative 30-minute break budget per day, spendable across up to
+// MAX_BREAK_SEGMENTS separate start/stop cycles (not 30 fresh minutes per click).
+const BREAK_DAILY_BUDGET_MS = 30 * 60 * 1000;
 const BREAK_GRACE_MS = 5 * 60 * 1000;
+const MAX_BREAK_SEGMENTS = 3;
 
 function todayDateStr(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Sums only closed segments -- an in-progress (still open) segment contributes
+// nothing here since its own elapsed time is tracked live by the caller.
+function getUsedBreakMs(breaks: ShiftBreakEntry[]): number {
+  return breaks.reduce((sum, b) => sum + (b.endedAt ? b.endedAt - b.startedAt : 0), 0);
 }
 
 interface ShiftContextType {
@@ -126,11 +135,14 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [shift]);
 
   const startBreak = useCallback(async () => {
-    if (!shift) return;
+    if (!shift || shift.status !== 'active') return;
+    const breaks = shift.breaks || [];
+    if (breaks.length >= MAX_BREAK_SEGMENTS) return;
+    if (getUsedBreakMs(breaks) >= BREAK_DAILY_BUDGET_MS) return;
     const newBreak: ShiftBreakEntry = { startedAt: Date.now() };
     await firestore.updateDoc(firestore.doc(db, 'shifts', shift.id), {
       status: 'on_break',
-      breaks: [...(shift.breaks || []), newBreak],
+      breaks: [...breaks, newBreak],
     });
   }, [shift]);
 
@@ -138,9 +150,11 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!shift || shift.breaks.length === 0) return;
     const breaks = [...shift.breaks];
     const last = breaks[breaks.length - 1];
+    if (last.endedAt) return;
     const now = Date.now();
-    const elapsed = now - last.startedAt;
-    const lateMs = elapsed - (BREAK_DURATION_MS + BREAK_GRACE_MS);
+    const usedBeforeThisSegment = getUsedBreakMs(breaks.slice(0, -1));
+    const totalUsedMs = usedBeforeThisSegment + (now - last.startedAt);
+    const lateMs = totalUsedMs - (BREAK_DAILY_BUDGET_MS + BREAK_GRACE_MS);
     breaks[breaks.length - 1] = {
       ...last,
       endedAt: now,
@@ -183,4 +197,4 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 };
 
-export { BREAK_DURATION_MS, BREAK_GRACE_MS };
+export { BREAK_DAILY_BUDGET_MS, BREAK_GRACE_MS, MAX_BREAK_SEGMENTS, getUsedBreakMs };

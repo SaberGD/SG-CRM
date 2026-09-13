@@ -6,16 +6,16 @@ import {
 } from 'firebase/firestore';
 import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../App';
-import { useShift } from '../ShiftContext';
-import { 
-  DailyReport, Client, ClientStatus, UserRole, 
-  FollowUp, Target, DefaultTarget, User, Label 
+import { useShift, getUsedBreakMs, MAX_BREAK_SEGMENTS } from '../ShiftContext';
+import {
+  DailyReport, Client, ClientStatus, UserRole,
+  FollowUp, Target, DefaultTarget, User, Label
 } from '../types';
-import { 
-  FileText, Send, BarChart3, Users, Star, 
-  AlertTriangle, CheckCircle2, Target as TargetIcon, 
-  TrendingUp, Clock, Search, Filter, ChevronDown, 
-  ChevronUp, Edit3, Save, X, LayoutDashboard, ListChecks, Download
+import {
+  FileText, Send, BarChart3, Users, Star,
+  AlertTriangle, CheckCircle2, Target as TargetIcon,
+  TrendingUp, Clock, Search, Filter, ChevronDown,
+  ChevronUp, Edit3, Save, X, LayoutDashboard, ListChecks, Download, Coffee
 } from 'lucide-react';
 import { analyzeDailyReport } from '../geminiService';
 import { normalizeLabelColor } from '../utils/labelColors';
@@ -523,6 +523,42 @@ const Reports: React.FC = () => {
                 max={new Date().toISOString().split('T')[0]}
               />
             </div>
+
+            {/* Shift Summary -- shown before writing the report so the rep can reference it */}
+            {shift && shift.date === selectedDate && (shift.startedAt || shift.preShiftReviewDurationMs) && (
+              <section className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl space-y-5">
+                <h2 className="text-xl font-black flex items-center gap-2"><Clock className="text-primary-500" /> ملخص شيفت اليوم</h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <MiniStat label="مدة المراجعة قبل البدء" value={formatWorkedDuration(shift.preShiftReviewDurationMs) || '—'} />
+                  <MiniStat label="وقت البداية الفعلي" value={shift.startedAt ? new Date(shift.startedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '—'} />
+                  <MiniStat label="وقت الانتهاء الفعلي" value={shift.endedAt ? new Date(shift.endedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : 'لسه شغال'} />
+                  <MiniStat
+                    label="إجمالي وقت العمل الفعلي"
+                    value={shift.startedAt && shift.endedAt ? (formatWorkedDuration((shift.endedAt - shift.startedAt) - getUsedBreakMs(shift.breaks || [])) || '—') : '—'}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-1.5">
+                    <Coffee size={12} /> البريكات ({(shift.breaks || []).length} من {MAX_BREAK_SEGMENTS})
+                  </p>
+                  {(shift.breaks || []).length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {(shift.breaks || []).map((b, i) => (
+                        <span key={i} className="text-[11px] font-bold bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-full">
+                          {new Date(b.startedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                          {b.endedAt
+                            ? ` - ${new Date(b.endedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })} (${formatWorkedDuration(b.endedAt - b.startedAt) || '<1د'})`
+                            : ' (لسه شغال)'}
+                          {b.lateMinutes ? ` — متأخر ${b.lateMinutes}د` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs font-bold text-slate-400">مفيش بريك اتاخد النهاردة</p>
+                  )}
+                </div>
+              </section>
+            )}
 
             {/* Stats Cards */}
             <section className="grid grid-cols-2 md:grid-cols-4 gap-4">

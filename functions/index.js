@@ -665,6 +665,46 @@ async function postMetaLeadEvent(phoneFull, contentName, contentCategory) {
   }
 }
 
+/** TEMPORARY one-off cutover: accept the entire existing backlog so the AI-review UI only applies to clients/follow-ups created from now on. Remove after use. */
+exports.adminAcceptExistingBacklog = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  const expectedSecret = process.env.AUTOMATION_SECRET || "";
+  const providedSecret = req.get("x-automation-secret") || "";
+  if (!expectedSecret || providedSecret !== expectedSecret) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const log = [];
+  try {
+    const clientsRef = db.collection("clients");
+
+    const unreviewedSnap = await clientsRef.where("reviewedBySales", "==", false).get();
+    let batch1 = db.batch();
+    let n1 = 0;
+    for (const d of unreviewedSnap.docs) {
+      batch1.update(d.ref, { reviewedBySales: true });
+      log.push(`ACCEPT client ${d.id} (${d.data().name})`);
+      n1++;
+      if (n1 % 400 === 0) { await batch1.commit(); batch1 = db.batch(); }
+    }
+    if (n1 % 400 !== 0) await batch1.commit();
+
+    const unreviewedFollowUpSnap = await clientsRef.where("nextFollowUpReviewedBySales", "==", false).get();
+    let batch2 = db.batch();
+    let n2 = 0;
+    for (const d of unreviewedFollowUpSnap.docs) {
+      batch2.update(d.ref, { nextFollowUpReviewedBySales: true });
+      log.push(`ACCEPT follow-up ${d.id} (${d.data().name})`);
+      n2++;
+      if (n2 % 400 === 0) { await batch2.commit(); batch2 = db.batch(); }
+    }
+    if (n2 % 400 !== 0) await batch2.commit();
+
+    return res.json({ success: true, clientsAccepted: n1, followUpsAccepted: n2, log });
+  } catch (e) {
+    console.error("adminAcceptExistingBacklog failed:", e);
+    return res.status(500).json({ error: e?.message || "Unknown error", log });
+  }
+});
+
 /**
  * Read-only lookup for the n8n automation: the live, active services catalog,
  * so the Gemini extraction step can semantically match a customer's own wording
@@ -877,6 +917,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
           updateData.nextFollowUpDate = nextFollowUpTs;
           updateData.nextFollowUpMethod = mappedMethod;
           updateData.nextFollowUpSetVia = "ai_automation";
+          updateData.nextFollowUpReason = body.next_followup_reason ? String(body.next_followup_reason).trim() : "";
           updateData.nextFollowUpReviewedBySales = false;
         }
       }
@@ -1001,6 +1042,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       newClientData.nextFollowUpDate = nextFollowUpTs;
       newClientData.nextFollowUpMethod = mappedMethod;
       newClientData.nextFollowUpSetVia = "ai_automation";
+      newClientData.nextFollowUpReason = body.next_followup_reason ? String(body.next_followup_reason).trim() : "";
       newClientData.nextFollowUpReviewedBySales = false;
     }
 

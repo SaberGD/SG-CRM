@@ -151,6 +151,7 @@ export interface Client {
   nextFollowUpDate?: number;
   nextFollowUpMethod?: CommMethod;
   nextFollowUpSetVia?: 'ai_automation' | 'manual';
+  nextFollowUpReason?: string;
   nextFollowUpReviewedBySales?: boolean;
   nextFollowUpReviewedByName?: string;
   nextFollowUpReviewedAt?: number;

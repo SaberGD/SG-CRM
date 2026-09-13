@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
+import AcceptFlowModal from '../components/AcceptFlowModal';
 import { getLabelColorStyle } from '../utils/labelColors';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
@@ -61,6 +62,7 @@ const ClientDetails: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isAcceptFlowOpen, setIsAcceptFlowOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
 
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
@@ -460,20 +462,6 @@ const ClientDetails: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
-  const handleConfirmAiFollowUp = async () => {
-    if (!client || !user) return;
-    try {
-      const reviewedAt = Date.now();
-      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
-        nextFollowUpReviewedBySales: true,
-        nextFollowUpReviewedByName: user.name,
-        nextFollowUpReviewedAt: reviewedAt,
-      });
-      await logActivity(user.uid, user.name, `تأكيد صحة موعد متابعة مقترح من الأتمتة`, client.id, client.name);
-      setClient({ ...client, nextFollowUpReviewedBySales: true, nextFollowUpReviewedByName: user.name, nextFollowUpReviewedAt: reviewedAt });
-    } catch (err) { console.error(err); }
-  };
-
   const handleMarkFollowUpReviewed = async (followUpId: string) => {
     if (!user) return;
     try {
@@ -504,20 +492,6 @@ const ClientDetails: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
-  const handleMarkReviewed = async () => {
-    if (!client || !user) return;
-    try {
-      const reviewedAt = Date.now();
-      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
-        reviewedBySales: true,
-        reviewedByName: user.name,
-        reviewedAt,
-      });
-      await logActivity(user.uid, user.name, `مراجعة وتأكيد بيانات عميل مسجّل تلقائيًا`, client.id, client.name);
-      setClient({ ...client, reviewedBySales: true, reviewedByName: user.name, reviewedAt });
-    } catch (err) { console.error(err); }
-  };
-
   if (loading) return <div className="text-center py-40 animate-pulse font-black text-primary-500">جاري تحميل السجل...</div>;
   if (!client) return <div className="text-center py-40">العميل غير موجود</div>;
   const sourceMeta = getClientSourceMeta(client.source);
@@ -530,23 +504,18 @@ const ClientDetails: React.FC = () => {
           <div className="flex items-center gap-3">
             <Sparkles size={22} className="text-orange-500 shrink-0" />
             <div>
-              <p className="font-black text-orange-700 dark:text-orange-400 text-sm">العميل ده مسجّل تلقائيًا بواسطة الأتمتة (AI) — محتاج مراجعة سيلز</p>
-              <p className="text-[11px] font-bold text-orange-600/80 dark:text-orange-400/70 mt-0.5">راجع الاسم، رقم الهاتف، رابط الحساب، ومنصة التواصل — عدّل لو محتاج، وبعدين أكّد إن البيانات صح.</p>
+              <p className="font-black text-orange-700 dark:text-orange-400 text-sm">AI Generated — العميل ده مسجّل تلقائيًا بواسطة الأتمتة</p>
+              <p className="text-[11px] font-bold text-orange-600/80 dark:text-orange-400/70 mt-0.5">راجع الاسم، رقم الهاتف، رابط الحساب، ومنصة التواصل، وعدّل لو محتاج، ثم اضغط Accept.</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button onClick={() => setIsEditModalOpen(true)} className="sg-btn sg-btn-secondary !py-3 !px-5 text-xs">
-              <Edit2 size={16} /> عدّل البيانات
-            </button>
-            <button onClick={handleMarkReviewed} className="sg-btn sg-btn-primary !py-3 !px-5 text-xs bg-orange-500 hover:bg-orange-600">
-              <CheckCircle2 size={16} /> تأكيد البيانات (Check)
-            </button>
-          </div>
+          <button onClick={() => setIsAcceptFlowOpen(true)} className="sg-btn sg-btn-primary !py-3 !px-5 text-xs bg-orange-500 hover:bg-orange-600 shrink-0">
+            <CheckCircle2 size={16} /> Accept
+          </button>
         </div>
       )}
       {client.createdVia === 'ai_automation' && client.reviewedBySales && client.reviewedByName && (
         <p className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5 -mb-2">
-          <CheckCircle2 size={12} className="text-emerald-500" /> تمت مراجعة بيانات هذا العميل (المُسجّل تلقائيًا) بواسطة {client.reviewedByName}
+          <Sparkles size={12} className="text-slate-400" /> AI Generated &amp; Accepted by {client.reviewedByName}
           {client.reviewedAt && ` - ${new Date(client.reviewedAt).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
         </p>
       )}
@@ -641,22 +610,19 @@ const ClientDetails: React.FC = () => {
              <p className="text-[10px] font-black mt-1 bg-white/20 px-3 py-1 rounded-full">{CommMethodLabels[client.nextFollowUpMethod].ar}</p>
            )}
            {client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales ? (
-             <div className="mt-4 flex items-center gap-2">
+             <div className="mt-4 space-y-2">
+               {client.nextFollowUpReason && (
+                 <p className="text-[9px] font-bold bg-white/15 px-3 py-1.5 rounded-lg">{client.nextFollowUpReason}</p>
+               )}
                <button
-                 onClick={() => setIsScheduleModalOpen(true)}
-                 className="bg-white/20 text-white px-3 py-2 rounded-xl text-[10px] font-black shadow-lg hover:bg-white/30 transition-all flex items-center gap-1"
+                 onClick={() => setIsAcceptFlowOpen(true)}
+                 className="bg-white text-orange-600 px-4 py-2 rounded-xl text-[10px] font-black shadow-lg hover:scale-105 transition-all flex items-center gap-1 mx-auto"
                >
-                 <Edit2 size={12} /> عدّل الموعد
-               </button>
-               <button
-                 onClick={handleConfirmAiFollowUp}
-                 className="bg-white text-orange-600 px-3 py-2 rounded-xl text-[10px] font-black shadow-lg hover:scale-105 transition-all flex items-center gap-1"
-               >
-                 <CheckCircle2 size={12} /> الموعد صح (Check)
+                 <Sparkles size={12} /> Accept
                </button>
              </div>
            ) : client.nextFollowUpSetVia === 'ai_automation' && client.nextFollowUpReviewedBySales && client.nextFollowUpReviewedByName ? (
-             <p className="text-[9px] font-bold mt-2 opacity-80">تمت المراجعة بواسطة {client.nextFollowUpReviewedByName}</p>
+             <p className="text-[9px] font-bold mt-2 opacity-80">AI Generated & Accepted by {client.nextFollowUpReviewedByName}</p>
            ) : null}
            {client.nextFollowUpDate && !isCommunicating && !showForm && (
              <button
@@ -1363,11 +1329,22 @@ const ClientDetails: React.FC = () => {
       </FloatingPanel>
 
       {client && user && (
-        <ManualFollowUpModal 
-          isOpen={isManualModalOpen} 
-          onClose={() => setIsManualModalOpen(false)} 
-          client={client} 
-          user={user} 
+        <ManualFollowUpModal
+          isOpen={isManualModalOpen}
+          onClose={() => setIsManualModalOpen(false)}
+          client={client}
+          user={user}
+        />
+      )}
+
+      {isAcceptFlowOpen && client && (
+        <AcceptFlowModal
+          client={client}
+          onClose={() => setIsAcceptFlowOpen(false)}
+          onDone={(updated) => {
+            setClient({ ...client, ...updated });
+            setIsAcceptFlowOpen(false);
+          }}
         />
       )}
     </div>

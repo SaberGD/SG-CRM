@@ -12,6 +12,7 @@ import {
 } from '../types';
 import FloatingPanel from '../components/FloatingPanel';
 import { BulkImportModal } from '../components/BulkImportModal';
+import AcceptFlowModal from '../components/AcceptFlowModal';
 import { exportBookingsToExcel } from '../utils/exportClients';
 import { getLabelColorStyle } from '../utils/labelColors';
 import { 
@@ -102,6 +103,7 @@ const ClientsList: React.FC = () => {
   const [totalRead, setTotalRead] = useState(0);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [acceptFlowClient, setAcceptFlowClient] = useState<Client | null>(null);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -1060,6 +1062,7 @@ const ClientsList: React.FC = () => {
                 <tr><td colSpan={canDelete ? 6 : 5} className="py-20 text-center text-slate-400 font-bold italic">لا يوجد عملاء حالياً</td></tr>
               ) : filteredClients.map((client) => {
                 const isUnreviewedAi = client.createdVia === 'ai_automation' && !client.reviewedBySales;
+                const isUnreviewedFollowUp = !isUnreviewedAi && client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales && !!client.nextFollowUpDate;
                 const sourceMeta = getClientSourceMeta(client.source);
                 const SourceIcon = sourceMeta.Icon;
                 const clientLabels = (client.labels || [])
@@ -1067,7 +1070,7 @@ const ClientsList: React.FC = () => {
                   .filter(Boolean) as Label[];
 
                 return (
-                <tr key={client.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all ${selectedClientSet.has(client.id) ? 'bg-rose-50/60 dark:bg-rose-500/5' : isUnreviewedAi ? 'bg-orange-50/60 dark:bg-orange-500/10 border-r-2 border-orange-400' : ''}`}>
+                <tr key={client.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all ${selectedClientSet.has(client.id) ? 'bg-rose-50/60 dark:bg-rose-500/5' : (isUnreviewedAi || isUnreviewedFollowUp) ? 'bg-orange-50/60 dark:bg-orange-500/10 border-r-2 border-orange-400' : ''}`}>
                   {canDelete && (
                     <td className="px-6 py-6 text-center">
                       <input
@@ -1090,17 +1093,32 @@ const ClientsList: React.FC = () => {
                       </div>
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <p onClick={() => navigate(`/clients/${client.id}`)} className={`font-black text-sm cursor-pointer hover:text-primary-500 ${isUnreviewedAi ? 'text-orange-600 dark:text-orange-400' : 'text-slate-900 dark:text-white'}`}>{client.name}</p>
+                          <p onClick={() => navigate(`/clients/${client.id}`)} className={`font-black text-sm cursor-pointer hover:text-primary-500 ${(isUnreviewedAi || isUnreviewedFollowUp) ? 'text-orange-600 dark:text-orange-400' : 'text-slate-900 dark:text-white'}`}>{client.name}</p>
                           <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black border border-current/10 ${sourceMeta.box}`}>
                             {sourceMeta.label}
                           </span>
-                          {isUnreviewedAi && (
-                            <span
-                              onClick={() => navigate(`/clients/${client.id}`)}
-                              title="عميل مسجّل تلقائيًا بواسطة الأتمتة، محتاج مراجعة سيلز"
-                              className="cursor-pointer bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 text-[8px] font-black px-1.5 py-0.5 rounded border border-orange-200 dark:border-orange-500/20 flex items-center gap-1"
+                          {isUnreviewedAi ? (
+                            <button
+                              onClick={() => setAcceptFlowClient(client)}
+                              title="عميل AI Generated — اضغط للمراجعة والقبول"
+                              className="cursor-pointer bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 text-[8px] font-black px-2 py-1 rounded-lg border border-orange-200 dark:border-orange-500/20 flex items-center gap-1 hover:bg-orange-200 dark:hover:bg-orange-500/20 transition-all"
                             >
-                              <Sparkles size={9} /> AI - محتاج مراجعة
+                              <Sparkles size={9} /> AI Generated — Accept
+                            </button>
+                          ) : isUnreviewedFollowUp ? (
+                            <button
+                              onClick={() => setAcceptFlowClient(client)}
+                              title="فيه موعد متابعة مقترح من الأتمتة — اضغط للمراجعة"
+                              className="cursor-pointer bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 text-[8px] font-black px-2 py-1 rounded-lg border border-orange-200 dark:border-orange-500/20 flex items-center gap-1 hover:bg-orange-200 dark:hover:bg-orange-500/20 transition-all"
+                            >
+                              <Sparkles size={9} /> متابعة مقترحة — Accept
+                            </button>
+                          ) : client.createdVia === 'ai_automation' && client.reviewedByName && (
+                            <span
+                              title={client.reviewedAt ? new Date(client.reviewedAt).toLocaleString('ar-EG') : ''}
+                              className="bg-slate-100 dark:bg-slate-800 text-slate-400 text-[8px] font-black px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-1"
+                            >
+                              <Sparkles size={9} /> AI Generated & Accepted by {client.reviewedByName}
                             </span>
                           )}
                           {client.isExternalTransfer && (
@@ -1808,6 +1826,17 @@ const ClientsList: React.FC = () => {
           fetchClients(false);
         }}
       />
+
+      {acceptFlowClient && (
+        <AcceptFlowModal
+          client={acceptFlowClient}
+          onClose={() => setAcceptFlowClient(null)}
+          onDone={(updated) => {
+            setClients(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c));
+            setAcceptFlowClient(null);
+          }}
+        />
+      )}
     </div>
   );
 };

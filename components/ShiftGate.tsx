@@ -1,16 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../App';
 import { useShift } from '../ShiftContext';
 import { Client, DailyReport } from '../types';
 import { Sparkles, CheckCircle2, Clock, PlayCircle, Eye, ArrowLeft, MessageSquare } from 'lucide-react';
+import AcceptFlowModal from './AcceptFlowModal';
 
 const ShiftGate: React.FC = () => {
   const { user } = useAuth();
   const { startShift, isGateOpen, dismissGate } = useShift();
-  const navigate = useNavigate();
 
   const [step, setStep] = useState<'welcome' | 'review'>('welcome');
   const [pendingClients, setPendingClients] = useState<Client[]>([]);
@@ -19,6 +18,7 @@ const ShiftGate: React.FC = () => {
   const [loadingData, setLoadingData] = useState(true);
   const [starting, setStarting] = useState(false);
   const [unackedReport, setUnackedReport] = useState<DailyReport | null>(null);
+  const [queueOpen, setQueueOpen] = useState(false);
 
   useEffect(() => {
     if (isGateOpen) setStep('welcome');
@@ -100,6 +100,17 @@ const ShiftGate: React.FC = () => {
   };
 
   const totalPending = pendingClients.length + pendingFollowUpClients.length;
+  const queue: Client[] = [];
+  const seenIds = new Set<string>();
+  [...pendingClients, ...pendingFollowUpClients].forEach(c => {
+    if (!seenIds.has(c.id)) { seenIds.add(c.id); queue.push(c); }
+  });
+
+  const handleQueueItemDone = (updated: Client) => {
+    setPendingClients(prev => prev.filter(c => c.id !== updated.id));
+    setPendingFollowUpClients(prev => prev.filter(c => c.id !== updated.id));
+    if (queue.length <= 1) setQueueOpen(false);
+  };
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
@@ -153,29 +164,14 @@ const ShiftGate: React.FC = () => {
             ) : (
               <div className="space-y-4">
                 {totalPending > 0 ? (
-                  <div className="p-5 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-2xl">
+                  <div className="p-5 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-2xl text-center">
+                    <Sparkles className="mx-auto text-orange-500 mb-2" size={24} />
                     <p className="font-black text-orange-700 dark:text-orange-400 text-sm mb-3">
-                      عندك {totalPending} حاجة محتاجة مراجعة (Check) قبل البداية:
+                      عندك {queue.length} عميل AI Generated محتاج توافق عليه، واحد واحد
                     </p>
-                    <ul className="space-y-2 max-h-52 overflow-y-auto">
-                      {pendingClients.map(c => (
-                        <li key={c.id}>
-                          <button onClick={() => navigate(`/clients/${c.id}`)} className="w-full text-right p-3 bg-white dark:bg-slate-800 rounded-xl text-xs font-bold flex items-center justify-between hover:ring-2 hover:ring-orange-400 transition-all">
-                            <span>{c.name}</span>
-                            <span className="text-[9px] font-black text-orange-500 uppercase">بيانات عميل جديد</span>
-                          </button>
-                        </li>
-                      ))}
-                      {pendingFollowUpClients.map(c => (
-                        <li key={`fu-${c.id}`}>
-                          <button onClick={() => navigate(`/clients/${c.id}`)} className="w-full text-right p-3 bg-white dark:bg-slate-800 rounded-xl text-xs font-bold flex items-center justify-between hover:ring-2 hover:ring-orange-400 transition-all">
-                            <span>{c.name}</span>
-                            <span className="text-[9px] font-black text-orange-500 uppercase">موعد متابعة مقترح</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="text-[10px] font-bold text-orange-600/70 dark:text-orange-400/70 mt-3">افتح كل واحدة، أكّد أو عدّل، وارجع هنا تكمل.</p>
+                    <button onClick={() => setQueueOpen(true)} className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-xs">
+                      يلا نراجعهم
+                    </button>
                   </div>
                 ) : (
                   <div className="p-5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-2xl text-center">
@@ -195,13 +191,15 @@ const ShiftGate: React.FC = () => {
                   )}
                 </div>
 
-                <button
-                  onClick={handleStart}
-                  disabled={starting || totalPending > 0}
-                  className={`w-full py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all ${totalPending > 0 ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed' : 'bg-primary-500 hover:bg-primary-600 text-white shadow-xl'}`}
-                >
-                  <CheckCircle2 size={18} /> {starting ? 'جاري البدء...' : totalPending > 0 ? `راجع الـ ${totalPending} حاجة الأول` : 'تمام، ابدأ الشيفت'}
-                </button>
+                {totalPending === 0 && (
+                  <button
+                    onClick={handleStart}
+                    disabled={starting}
+                    className="w-full py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all bg-primary-500 hover:bg-primary-600 text-white shadow-xl disabled:opacity-50"
+                  >
+                    <CheckCircle2 size={18} /> {starting ? 'جاري البدء...' : 'تمام، ابدأ الشيفت'}
+                  </button>
+                )}
                 <button onClick={() => setStep('welcome')} className="w-full text-center text-[11px] font-bold text-slate-400 flex items-center justify-center gap-1">
                   <ArrowLeft size={12} /> رجوع
                 </button>
@@ -210,6 +208,14 @@ const ShiftGate: React.FC = () => {
           </div>
         )}
       </div>
+
+      {queueOpen && queue[0] && (
+        <AcceptFlowModal
+          client={queue[0]}
+          onClose={() => setQueueOpen(false)}
+          onDone={handleQueueItemDone}
+        />
+      )}
     </div>
   );
 };

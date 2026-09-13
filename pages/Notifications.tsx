@@ -6,12 +6,15 @@ import { useAuth } from '../App';
 import { Client, User, UserRole, Service } from '../types';
 import { Calendar, CheckCircle, Clock, BellRing, Filter, BookOpen, User as UserIcon, PhoneCall, CalendarPlus, AlertCircle, X, Search, Clock4, Timer, Hash, UserCheck } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
+import AcceptFlowModal from '../components/AcceptFlowModal';
 import { useNavigate } from 'react-router-dom';
 
 const Notifications: React.FC = () => {
   const { user, effectiveRole } = useAuth();
   const navigate = useNavigate();
-  
+
+  const [acceptFlowClient, setAcceptFlowClient] = useState<Client | null>(null);
+
   // Data States
   const [tasks, setTasks] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -179,11 +182,12 @@ const Notifications: React.FC = () => {
               <EmptyState message="لا يوجد متابعات عاجلة حالياً" icon={CheckCircle} color="text-emerald-500" />
             ) : (
               urgentTasks.map(task => (
-                <TaskCard 
-                  key={task.id} 
-                  task={task} 
+                <TaskCard
+                  key={task.id}
+                  task={task}
                   onContact={() => navigate(`/clients/${task.id}`)}
                   onReschedule={() => { setRescheduleClient(task); setNewDate(new Date(task.nextFollowUpDate!).toISOString().split('T')[0]); }}
+                  onAccept={() => setAcceptFlowClient(task)}
                 />
               ))
             )}
@@ -202,11 +206,12 @@ const Notifications: React.FC = () => {
               <EmptyState message="لا توجد متابعات قادمة مجدولة" icon={Calendar} color="text-slate-300" />
             ) : (
               upcomingTasks.map(task => (
-                <TaskCard 
-                  key={task.id} 
-                  task={task} 
+                <TaskCard
+                  key={task.id}
+                  task={task}
                   onContact={() => navigate(`/clients/${task.id}`)}
                   onReschedule={() => { setRescheduleClient(task); setNewDate(new Date(task.nextFollowUpDate!).toISOString().split('T')[0]); }}
+                  onAccept={() => setAcceptFlowClient(task)}
                 />
               ))
             )}
@@ -240,15 +245,24 @@ const Notifications: React.FC = () => {
                <button onClick={handleReschedule} disabled={loading} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all active:scale-[0.98] disabled:opacity-50">تحديث الموعد</button>
              </div>
       </FloatingPanel>
+
+      {acceptFlowClient && (
+        <AcceptFlowModal
+          client={acceptFlowClient}
+          onClose={() => setAcceptFlowClient(null)}
+          onDone={() => setAcceptFlowClient(null)}
+        />
+      )}
     </div>
   );
 };
 
-const TaskCard: React.FC<{ 
-  task: Client; 
-  onContact: () => void; 
-  onReschedule: () => void; 
-}> = ({ task, onContact, onReschedule }) => {
+const TaskCard: React.FC<{
+  task: Client;
+  onContact: () => void;
+  onReschedule: () => void;
+  onAccept: () => void;
+}> = ({ task, onContact, onReschedule, onAccept }) => {
   const now = Date.now();
   const taskTime = task.nextFollowUpDate || 0;
   const isOverdue = taskTime < now;
@@ -295,13 +309,17 @@ const TaskCard: React.FC<{
               <h3 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white leading-none">{task.name}</h3>
               {isOverdue && <span className="w-3.5 h-3.5 bg-rose-500 rounded-full animate-ping shrink-0 shadow-lg shadow-rose-500/50"></span>}
             </div>
-            {isUnreviewedAi && (
+            {isUnreviewedAi ? (
               <button
-                onClick={onContact}
+                onClick={onAccept}
                 className="mt-2 bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 text-[9px] font-black px-3 py-1.5 rounded-full border border-orange-200 dark:border-orange-500/20 flex items-center gap-1.5 hover:bg-orange-200 dark:hover:bg-orange-500/20 transition-all mx-auto md:mx-0"
               >
-                <Clock4 size={10} /> موعد مقترح من الأتمتة — بانتظار تأكيدك أو تعديله
+                <Clock4 size={10} /> AI Generated — Accept
               </button>
+            ) : task.nextFollowUpSetVia === 'ai_automation' && task.nextFollowUpReviewedByName && (
+              <span className="mt-2 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[9px] font-black px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 flex items-center gap-1.5 mx-auto md:mx-0">
+                <Clock4 size={10} /> AI Generated & Accepted by {task.nextFollowUpReviewedByName}
+              </span>
             )}
           </div>
 

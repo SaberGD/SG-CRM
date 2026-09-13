@@ -5,7 +5,8 @@ import { db } from '../firebase';
 import { useAuth } from '../App';
 import { useShift } from '../ShiftContext';
 import { Client } from '../types';
-import { X, AlertTriangle, MessageCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { X, AlertTriangle, MessageCircle, CheckCircle2, ArrowLeft, Sparkles } from 'lucide-react';
+import AcceptFlowModal from './AcceptFlowModal';
 
 type Step = 'pending' | 'overdue' | 'whatsapp' | 'done';
 
@@ -19,6 +20,7 @@ const EndShiftModal: React.FC = () => {
   const [pendingClients, setPendingClients] = useState<Client[]>([]);
   const [pendingFollowUpClients, setPendingFollowUpClients] = useState<Client[]>([]);
   const [overdueClients, setOverdueClients] = useState<Client[]>([]);
+  const [queueOpen, setQueueOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !user) return;
@@ -60,6 +62,17 @@ const EndShiftModal: React.FC = () => {
   if (!isOpen) return null;
 
   const totalPending = pendingClients.length + pendingFollowUpClients.length;
+  const queue: Client[] = [];
+  const seenIds = new Set<string>();
+  [...pendingClients, ...pendingFollowUpClients].forEach(c => {
+    if (!seenIds.has(c.id)) { seenIds.add(c.id); queue.push(c); }
+  });
+
+  const handleQueueItemDone = (updated: Client) => {
+    setPendingClients(prev => prev.filter(c => c.id !== updated.id));
+    setPendingFollowUpClients(prev => prev.filter(c => c.id !== updated.id));
+    if (queue.length <= 1) setQueueOpen(false);
+  };
 
   const handleFinish = async () => {
     await endShift();
@@ -81,30 +94,15 @@ const EndShiftModal: React.FC = () => {
           ) : step === 'pending' ? (
             totalPending > 0 ? (
               <div className="space-y-4">
-                <div className="p-5 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-2xl">
+                <div className="p-5 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-2xl text-center">
+                  <Sparkles className="mx-auto text-orange-500 mb-2" size={24} />
                   <p className="font-black text-orange-700 dark:text-orange-400 text-sm mb-3">
-                    فيه {totalPending} حاجة من الأتمتة لسه محتاجة مراجعة (Check) قبل ما تقفل الشيفت:
+                    فيه {queue.length} عميل AI Generated لسه محتاج توافق عليه قبل ما تقفل الشيفت
                   </p>
-                  <ul className="space-y-2 max-h-52 overflow-y-auto">
-                    {pendingClients.map(c => (
-                      <li key={c.id}>
-                        <button onClick={() => { onClose(); navigate(`/clients/${c.id}`); }} className="w-full text-right p-3 bg-white dark:bg-slate-800 rounded-xl text-xs font-bold flex items-center justify-between hover:ring-2 hover:ring-orange-400 transition-all">
-                          <span>{c.name}</span>
-                          <span className="text-[9px] font-black text-orange-500 uppercase">بيانات عميل</span>
-                        </button>
-                      </li>
-                    ))}
-                    {pendingFollowUpClients.map(c => (
-                      <li key={`fu-${c.id}`}>
-                        <button onClick={() => { onClose(); navigate(`/clients/${c.id}`); }} className="w-full text-right p-3 bg-white dark:bg-slate-800 rounded-xl text-xs font-bold flex items-center justify-between hover:ring-2 hover:ring-orange-400 transition-all">
-                          <span>{c.name}</span>
-                          <span className="text-[9px] font-black text-orange-500 uppercase">موعد متابعة</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  <button onClick={() => setQueueOpen(true)} className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-xs">
+                    يلا نراجعهم
+                  </button>
                 </div>
-                <p className="text-[11px] font-bold text-slate-400 text-center">راجعهم وارجع افتح "خلصت شغل!" تاني.</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -164,6 +162,14 @@ const EndShiftModal: React.FC = () => {
           ) : null}
         </div>
       </div>
+
+      {queueOpen && queue[0] && (
+        <AcceptFlowModal
+          client={queue[0]}
+          onClose={() => setQueueOpen(false)}
+          onDone={handleQueueItemDone}
+        />
+      )}
     </div>
   );
 };

@@ -16,7 +16,7 @@ import {
   MessageSquare, Edit2, X, Save, User, CalendarPlus, 
   Download, FileText, UserCheck, Settings, Timer, LayoutList, History as HistoryIcon,
   MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw,
-  Facebook, Instagram, Music2, Globe2
+  Facebook, Instagram, Music2, Globe2, CalendarX
 } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
@@ -307,6 +307,21 @@ const ClientDetails: React.FC = () => {
     setStartTime(null);
     setActiveAppointmentId(null);
     await logActivity(user.uid, user.name, "تراجع عن متابعة بدأت بالخطأ", client.id, client.name);
+  };
+
+  const handleAdminCancelFollowUp = async () => {
+    if (!user || !client || !isAdmin) return;
+    if (!window.confirm(`إلغاء الموعد المجدول لـ ${client.name}؟ الإجراء ده هيمسح الموعد بس، وسجل المتابعات القديمة في التايم لاين مش بيتأثر.`)) return;
+    await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+      nextFollowUpDate: 0,
+      nextFollowUpMethod: firestore.deleteField(),
+      nextFollowUpSetVia: firestore.deleteField(),
+      nextFollowUpReason: firestore.deleteField(),
+      nextFollowUpReviewedBySales: firestore.deleteField(),
+      nextFollowUpReviewedByName: firestore.deleteField(),
+      nextFollowUpReviewedAt: firestore.deleteField(),
+    });
+    await logActivity(user.uid, user.name, "إلغاء الموعد المجدول (أدمن)", client.id, client.name);
   };
 
   const calculateTimestamp = (d: string, t: string, p: string) => {
@@ -630,6 +645,15 @@ const ClientDetails: React.FC = () => {
                className="mt-4 bg-white text-primary-500 px-4 py-2 rounded-xl text-[10px] font-black shadow-lg hover:scale-105 transition-all"
              >
                بدء المتابعة لهذا الموعد
+             </button>
+           )}
+           {client.nextFollowUpDate && isAdmin && (
+             <button
+               onClick={handleAdminCancelFollowUp}
+               title="أدمن فقط — بيمسح الموعد المجدول بس"
+               className="mt-2 bg-white/15 text-white px-4 py-2 rounded-xl text-[10px] font-black hover:bg-white/25 transition-all flex items-center gap-1 mx-auto"
+             >
+               <CalendarX size={12} /> إلغاء المتابعة
              </button>
            )}
         </div>

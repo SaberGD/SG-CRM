@@ -16,12 +16,13 @@ import {
   MessageSquare, Edit2, X, Save, User, CalendarPlus, 
   Download, FileText, UserCheck, Settings, Timer, LayoutList, History as HistoryIcon,
   MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw,
-  Facebook, Instagram, Music2, Globe2, CalendarX
+  Facebook, Instagram, Music2, Globe2, CalendarX, UserPlus
 } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
 import AcceptFlowModal from '../components/AcceptFlowModal';
 import { getLabelColorStyle } from '../utils/labelColors';
+import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
 } from '../utils/currency';
@@ -64,6 +65,7 @@ const ClientDetails: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAcceptFlowOpen, setIsAcceptFlowOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [poolAgentId, setPoolAgentId] = useState<string | null>(null);
 
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
 
@@ -276,6 +278,16 @@ const ClientDetails: React.FC = () => {
   }, [id]);
 
   useEffect(() => {
+    firestore.getDocs(firestore.query(
+      firestore.collection(db, 'users'),
+      firestore.where('email', '==', POOL_AGENT_EMAIL),
+      firestore.limit(1)
+    )).then(snap => {
+      if (!snap.empty) setPoolAgentId(snap.docs[0].id);
+    }).catch(err => console.error('Failed to resolve pool agent id:', err));
+  }, []);
+
+  useEffect(() => {
     let interval: any;
     if (isCommunicating && startTime) {
       interval = setInterval(() => setElapsedTime(Math.floor((Date.now() - startTime) / 1000)), 1000);
@@ -307,6 +319,15 @@ const ClientDetails: React.FC = () => {
     setStartTime(null);
     setActiveAppointmentId(null);
     await logActivity(user.uid, user.name, "تراجع عن متابعة بدأت بالخطأ", client.id, client.name);
+  };
+
+  const handleAssignToMe = async () => {
+    if (!user || !client) return;
+    await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+      salesAgentId: user.uid,
+      salesAgentName: user.name,
+    });
+    await logActivity(user.uid, user.name, 'تعيين عميل لنفسه من حساب Saber Group المشترك', client.id, client.name);
   };
 
   const handleAdminCancelFollowUp = async () => {
@@ -514,6 +535,20 @@ const ClientDetails: React.FC = () => {
 
   return (
     <div className="sg-page max-w-6xl mx-auto space-y-6 animate-fade-in">
+      {!isHighRole && poolAgentId && client.salesAgentId === poolAgentId && (
+        <div className="sg-surface p-5 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <UserPlus size={22} className="text-blue-500 shrink-0" />
+            <div>
+              <p className="font-black text-blue-700 dark:text-blue-400 text-sm">العميل ده لسه على الحساب المشترك (Saber Group)</p>
+              <p className="text-[11px] font-bold text-blue-600/80 dark:text-blue-400/70 mt-0.5">ظاهر لكل السيلز — أول واحد يعمله Assign to me يتحول عليه ويختفي من عند الباقي.</p>
+            </div>
+          </div>
+          <button onClick={handleAssignToMe} className="sg-btn sg-btn-primary !py-3 !px-5 text-xs shrink-0">
+            <UserPlus size={16} /> Assign to me
+          </button>
+        </div>
+      )}
       {client.createdVia === 'ai_automation' && !client.reviewedBySales && (
         <div className="sg-surface p-5 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-3">

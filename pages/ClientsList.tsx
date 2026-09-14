@@ -16,11 +16,12 @@ import AcceptFlowModal from '../components/AcceptFlowModal';
 import { exportBookingsToExcel } from '../utils/exportClients';
 import { getLabelColorStyle } from '../utils/labelColors';
 import { 
-  Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2, 
+  Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2,
   Phone, MessageSquare, User, Clock, X,
   ExternalLink, Layers, AlertTriangle, Upload, Download, Sparkles,
-  SlidersHorizontal, ChevronDown, Facebook, Instagram, Music2, Globe2
+  SlidersHorizontal, ChevronDown, Facebook, Instagram, Music2, Globe2, UserPlus
 } from 'lucide-react';
+import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
 } from '../utils/currency';
@@ -95,6 +96,16 @@ const ClientsList: React.FC = () => {
   useEffect(() => {
     fetchExchangeRates().then(rates => setExchangeRates(rates));
   }, []);
+
+  useEffect(() => {
+    firestore.getDocs(firestore.query(
+      firestore.collection(db, 'users'),
+      firestore.where('email', '==', POOL_AGENT_EMAIL),
+      firestore.limit(1)
+    )).then(snap => {
+      if (!snap.empty) setPoolAgentId(snap.docs[0].id);
+    }).catch(err => console.error('Failed to resolve pool agent id:', err));
+  }, []);
   
   // Pagination
   const [lastVisible, setLastVisible] = useState<firestore.DocumentData | null>(clientsCache.lastVisible);
@@ -104,6 +115,7 @@ const ClientsList: React.FC = () => {
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [acceptFlowClient, setAcceptFlowClient] = useState<Client | null>(null);
+  const [poolAgentId, setPoolAgentId] = useState<string | null>(null);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -214,7 +226,8 @@ const ClientsList: React.FC = () => {
       filterGender,
       filterBookedCourse,
       filterSalesAgent,
-      debouncedSearch
+      debouncedSearch,
+      poolAgentId
     });
 
     // If filters have changed, we MUST reset data unless it was already cached for these filters
@@ -268,7 +281,7 @@ const ClientsList: React.FC = () => {
       unsubServices();
       unsubLabels();
     };
-  }, [authLoading, user, effectiveRole, filterStatus, filterService, filterLabel, filterLaptop, filterMode, filterGender, filterBookedCourse, filterSalesAgent, debouncedSearch, sortBy]);
+  }, [authLoading, user, effectiveRole, filterStatus, filterService, filterLabel, filterLaptop, filterMode, filterGender, filterBookedCourse, filterSalesAgent, debouncedSearch, sortBy, poolAgentId]);
 
   const fetchClients = async (isMore: boolean, searchOverride?: string) => {
     if (!user || (!isMore && isLoadingMore)) return;
@@ -321,9 +334,12 @@ const ClientsList: React.FC = () => {
         constraints.push(firestore.orderBy('createdAt', 'desc'));
       }
 
-      // Role check
+      // Role check -- sales reps also see clients still sitting on the shared
+      // "Saber Group" pool account (unassigned automation clients) so any of
+      // them can claim one; see POOL_AGENT_EMAIL above.
       if (!isHighRole) {
-        constraints.push(firestore.where('salesAgentId', '==', user.uid));
+        const ownIds = poolAgentId ? [user.uid, poolAgentId] : [user.uid];
+        constraints.push(firestore.where('salesAgentId', 'in', ownIds));
       } else if (filterSalesAgent !== 'all') {
         constraints.push(firestore.where('salesAgentId', '==', filterSalesAgent));
       }
@@ -715,6 +731,21 @@ const ClientsList: React.FC = () => {
     } catch (err) { 
       handleFirestoreError(err, OperationType.WRITE, 'clients/transfers');
       alert("حدث خطأ في الصلاحيات أثناء تحويل العميل.");
+    }
+  };
+
+  const handleAssignToMe = async (client: Client) => {
+    if (!user) return;
+    try {
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+        salesAgentId: user.uid,
+        salesAgentName: user.name,
+      });
+      await logActivity(user.uid, user.name, 'تعيين عميل لنفسه من حساب Saber Group المشترك', client.id, client.name);
+      setClients(prev => prev.map(c => c.id === client.id ? { ...c, salesAgentId: user.uid, salesAgentName: user.name } : c));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'clients/assign-to-me');
+      alert('حدث خطأ أثناء تعيين العميل.');
     }
   };
 
@@ -1121,6 +1152,14 @@ const ClientsList: React.FC = () => {
                               <Sparkles size={9} /> AI Generated & Accepted by {client.reviewedByName}
                             </span>
                           )}
+                          {!isHighRole && poolAgentId && client.salesAgentId === poolAgentId && (
+                            <span
+                              title="العميل ده لسه على الحساب المشترك، ظاهر لكل السيلز لحد ما حد يعمله Assign to me"
+                              className="bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[8px] font-black px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-500/20"
+                            >
+                              غير معيّن — من الحساب المشترك
+                            </span>
+                          )}
                           {client.isExternalTransfer && (
                             <span className="bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[8px] font-black px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-500/10">
                               تحويل خارجي ({client.originalCurrency})
@@ -1188,7 +1227,19 @@ const ClientsList: React.FC = () => {
                       <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : client.mode === AttendanceMode.OFFLINE ? 'أوفلاين' : 'لم يحدد'}</span>
                     </div>
                   </td>
-                  <td className="px-8 py-6 text-center text-[10px] text-slate-500 font-bold italic">{client.salesAgentName}</td>
+                  <td className="px-8 py-6 text-center">
+                    {!isHighRole && poolAgentId && client.salesAgentId === poolAgentId ? (
+                      <button
+                        onClick={() => handleAssignToMe(client)}
+                        title="تحويل العميل ده لك أنت"
+                        className="bg-primary-500 hover:bg-primary-600 text-white text-[9px] font-black px-3 py-1.5 rounded-lg flex items-center gap-1 mx-auto transition-all"
+                      >
+                        <UserPlus size={11} /> Assign to me
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-slate-500 font-bold italic">{client.salesAgentName}</span>
+                    )}
+                  </td>
                   <td className="px-8 py-6">
                     <div className="flex justify-center gap-2">
                       <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="sg-icon-btn bg-emerald-50 text-emerald-500 dark:bg-emerald-500/10"><MessageCircle size={16} /></a>

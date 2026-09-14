@@ -136,7 +136,7 @@ const EndShiftModal: React.FC = () => {
               ) : (
                 <div className="p-5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-2xl text-center">
                   <CheckCircle2 className="mx-auto text-emerald-500 mb-2" size={26} />
-                  <p className="font-black text-emerald-700 dark:text-emerald-400 text-sm">مفيش مواعيد فاتتك 🎉</p>
+                  <p className="font-black text-emerald-700 dark:text-emerald-400 text-sm">مفيش مواعيد فاتتك</p>
                 </div>
               )}
               <button onClick={() => setStep('whatsapp')} className="sg-btn sg-btn-primary w-full justify-center py-4">

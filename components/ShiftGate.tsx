@@ -121,7 +121,7 @@ const ShiftGate: React.FC = () => {
               {user?.name?.[0] || '?'}
             </div>
             <div>
-              <h1 className="text-2xl font-black text-slate-900 dark:text-white">أهلاً بيك يا {user?.name}، مرة تانية! 👋</h1>
+              <h1 className="text-2xl font-black text-slate-900 dark:text-white">أهلاً بيك يا {user?.name}، مرة تانية</h1>
               <p className="text-slate-400 font-bold text-sm mt-2">هنعمل ايه النهاردة؟</p>
             </div>
             {unackedReport && (
@@ -176,7 +176,7 @@ const ShiftGate: React.FC = () => {
                 ) : (
                   <div className="p-5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-2xl text-center">
                     <CheckCircle2 className="mx-auto text-emerald-500 mb-2" size={28} />
-                    <p className="font-black text-emerald-700 dark:text-emerald-400 text-sm">مفيش حاجة من الأتمتة محتاجة مراجعة دلوقتي 🎉</p>
+                    <p className="font-black text-emerald-700 dark:text-emerald-400 text-sm">مفيش حاجة من الأتمتة محتاجة مراجعة دلوقتي</p>
                   </div>
                 )}
 

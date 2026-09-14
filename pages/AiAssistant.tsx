@@ -776,7 +776,7 @@ export const AiAssistant: React.FC = () => {
                     <span>
                       {isRevertingBatch
                         ? 'جاري التراجع...'
-                        : `التراجع عن تحليل آخر دفعة (${lastBatchBackup.count} عميل) ↩️`}
+                        : `التراجع عن تحليل آخر دفعة (${lastBatchBackup.count} عميل)`}
                     </span>
                   </button>
                 )}
@@ -788,7 +788,7 @@ export const AiAssistant: React.FC = () => {
                   title="تحديد السيلز الشغالين وحصة كل سيلز اليومية"
                 >
                   <SlidersHorizontal size={16} className="text-amber-400" />
-                  <span>السيلز الشغالين ({selectedActiveAgentIds.length}) & الحصة ({perAgentQuota}) ⚙️</span>
+                  <span>السيلز الشغالين ({selectedActiveAgentIds.length}) & الحصة ({perAgentQuota})</span>
                 </button>
 
                 <button
@@ -798,7 +798,7 @@ export const AiAssistant: React.FC = () => {
                   title="إغلاق الجولة الحالية والبدء في الجولة التالية لإتاحة جميع العملاء للتحليل من جديد"
                 >
                   <RotateCcw size={16} className="text-indigo-400" />
-                  <span>بدء راوند جديد (Round {currentRound + 1}) 🔄</span>
+                  <span>بدء راوند جديد (Round {currentRound + 1})</span>
                 </button>
 
                 <button
@@ -1368,7 +1368,7 @@ export const AiAssistant: React.FC = () => {
 
                             {rec.salesComment ? (
                               <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-slate-700/60">
-                                <span className="text-[10px] font-black text-slate-400 block mb-0.5">💬 رأي وملاحظات السيلز:</span>
+                                <span className="text-[10px] font-black text-slate-400 block mb-0.5">رأي وملاحظات السيلز:</span>
                                 {rec.salesComment}
                               </div>
                             ) : rec.status !== 'PENDING' ? (
@@ -1603,7 +1603,7 @@ export const AiAssistant: React.FC = () => {
                         </p>
 
                         <div className="p-3 bg-white dark:bg-slate-900 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-slate-800">
-                          <span className="text-[10px] font-black text-slate-400 block mb-0.5">💬 رأي وملاحظات السيلز:</span>
+                          <span className="text-[10px] font-black text-slate-400 block mb-0.5">رأي وملاحظات السيلز:</span>
                           {rec.salesComment || 'لا توجد ملاحظات مدونة'}
                         </div>
                       </div>
@@ -1665,7 +1665,7 @@ export const AiAssistant: React.FC = () => {
                         className="px-4 py-2.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 rounded-2xl text-xs font-black transition flex items-center gap-1.5"
                       >
                         <RotateCcw size={14} />
-                        <span>إعادة للمتابعة بأمر المشرف 🔄</span>
+                        <span>إعادة للمتابعة بأمر المشرف</span>
                       </button>
 
                       {/* Acknowledge Button */}

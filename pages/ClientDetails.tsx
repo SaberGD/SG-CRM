@@ -586,20 +586,29 @@ const ClientDetails: React.FC = () => {
             {client.chatId && (
               <p className="text-slate-400 font-bold flex items-center gap-2 mt-1 text-xs">Chat ID: <span dir="ltr">{client.chatId}</span></p>
             )}
-            {client.distinctiveSearchPhrase && (
+            {(client.chatId || client.createdVia === 'ai_automation' || client.distinctiveSearchPhrase) && (
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                <span className="min-w-0 max-w-full sm:max-w-md truncate whitespace-nowrap rounded-xl bg-slate-100 px-3 py-1.5 font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-300" title={client.distinctiveSearchPhrase}>
-                  جملة البحث: {client.distinctiveSearchPhrase}
+                <span
+                  className={`min-w-0 max-w-full sm:max-w-md truncate whitespace-nowrap rounded-xl px-3 py-1.5 font-bold ${
+                    client.distinctiveSearchPhrase
+                      ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'
+                      : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300'
+                  }`}
+                  title={client.distinctiveSearchPhrase || 'لم تُسجّل جملة بحث لهذا العميل بعد'}
+                >
+                  جملة البحث: {client.distinctiveSearchPhrase || 'لم تُسجّل بعد'}
                 </span>
                 <button
                   type="button"
                   onClick={async () => {
+                    if (!client.distinctiveSearchPhrase) return;
                     await navigator.clipboard.writeText(client.distinctiveSearchPhrase || '');
                     setCopiedSearchPhrase(true);
                     setTimeout(() => setCopiedSearchPhrase(false), 1800);
                   }}
-                  className="sg-icon-btn !h-8 !w-8 bg-slate-100 text-slate-500 hover:text-primary-500 dark:bg-slate-800 dark:text-slate-300"
-                  title="نسخ جملة البحث"
+                  disabled={!client.distinctiveSearchPhrase}
+                  className="sg-icon-btn !h-8 !w-8 bg-slate-100 text-slate-500 hover:text-primary-500 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-slate-800 dark:text-slate-300"
+                  title={client.distinctiveSearchPhrase ? 'نسخ جملة البحث' : 'لا توجد جملة بحث لنسخها'}
                   aria-label="نسخ جملة البحث المميزة"
                 >
                   {copiedSearchPhrase ? <Check size={14} /> : <Copy size={14} />}

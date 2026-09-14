@@ -182,6 +182,7 @@ export interface Client {
   lastChatwootContactAt?: number;
   chatId?: string;
   distinctiveSearchPhrase?: string;
+  automationSalesRepNameRaw?: string;
   createdVia?: 'ai_automation' | 'manual';
   reviewedBySales?: boolean;
   reviewedByName?: string;

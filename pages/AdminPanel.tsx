@@ -7,13 +7,20 @@ import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy, getD
 import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { User, UserRole, Client, FollowUp, ActivityLog, Shift } from '../types';
-import { 
-  ShieldCheck, UserCog, Mail, ShieldAlert, Trash2, Search, Edit3, 
+import {
+  ShieldCheck, UserCog, Mail, ShieldAlert, Trash2, Search, Edit3,
   X, Check, Users, Calendar, BarChart, Phone, Eye, ArrowLeft,
   FileText, Activity, AlertCircle, UserX, UserCheck, ArrowRightLeft,
-  PauseCircle, CheckCircle2, RefreshCw, Sparkles, UserMinus
+  PauseCircle, CheckCircle2, RefreshCw, Sparkles, UserMinus, Coffee, Clock
 } from 'lucide-react';
 import FloatingPanel from '../components/FloatingPanel';
+import { BREAK_DAILY_BUDGET_MS, BREAK_GRACE_MS, MAX_BREAK_SEGMENTS, getUsedBreakMs } from '../ShiftContext';
+import { formatDuration } from '../utils/time';
+
+function todayDateStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 const AdminPanel: React.FC = () => {
   const { user } = useAuth();
@@ -49,6 +56,33 @@ const AdminPanel: React.FC = () => {
   // Standalone Transfer Modal States
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [transferSourceUser, setTransferSourceUser] = useState<User | null>(null);
+
+  // Live team status (today's shifts, refreshed live)
+  const [todayShifts, setTodayShifts] = useState<Shift[]>([]);
+  const [liveNow, setLiveNow] = useState(Date.now());
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, 'shifts'), where('date', '==', todayDateStr())),
+      (snap) => setTodayShifts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Shift))),
+      (err) => console.error('AdminPanel today-shifts snapshot error:', err)
+    );
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => setLiveNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const latestShiftByUser = useMemo(() => {
+    const map: Record<string, Shift> = {};
+    todayShifts.forEach(s => {
+      const existing = map[s.userId];
+      if (!existing || s.createdAt > existing.createdAt) map[s.userId] = s;
+    });
+    return map;
+  }, [todayShifts]);
 
   useEffect(() => {
     // جلب كافة المستخدمين بدون أي فلترة أو ترتيب من جهة السيرفر لضمان ظهور الجميع
@@ -459,9 +493,22 @@ const AdminPanel: React.FC = () => {
         <QuickSummary icon={UserCog} label="المسؤولين والمشرفين" value={users.filter(u => u.role !== UserRole.SALES_AGENT && !u.isDeactivated).length} color="bg-amber-500" />
       </div>
 
+      {/* Live Team Status */}
+      <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 p-6 space-y-4">
+        <h2 className="text-lg font-black flex items-center gap-2"><Clock size={20} className="text-primary-500" /> حالة الفريق الآن</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {users.filter(u => u.role === UserRole.SALES_AGENT && !u.isDeactivated).map(u => (
+            <TeamStatusCard key={u.uid} agent={u} shift={latestShiftByUser[u.uid]} now={liveNow} />
+          ))}
+          {users.filter(u => u.role === UserRole.SALES_AGENT && !u.isDeactivated).length === 0 && (
+            <p className="text-xs font-bold text-slate-400 italic py-4">مفيش سيلز مفعّلين حاليًا</p>
+          )}
+        </div>
+      </div>
+
       {/* Table & Filtering Tabs */}
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden space-y-4 p-6">
-        
+
         {/* Status Filter Tabs */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
           <div className="flex items-center gap-2">
@@ -1015,6 +1062,71 @@ const AdminPanel: React.FC = () => {
               </div>
             )}
       </FloatingPanel>
+    </div>
+  );
+};
+
+const TeamStatusCard: React.FC<{ agent: User, shift: Shift | undefined, now: number }> = ({ agent, shift, now }) => {
+  let statusLabel = 'لسه مبدأش شغل';
+  let dotColor = 'bg-slate-300 dark:bg-slate-600';
+  let cardTone = 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800';
+  let detail: React.ReactNode = null;
+
+  if (shift?.status === 'reviewing') {
+    statusLabel = 'بيراجع قبل البدء';
+    dotColor = 'bg-amber-400';
+    cardTone = 'bg-amber-50/60 dark:bg-amber-500/5 border-amber-100 dark:border-amber-500/10';
+  } else if (shift?.status === 'active') {
+    statusLabel = 'شغال';
+    dotColor = 'bg-emerald-500 animate-pulse';
+    cardTone = 'bg-emerald-50/60 dark:bg-emerald-500/5 border-emerald-100 dark:border-emerald-500/10';
+    if (shift.startedAt) {
+      detail = <span className="font-black text-emerald-700 dark:text-emerald-400">{formatDuration(now - shift.startedAt)}</span>;
+    }
+  } else if (shift?.status === 'on_break') {
+    const breaks = shift.breaks || [];
+    const currentBreak = breaks[breaks.length - 1];
+    const usedBreakMs = getUsedBreakMs(breaks);
+    const breakElapsedMs = currentBreak ? now - currentBreak.startedAt : 0;
+    const remainingMs = (BREAK_DAILY_BUDGET_MS - usedBreakMs) - breakElapsedMs;
+    const isLate = (usedBreakMs + breakElapsedMs) > (BREAK_DAILY_BUDGET_MS + BREAK_GRACE_MS);
+    statusLabel = `بريك (${breaks.length}/${MAX_BREAK_SEGMENTS})`;
+    dotColor = isLate ? 'bg-rose-500 animate-pulse' : 'bg-amber-500 animate-pulse';
+    cardTone = isLate ? 'bg-rose-50/60 dark:bg-rose-500/5 border-rose-100 dark:border-rose-500/10' : 'bg-amber-50/60 dark:bg-amber-500/5 border-amber-100 dark:border-amber-500/10';
+    detail = (
+      <span className={`font-black ${isLate ? 'text-rose-600 dark:text-rose-400' : 'text-amber-700 dark:text-amber-400'}`}>
+        {remainingMs > 0 ? `متبقي ${formatDuration(remainingMs)}` : `متأخر ${formatDuration((usedBreakMs + breakElapsedMs) - BREAK_DAILY_BUDGET_MS - BREAK_GRACE_MS)}`}
+      </span>
+    );
+  } else if (shift?.status === 'ended') {
+    statusLabel = 'خلص شغل';
+    dotColor = 'bg-slate-400';
+    cardTone = 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800';
+    if (shift.startedAt && shift.endedAt) {
+      detail = (
+        <span className="font-bold text-slate-500">
+          {new Date(shift.startedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+          {' - '}
+          {new Date(shift.endedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+        </span>
+      );
+    }
+  }
+
+  return (
+    <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 ${cardTone}`}>
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-10 h-10 rounded-xl bg-primary-500 text-white flex items-center justify-center font-black text-sm shrink-0">
+          {agent.name?.[0] || '?'}
+        </div>
+        <div className="min-w-0">
+          <p className="font-black text-sm truncate">{agent.name}</p>
+          <p className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`}></span> {statusLabel}
+          </p>
+        </div>
+      </div>
+      <div className="text-[11px] shrink-0">{detail}</div>
     </div>
   );
 };

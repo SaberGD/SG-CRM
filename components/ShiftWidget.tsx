@@ -1,14 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useShift, BREAK_DAILY_BUDGET_MS, BREAK_GRACE_MS, MAX_BREAK_SEGMENTS, getUsedBreakMs } from '../ShiftContext';
+import { formatDuration } from '../utils/time';
 import { Clock, Coffee, Square } from 'lucide-react';
-
-function formatDuration(ms: number): string {
-  const totalSec = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
 
 const ShiftWidget: React.FC = () => {
   const { shift, startBreak, endBreak, openEndModal } = useShift();

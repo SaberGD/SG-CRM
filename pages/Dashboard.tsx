@@ -12,7 +12,7 @@ import ManualFollowUpModal from '../components/ManualFollowUpModal';
 import { useShift } from '../ShiftContext';
 
 const Dashboard: React.FC = () => {
-  const { user, effectiveRole } = useAuth();
+  const { user, effectiveRole, effectiveUser } = useAuth();
   const navigate = useNavigate();
   const { shift, isShiftApplicable, openGate, openEndModal, startBreak, endBreak, startNewShift } = useShift();
   const [stats, setStats] = useState({ total: 0, today: 0, upcoming: 0, overdue: 0, transfersToday: 0, booked: 0 });
@@ -45,7 +45,9 @@ const Dashboard: React.FC = () => {
     } else if (isHighRole && selectedAgentId !== 'all') {
       q = query(clientsRef, where('salesAgentId', '==', selectedAgentId));
     } else {
-      q = query(clientsRef, where('salesAgentId', '==', user.uid));
+      // Viewing as a specific agent (effectiveUser) scopes to their data,
+      // not the real admin's -- see setViewingAsUser in App.tsx.
+      q = query(clientsRef, where('salesAgentId', '==', effectiveUser?.uid || user.uid));
     }
 
     const unsub = onSnapshot(q, (snapshot) => {
@@ -82,7 +84,7 @@ const Dashboard: React.FC = () => {
     }
 
     return () => unsub();
-  }, [user, effectiveRole, selectedAgentId]);
+  }, [user, effectiveRole, effectiveUser, selectedAgentId]);
 
   const fetchAgents = async () => {
     try {

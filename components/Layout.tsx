@@ -4,11 +4,11 @@ import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
 import { auth, db, logActivity } from '../firebase';
 import { signOut } from 'firebase/auth';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { 
+import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
+import {
   LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog, Database, Sparkles
 } from 'lucide-react';
-import { UserRole, Client } from '../types';
+import { UserRole, Client, User } from '../types';
 import ShiftGate from './ShiftGate';
 import ShiftWidget from './ShiftWidget';
 import EndShiftModal from './EndShiftModal';
@@ -126,12 +126,24 @@ const AlarmManager: React.FC<{ user: any }> = ({ user }) => {
 };
 
 const Layout: React.FC = () => {
-  const { user, effectiveRole, setEffectiveRole } = useAuth();
+  const { user, effectiveRole, setEffectiveRole, viewingAsUser, setViewingAsUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isDark, setIsDark] = useState(true); 
+  const [isDark, setIsDark] = useState(true);
   const [liveNotification, setLiveNotification] = useState<string | null>(null);
+  const [viewableAgents, setViewableAgents] = useState<User[]>([]);
+
+  useEffect(() => {
+    if (user?.role !== UserRole.ADMIN) return;
+    getDocs(query(collection(db, 'users'), where('role', '==', UserRole.SALES_AGENT))).then(snap => {
+      const agents = snap.docs
+        .map(d => ({ uid: d.id, ...d.data() } as User))
+        .filter(a => !a.isDeactivated)
+        .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+      setViewableAgents(agents);
+    }).catch(err => console.error('Failed to load agents for view-as:', err));
+  }, [user?.role]);
 
   useEffect(() => {
     if (effectiveRole === UserRole.TEAM_LEADER || effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER) {
@@ -205,7 +217,16 @@ const Layout: React.FC = () => {
   }, [location.pathname]);
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
+    <div className={`min-h-screen flex flex-col lg:flex-row bg-slate-50 dark:bg-slate-950 transition-colors duration-300 ${viewingAsUser ? 'pt-9' : ''}`}>
+      {viewingAsUser && (
+        <div className="fixed top-0 inset-x-0 z-[100] bg-amber-500 text-white py-2 px-4 flex items-center justify-center gap-3 shadow-lg">
+          <Eye size={14} className="shrink-0" />
+          <span className="text-[11px] font-black">بتشوف السيستم دلوقتي بعين: {viewingAsUser.name}</span>
+          <button onClick={() => setViewingAsUser(null)} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg text-[10px] font-black shrink-0">
+            رجوع لحسابك
+          </button>
+        </div>
+      )}
       <AlarmManager user={user} />
       <ShiftGate />
       <EndShiftModal />
@@ -267,17 +288,36 @@ const Layout: React.FC = () => {
 
           <div className="pt-6 space-y-3">
             {user?.role === UserRole.ADMIN && (
-              <div className="p-4 bg-amber-50 dark:bg-amber-500/10 rounded-2xl border border-amber-100 dark:border-amber-500/20">
-                <div className="flex items-center gap-2 mb-3 text-amber-600">
-                  <Eye size={16} /> <span className="text-[10px] font-black uppercase">عرض بصلاحية:</span>
+              <div className="p-4 bg-amber-50 dark:bg-amber-500/10 rounded-2xl border border-amber-100 dark:border-amber-500/20 space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-2 text-amber-600">
+                    <Eye size={16} /> <span className="text-[10px] font-black uppercase">عرض بصلاحية:</span>
+                  </div>
+                  <select
+                    className="w-full bg-white dark:bg-slate-800 text-[10px] font-black p-2 rounded-xl outline-none disabled:opacity-50"
+                    value={effectiveRole || ''}
+                    onChange={(e) => setEffectiveRole(e.target.value as UserRole)}
+                    disabled={!!viewingAsUser}
+                  >
+                    {Object.values(UserRole).map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
                 </div>
-                <select 
-                  className="w-full bg-white dark:bg-slate-800 text-[10px] font-black p-2 rounded-xl outline-none"
-                  value={effectiveRole || ''}
-                  onChange={(e) => setEffectiveRole(e.target.value as UserRole)}
-                >
-                  {Object.values(UserRole).map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
+                <div className="pt-2 border-t border-amber-100 dark:border-amber-500/20">
+                  <div className="flex items-center gap-2 mb-2 text-amber-600">
+                    <UserCog size={16} /> <span className="text-[10px] font-black uppercase">View as سيلز معين:</span>
+                  </div>
+                  <select
+                    className="w-full bg-white dark:bg-slate-800 text-[10px] font-black p-2 rounded-xl outline-none"
+                    value={viewingAsUser?.uid || ''}
+                    onChange={(e) => {
+                      const agent = viewableAgents.find(a => a.uid === e.target.value);
+                      setViewingAsUser(agent || null);
+                    }}
+                  >
+                    <option value="">بدون — حسابك أنت</option>
+                    {viewableAgents.map(a => <option key={a.uid} value={a.uid}>{a.name}</option>)}
+                  </select>
+                </div>
               </div>
             )}
             <button onClick={toggleTheme} className="flex items-center w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-black text-slate-600 dark:text-slate-300">

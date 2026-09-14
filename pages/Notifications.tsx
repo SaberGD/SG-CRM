@@ -10,7 +10,7 @@ import AcceptFlowModal from '../components/AcceptFlowModal';
 import { useNavigate } from 'react-router-dom';
 
 const Notifications: React.FC = () => {
-  const { user, effectiveRole } = useAuth();
+  const { user, effectiveRole, effectiveUser } = useAuth();
   const navigate = useNavigate();
 
   const [acceptFlowClient, setAcceptFlowClient] = useState<Client | null>(null);
@@ -65,7 +65,9 @@ const Notifications: React.FC = () => {
     if (isHighRole) {
       q = query(clientsRef, where('nextFollowUpDate', '>', 0), orderBy('nextFollowUpDate', 'asc'), limit(500));
     } else {
-      q = query(clientsRef, where('salesAgentId', '==', user.uid), where('nextFollowUpDate', '>', 0), orderBy('nextFollowUpDate', 'asc'));
+      // Viewing as a specific agent (effectiveUser) scopes to their data,
+      // not the real admin's -- see setViewingAsUser in App.tsx.
+      q = query(clientsRef, where('salesAgentId', '==', effectiveUser?.uid || user.uid), where('nextFollowUpDate', '>', 0), orderBy('nextFollowUpDate', 'asc'));
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -77,7 +79,7 @@ const Notifications: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [user, effectiveRole]);
+  }, [user, effectiveRole, effectiveUser]);
 
   const { urgentTasks, upcomingTasks } = useMemo(() => {
     const now = Date.now();

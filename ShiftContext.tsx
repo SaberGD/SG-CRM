@@ -73,13 +73,17 @@ async function createFreshShift(userId: string, userName: string) {
 }
 
 export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, effectiveRole } = useAuth();
+  const { user, effectiveRole, viewingAsUser } = useAuth();
   const [shift, setShift] = useState<Shift | null>(null);
   const [loading, setLoading] = useState(true);
   const [gateDismissed, setGateDismissed] = useState(false);
   const [isEndModalOpen, setIsEndModalOpen] = useState(false);
 
-  const isShiftApplicable = effectiveRole === UserRole.SALES_AGENT;
+  // The shift system always tracks the real logged-in user, never an
+  // admin's "view as" target -- effectiveRole flips to SALES_AGENT while
+  // viewing as one, but that must not force the admin's own account through
+  // the shift gate or create a shift doc for them.
+  const isShiftApplicable = effectiveRole === UserRole.SALES_AGENT && !viewingAsUser;
   const isGateOpen = !!shift && shift.status === 'reviewing' && !gateDismissed;
 
   useEffect(() => {

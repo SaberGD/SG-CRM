@@ -27,14 +27,20 @@ interface AuthContextType {
   user: User | null;
   effectiveRole: UserRole | null;
   setEffectiveRole: (role: UserRole | null) => void;
+  viewingAsUser: User | null;
+  setViewingAsUser: (target: User | null) => void;
+  effectiveUser: User | null;
   loading: boolean;
 }
 
-const AuthContext = createContext<AuthContextType>({ 
-  user: null, 
-  effectiveRole: null, 
-  setEffectiveRole: () => {}, 
-  loading: true 
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  effectiveRole: null,
+  setEffectiveRole: () => {},
+  viewingAsUser: null,
+  setViewingAsUser: () => {},
+  effectiveUser: null,
+  loading: true
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -42,6 +48,7 @@ export const useAuth = () => useContext(AuthContext);
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [effectiveRole, setEffectiveRoleState] = useState<UserRole | null>(null);
+  const [viewingAsUser, setViewingAsUserState] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -88,6 +95,22 @@ const App: React.FC = () => {
             setUser(userData);
             const savedRole = localStorage.getItem('viewAsRole') as UserRole;
             setEffectiveRoleState(savedRole && userData.role === UserRole.ADMIN ? savedRole : userData.role);
+
+            const savedViewAsUserId = userData.role === UserRole.ADMIN ? localStorage.getItem('viewingAsUserId') : null;
+            if (savedViewAsUserId) {
+              try {
+                const targetDoc = await firestore.getDoc(firestore.doc(db, 'users', savedViewAsUserId));
+                if (targetDoc.exists()) {
+                  const targetData = { uid: targetDoc.id, ...targetDoc.data() } as User;
+                  setViewingAsUserState(targetData);
+                  setEffectiveRoleState(targetData.role);
+                } else {
+                  localStorage.removeItem('viewingAsUserId');
+                }
+              } catch (e) {
+                console.warn('Failed to restore view-as user:', e);
+              }
+            }
           } else { 
             // Document missing - Check if main admin or invited
             const isMainAdmin = firebaseUser.email === "saber.gd.fl@gmail.com";
@@ -152,6 +175,28 @@ const App: React.FC = () => {
     }
   };
 
+  // Lets an admin browse the app scoped to a specific sales agent's own data
+  // (their clients, dashboard, notifications) -- not just a generic role
+  // switch. Writes/activity logs still go through the real admin's own uid
+  // (see useAuth() callers), and the shift system and "my report" tab in
+  // Reports intentionally ignore this (view-only, never act on someone
+  // else's live shift or submit a report in their name).
+  const setViewingAsUser = (target: User | null) => {
+    if (user?.role !== UserRole.ADMIN) return;
+    setViewingAsUserState(target);
+    if (target) {
+      localStorage.setItem('viewingAsUserId', target.uid);
+      setEffectiveRoleState(target.role);
+      localStorage.setItem('viewAsRole', target.role);
+    } else {
+      localStorage.removeItem('viewingAsUserId');
+      setEffectiveRoleState(user.role);
+      localStorage.setItem('viewAsRole', user.role);
+    }
+  };
+
+  const effectiveUser = viewingAsUser || user;
+
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen bg-slate-950">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
@@ -181,7 +226,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, effectiveRole, setEffectiveRole, loading }}>
+    <AuthContext.Provider value={{ user, effectiveRole, setEffectiveRole, viewingAsUser, setViewingAsUser, effectiveUser, loading }}>
       <HashRouter>
         <Routes>
           <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />

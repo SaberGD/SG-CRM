@@ -72,7 +72,7 @@ const clientsCache: {
 };
 
 const ClientsList: React.FC = () => {
-  const { user, effectiveRole, loading: authLoading } = useAuth();
+  const { user, effectiveRole, effectiveUser, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [clients, setClients] = useState<Client[]>(clientsCache.data);
   const [services, setServices] = useState<Service[]>([]);
@@ -219,6 +219,7 @@ const ClientsList: React.FC = () => {
     // Create a key for the current combination of filters
     const currentFiltersKey = JSON.stringify({
       effectiveRole,
+      effectiveUserId: effectiveUser?.uid,
       filterStatus,
       filterService,
       filterLabel,
@@ -282,7 +283,7 @@ const ClientsList: React.FC = () => {
       unsubServices();
       unsubLabels();
     };
-  }, [authLoading, user, effectiveRole, filterStatus, filterService, filterLabel, filterLaptop, filterMode, filterGender, filterBookedCourse, filterSalesAgent, debouncedSearch, sortBy, poolAgentId]);
+  }, [authLoading, user, effectiveRole, effectiveUser, filterStatus, filterService, filterLabel, filterLaptop, filterMode, filterGender, filterBookedCourse, filterSalesAgent, debouncedSearch, sortBy, poolAgentId]);
 
   const fetchClients = async (isMore: boolean, searchOverride?: string) => {
     if (!user || (!isMore && isLoadingMore)) return;
@@ -339,7 +340,10 @@ const ClientsList: React.FC = () => {
       // "Saber Group" pool account (unassigned automation clients) so any of
       // them can claim one; see POOL_AGENT_EMAIL above.
       if (!isHighRole) {
-        const ownIds = poolAgentId ? [user.uid, poolAgentId] : [user.uid];
+        // Viewing as a specific agent (effectiveUser) scopes to their data,
+        // not the real admin's -- see setViewingAsUser in App.tsx.
+        const scopedId = effectiveUser?.uid || user.uid;
+        const ownIds = poolAgentId ? [scopedId, poolAgentId] : [scopedId];
         constraints.push(firestore.where('salesAgentId', 'in', ownIds));
       } else if (filterSalesAgent !== 'all') {
         constraints.push(firestore.where('salesAgentId', '==', filterSalesAgent));

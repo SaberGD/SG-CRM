@@ -324,7 +324,7 @@ export const AiAssistant: React.FC = () => {
 
       if (candidatesForActiveAgents.length === 0 && candidateClients.length === 0) {
         const confirmNext = window.confirm(
-          `🎉 مكتمل! تم تحليل جميع العملاء المؤهلين للـ (${selectedActiveAgentIds.length}) سيلز المحددين في الجولة الحاليّة (Round ${activeRound})!\n\nهل ترغب في البدء التلقائي في الجولة الجديدة (Round ${activeRound + 1}) وإعادة فحص العملاء مجدداً؟`
+          `مكتمل. تم تحليل جميع العملاء المؤهلين للـ (${selectedActiveAgentIds.length}) سيلز المحددين في الجولة الحاليّة (Round ${activeRound})!\n\nهل ترغب في البدء التلقائي في الجولة الجديدة (Round ${activeRound + 1}) وإعادة فحص العملاء مجدداً؟`
         );
         if (confirmNext) {
           activeRound = activeRound + 1;
@@ -833,7 +833,7 @@ export const AiAssistant: React.FC = () => {
                 ) : (
                   <>
                     <Zap size={18} className="text-amber-300" />
-                    <span>تشغيل اقتراحات مارو لعملائي (دفعة {perAgentQuota} عميل - Round {currentRound}) ✨</span>
+                    <span>تشغيل اقتراحات مارو لعملائي (دفعة {perAgentQuota} عميل - Round {currentRound})</span>
                   </>
                 )}
               </button>
@@ -933,7 +933,7 @@ export const AiAssistant: React.FC = () => {
           </div>
 
           <div className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-blue-100 dark:border-blue-950/50 shadow-sm space-y-1 bg-blue-50/20 dark:bg-blue-950/10">
-            <p className="text-[11px] font-black text-blue-600 dark:text-blue-400 uppercase">حجزوا وانضموا بالفعل 🎉</p>
+            <p className="text-[11px] font-black text-blue-600 dark:text-blue-400 uppercase">حجزوا وانضموا بالفعل</p>
             <p className="text-2xl font-black text-blue-600 dark:text-blue-400">{enrolledClientsCount}</p>
             <p className="text-[10px] text-blue-600/80 font-bold">خارج دائرة المتابعة البيعية</p>
           </div>
@@ -1080,7 +1080,7 @@ export const AiAssistant: React.FC = () => {
             }`}
           >
             <Bot size={18} />
-            <span>🤖 توصيات المساعد الذكي (إجراءات المبيعات)</span>
+            <span>توصيات المساعد الذكي (إجراءات المبيعات)</span>
           </button>
 
           <button
@@ -1092,7 +1092,7 @@ export const AiAssistant: React.FC = () => {
             }`}
           >
             <Shield size={18} />
-            <span>🛡️ تابة المشرف والاعتمادات (Supervisor Audit)</span>
+            <span>تابة المشرف والاعتمادات (Supervisor Audit)</span>
             {pendingSupervisorCheckCount > 0 && (
               <span className="px-2 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full animate-bounce">
                 {pendingSupervisorCheckCount}
@@ -1132,10 +1132,10 @@ export const AiAssistant: React.FC = () => {
                     onChange={e => setSortOption(e.target.value as any)}
                     className="bg-transparent text-xs font-black outline-none text-indigo-900 dark:text-indigo-200"
                   >
-                    <option value="newest_ai">⚡ أحدث ما تم تحليله بالذكاء الاصطناعي أولاً</option>
-                    <option value="priority">🔥 الأعلى أولوية</option>
-                    <option value="round">🏷️ حسب رقم الجولة (Round)</option>
-                    <option value="newest_client">📅 أحدث التسجيلات بالداتابيز</option>
+                    <option value="newest_ai">أحدث ما تم تحليله بالذكاء الاصطناعي أولاً</option>
+                    <option value="priority">الأعلى أولوية</option>
+                    <option value="round">حسب رقم الجولة (Round)</option>
+                    <option value="newest_client">أحدث التسجيلات بالداتابيز</option>
                   </select>
                 </div>
 
@@ -1399,7 +1399,7 @@ export const AiAssistant: React.FC = () => {
 
                               {rec.supervisorNotes && (
                                 <div className="p-3 bg-white dark:bg-slate-900 rounded-xl text-xs font-bold text-indigo-900 dark:text-indigo-200 border border-indigo-100 dark:border-indigo-800">
-                                  <span className="text-[10px] font-black text-indigo-500 block mb-0.5">📌 توجيهات المشرف:</span>
+                                  <span className="text-[10px] font-black text-indigo-500 block mb-0.5">توجيهات المشرف:</span>
                                   {rec.supervisorNotes}
                                 </div>
                               )}
@@ -1416,7 +1416,7 @@ export const AiAssistant: React.FC = () => {
                             className="px-4 py-2.5 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white rounded-xl text-xs font-black shadow transition flex items-center justify-center gap-2 mx-auto disabled:opacity-50"
                           >
                             <Sparkles size={14} className={isAnalyzingThis ? 'animate-spin' : ''} />
-                            <span>{isAnalyzingThis ? 'جاري استخراج اقتراحات مارو...' : '✨ استخراج اقتراحات مارو الآن'}</span>
+                            <span>{isAnalyzingThis ? 'جاري استخراج اقتراحات مارو...' : 'استخراج اقتراحات مارو الآن'}</span>
                           </button>
                         </div>
                       )}
@@ -1646,7 +1646,7 @@ export const AiAssistant: React.FC = () => {
 
                         {rec.supervisorNotes && (
                           <p className="text-xs font-bold text-indigo-900 dark:text-indigo-200 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-indigo-100 dark:border-indigo-800">
-                            📌 أمر وتوجيه المشرف: {rec.supervisorNotes}
+                            أمر وتوجيه المشرف: {rec.supervisorNotes}
                           </p>
                         )}
                       </div>

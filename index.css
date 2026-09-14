@@ -195,8 +195,40 @@ thead th {
 }
 
 .sg-btn-ai {
-  background: #4f46e5;
+  background: #2563eb;
   color: #fff;
+}
+
+[class*="rounded-[3rem]"],
+[class*="rounded-[2.5rem]"],
+.rounded-5xl,
+.rounded-4xl,
+.rounded-3xl {
+  border-radius: var(--sg-radius-xl) !important;
+}
+
+.rounded-2xl {
+  border-radius: var(--sg-radius-lg) !important;
+}
+
+.rounded-xl {
+  border-radius: var(--sg-radius-md) !important;
+}
+
+[class*="shadow-2xl"] {
+  box-shadow: var(--sg-shadow) !important;
+}
+
+.dark [class*="shadow-2xl"] {
+  box-shadow: var(--sg-shadow-dark) !important;
+}
+
+.animate-bounce {
+  animation-duration: 1.4s;
+}
+
+.animate-pulse {
+  animation-duration: 2.4s;
 }
 
 .sg-surface {

@@ -528,6 +528,11 @@ function isAutomationSuggestedDate(body) {
     body.missing_or_ambiguous_fields.includes("next_followup_date_suggested_not_explicit");
 }
 
+function cleanDistinctiveSearchPhrase(value) {
+  if (!value) return "";
+  return String(value).replace(/\s+/g, " ").trim().slice(0, 280);
+}
+
 function hasBetterAutomationName(body, existingClient) {
   const incomingName = body.customer_name && String(body.customer_name).trim();
   if (!incomingName || PLACEHOLDER_NAME_RE.test(incomingName)) return false;
@@ -702,6 +707,7 @@ exports.getActiveServicesForAutomation = onRequest({ region: "us-central1", cors
  *   sales_brief, detailed_result,
  *   suggested_status, suggested_labels[], suggested_service,
  *   booked, next_followup_date, next_followup_channel,
+ *   distinctive_search_phrase,
  *   last_followup_date,
  *   has_meaningful_content, missing_or_ambiguous_fields[],
  *   source, chatwoot_conversation_id, chatwoot_conversation_link
@@ -795,6 +801,9 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
   const followUpStartTime = lastChatwootContactAt || automationNow;
   const followUpDurationSeconds = 5 * 60;
   const followUpEndTime = followUpStartTime + (followUpDurationSeconds * 1000);
+  const distinctiveSearchPhrase = cleanDistinctiveSearchPhrase(
+    body.distinctive_search_phrase || body.search_phrase || body.meta_search_phrase
+  );
 
   try {
     let sameConversationClientDoc = null;
@@ -903,6 +912,9 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       if (lastChatwootContactAt && lastChatwootContactAt > (existingClient.lastChatwootContactAt || 0)) {
         updateData.lastChatwootContactAt = lastChatwootContactAt;
       }
+      if (distinctiveSearchPhrase && (!existingClient.distinctiveSearchPhrase || lastChatwootContactAt > (existingClient.lastChatwootContactAt || 0))) {
+        updateData.distinctiveSearchPhrase = distinctiveSearchPhrase;
+      }
 
       batch.update(existingDoc.ref, updateData);
 
@@ -984,6 +996,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       countryCode: body.country_code || "+20",
       source: mappedSource,
       profileLink: body.profile_link ? String(body.profile_link).trim() : "",
+      distinctiveSearchPhrase,
       preferredMethod: mappedMethod,
       lastChatwootContactAt: lastChatwootContactAt || null,
       createdVia: "ai_automation",

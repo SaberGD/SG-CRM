@@ -19,6 +19,7 @@
       "properties": {
         "name": { "type": "string" },
         "phone": { "type": "string" },
+        "distinctiveSearchPhrase": { "type": "string", "description": "Exact phrase from the source chat used to search for the conversation in Meta/Chatwoot when the customer name is unclear" },
         "status": { "type": "string", "enum": ["interested", "not_interested", "potential", "booked"] },
         "salesAgentId": { "type": "string" },
         "salesAgentName": { "type": "string" },

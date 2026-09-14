@@ -23,6 +23,7 @@ import ManualFollowUpModal from '../components/ManualFollowUpModal';
 import AcceptFlowModal from '../components/AcceptFlowModal';
 import { getLabelColorStyle } from '../utils/labelColors';
 import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
+import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
 } from '../utils/currency';
@@ -582,7 +583,14 @@ const ClientDetails: React.FC = () => {
             )}
             <p className="text-primary-500 font-bold flex items-center gap-2 mt-1"><PhoneIncoming size={14}/> <span dir="ltr">{client.phone}</span></p>
             {client.chatId && (
-              <p className="text-slate-400 font-bold flex items-center gap-2 mt-1 text-xs">Chat ID: <span dir="ltr">{client.chatId}</span></p>
+              <a
+                href={buildChatwootConversationLink(client.chatId)}
+                target="_blank"
+                title="فتح المحادثة في Chatwoot"
+                className="text-teal-600 dark:text-teal-400 font-bold flex items-center gap-1.5 mt-1 text-xs hover:underline w-fit"
+              >
+                <MessageCircle size={13} /> فتح الشات على Chatwoot (ID: <span dir="ltr">{client.chatId}</span>)
+              </a>
             )}
             <div className="flex flex-wrap gap-2 mt-3">
               <span className={`${sourceMeta.chip} px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1`} title={`مصدر العميل: ${sourceMeta.label}`}>

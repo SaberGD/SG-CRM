@@ -22,6 +22,7 @@ import {
   SlidersHorizontal, ChevronDown, Facebook, Instagram, Music2, Globe2, UserPlus
 } from 'lucide-react';
 import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
+import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
 } from '../utils/currency';
@@ -1189,6 +1190,11 @@ const ClientsList: React.FC = () => {
                           {client.profileLink && (
                             <a href={client.profileLink} target="_blank" className="text-blue-500 hover:underline flex items-center gap-0.5 text-[8px] font-black">
                               <ExternalLink size={8}/> الرابط
+                            </a>
+                          )}
+                          {client.chatId && (
+                            <a href={buildChatwootConversationLink(client.chatId)} target="_blank" title="فتح المحادثة في Chatwoot" className="text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-0.5 text-[8px] font-black">
+                              <MessageCircle size={8}/> الشات
                             </a>
                           )}
                         </div>

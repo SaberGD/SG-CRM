@@ -12,6 +12,7 @@ export const exportBookingsToExcel = (clients: Client[], fileName: string = 'ت�
       'gender': client.gender === Gender.FEMALE ? 'أنثى' : 'ذكر',
       'source': SourceLabels[client.source || 'OTHER']?.ar || client.source || 'أخرى',
       'profileLink': client.profileLink || '',
+      'distinctiveSearchPhrase': client.distinctiveSearchPhrase || '',
       'status': client.status || ClientStatus.BOOKED,
       'bookedCourseName': client.bookedCourseName || '',
       'totalPrice': client.totalPrice || 0,

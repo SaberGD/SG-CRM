@@ -66,6 +66,7 @@ const ClientDetails: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAcceptFlowOpen, setIsAcceptFlowOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [copiedSearchPhrase, setCopiedSearchPhrase] = useState(false);
   const [poolAgentId, setPoolAgentId] = useState<string | null>(null);
 
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
@@ -200,7 +201,7 @@ const ClientDetails: React.FC = () => {
     name: '', position: '', phone: '', serviceName: '', serviceId: '', customServiceName: '', status: ClientStatus.INTERESTED,
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
     labels: [] as string[],
-    source: ClientSource.WHATSAPP, profileLink: '', chatId: '', notes: ''
+    source: ClientSource.WHATSAPP, profileLink: '', chatId: '', distinctiveSearchPhrase: '', notes: ''
   });
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
@@ -228,6 +229,7 @@ const ClientDetails: React.FC = () => {
           source: data.source || ClientSource.WHATSAPP,
           profileLink: data.profileLink || '',
           chatId: data.chatId || '',
+          distinctiveSearchPhrase: data.distinctiveSearchPhrase || '',
           notes: data.notes || ''
         });
         setStatus(data.status);
@@ -591,6 +593,35 @@ const ClientDetails: React.FC = () => {
               >
                 <MessageCircle size={13} /> فتح الشات على Chatwoot (ID: <span dir="ltr">{client.chatId}</span>)
               </a>
+            )}
+            {(client.chatId || client.createdVia === 'ai_automation' || client.distinctiveSearchPhrase) && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <span
+                  className={`min-w-0 max-w-full sm:max-w-md truncate whitespace-nowrap rounded-xl px-3 py-1.5 font-bold ${
+                    client.distinctiveSearchPhrase
+                      ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'
+                      : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300'
+                  }`}
+                  title={client.distinctiveSearchPhrase || 'لم تُسجّل جملة بحث لهذا العميل بعد'}
+                >
+                  جملة البحث: {client.distinctiveSearchPhrase || 'لم تُسجّل بعد'}
+                </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!client.distinctiveSearchPhrase) return;
+                    await navigator.clipboard.writeText(client.distinctiveSearchPhrase || '');
+                    setCopiedSearchPhrase(true);
+                    setTimeout(() => setCopiedSearchPhrase(false), 1800);
+                  }}
+                  disabled={!client.distinctiveSearchPhrase}
+                  className="sg-icon-btn !h-8 !w-8 bg-slate-100 text-slate-500 hover:text-primary-500 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-slate-800 dark:text-slate-300"
+                  title={client.distinctiveSearchPhrase ? 'نسخ جملة البحث' : 'لا توجد جملة بحث لنسخها'}
+                  aria-label="نسخ جملة البحث المميزة"
+                >
+                  {copiedSearchPhrase ? <Check size={14} /> : <Copy size={14} />}
+                </button>
+              </div>
             )}
             <div className="flex flex-wrap gap-2 mt-3">
               <span className={`${sourceMeta.chip} px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1`} title={`مصدر العميل: ${sourceMeta.label}`}>
@@ -1311,10 +1342,22 @@ const ClientDetails: React.FC = () => {
                </div>
 
                {canEditChatId && (
-                 <div className="space-y-1.5 text-right">
-                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">Chat ID (اختياري)</label>
-                    <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white" dir="ltr" value={editClientData.chatId} onChange={e => setEditClientData({...editClientData, chatId: e.target.value})} placeholder="Chat ID" />
-                 </div>
+                 <>
+                   <div className="space-y-1.5 text-right">
+                      <label className="text-[10px] font-black text-slate-400 uppercase mr-2">Chat ID (اختياري)</label>
+                      <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white" dir="ltr" value={editClientData.chatId} onChange={e => setEditClientData({...editClientData, chatId: e.target.value})} placeholder="Chat ID" />
+                   </div>
+                   <div className="space-y-1.5 text-right">
+                      <label className="text-[10px] font-black text-slate-400 uppercase mr-2">جملة مميزة للبحث</label>
+                      <textarea
+                        className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white resize-none leading-relaxed"
+                        rows={2}
+                        value={editClientData.distinctiveSearchPhrase}
+                        onChange={e => setEditClientData({...editClientData, distinctiveSearchPhrase: e.target.value})}
+                        placeholder="جملة حرفية من الشات تساعد في البحث داخل Meta"
+                      />
+                   </div>
+                 </>
                )}
 
                <div className="space-y-1.5 text-right">

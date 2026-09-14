@@ -32,6 +32,7 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
     name: client.name,
     phone: client.phone,
     profileLink: client.profileLink || '',
+    distinctiveSearchPhrase: client.distinctiveSearchPhrase || '',
     source: client.source || ClientSource.OTHER,
   });
 
@@ -58,6 +59,7 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
         name: form.name.trim(),
         phone: form.phone.trim(),
         profileLink: form.profileLink.trim(),
+        distinctiveSearchPhrase: form.distinctiveSearchPhrase.trim(),
         source: form.source,
         reviewedBySales: true,
         reviewedByName: user.name,
@@ -161,6 +163,16 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 uppercase mr-2">رابط الحساب</label>
                 <input dir="ltr" className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-sm text-slate-900 dark:text-white outline-none text-right" value={form.profileLink} onChange={e => setForm({ ...form, profileLink: e.target.value })} placeholder="https://..." />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase mr-2">جملة مميزة للبحث</label>
+                <textarea
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-sm text-slate-900 dark:text-white outline-none resize-none leading-relaxed"
+                  rows={2}
+                  value={form.distinctiveSearchPhrase}
+                  onChange={e => setForm({ ...form, distinctiveSearchPhrase: e.target.value })}
+                  placeholder="جملة حرفية من الشات تساعد في البحث داخل Meta"
+                />
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المنصة</label>

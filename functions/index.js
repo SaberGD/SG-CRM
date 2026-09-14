@@ -528,6 +528,59 @@ function isAutomationSuggestedDate(body) {
     body.missing_or_ambiguous_fields.includes("next_followup_date_suggested_not_explicit");
 }
 
+function cleanDistinctiveSearchPhrase(value) {
+  if (!value) return "";
+  return String(value).replace(/\s+/g, " ").trim().slice(0, 280);
+}
+
+function cleanAutomationText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeAgentLookupText(value) {
+  return cleanAutomationText(value)
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[^a-z0-9\u0600-\u06ff]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const SALES_REP_ALIAS_GROUPS = [
+  ["ياسمين", "ياسمين جمال", "ياسمن", "yasmin", "yasmine", "yasmeen", "yasmin gamal"],
+];
+
+function expandAgentLookupTerms(rawName) {
+  const target = normalizeAgentLookupText(rawName);
+  const terms = new Set(target ? [target] : []);
+
+  for (const group of SALES_REP_ALIAS_GROUPS) {
+    const normalizedGroup = group.map(normalizeAgentLookupText).filter(Boolean);
+    const belongsToGroup = normalizedGroup.some((alias) => target === alias || target.includes(alias) || alias.includes(target));
+    if (belongsToGroup) {
+      normalizedGroup.forEach((alias) => terms.add(alias));
+    }
+  }
+
+  return Array.from(terms);
+}
+
+function agentMatchesTerms(agent, terms) {
+  const fields = [
+    agent.name,
+    agent.email,
+    agent.email ? String(agent.email).split("@")[0] : "",
+  ];
+  return fields.some((field) => {
+    const candidate = normalizeAgentLookupText(field);
+    return candidate && terms.some((term) => candidate === term || candidate.includes(term) || term.includes(candidate));
+  });
+}
+
 function hasBetterAutomationName(body, existingClient) {
   const incomingName = body.customer_name && String(body.customer_name).trim();
   if (!incomingName || PLACEHOLDER_NAME_RE.test(incomingName)) return false;
@@ -582,16 +635,17 @@ async function getDefaultAutomationAgent() {
 
 async function findAgentByName(rawName) {
   if (!rawName || !String(rawName).trim()) return null;
-  const target = String(rawName).trim().toLowerCase();
+  const terms = expandAgentLookupTerms(rawName);
+  if (terms.length === 0) return null;
   try {
     const snap = await db.collection("users").get();
     let match = null;
     snap.forEach((doc) => {
       if (match) return;
-      const name = (doc.data().name || "").toString().trim().toLowerCase();
-      if (!name) return;
-      if (name === target || name.includes(target) || target.includes(name)) {
-        match = { id: doc.id, name: doc.data().name };
+      const data = doc.data() || {};
+      if (data.isDeactivated) return;
+      if (agentMatchesTerms(data, terms)) {
+        match = { id: doc.id, name: data.name || data.email || "موظف مبيعات" };
       }
     });
     return match;
@@ -702,6 +756,7 @@ exports.getActiveServicesForAutomation = onRequest({ region: "us-central1", cors
  *   sales_brief, detailed_result,
  *   suggested_status, suggested_labels[], suggested_service,
  *   booked, next_followup_date, next_followup_channel,
+ *   distinctive_search_phrase,
  *   last_followup_date,
  *   has_meaningful_content, missing_or_ambiguous_fields[],
  *   source, chatwoot_conversation_id, chatwoot_conversation_link
@@ -795,6 +850,10 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
   const followUpStartTime = lastChatwootContactAt || automationNow;
   const followUpDurationSeconds = 5 * 60;
   const followUpEndTime = followUpStartTime + (followUpDurationSeconds * 1000);
+  const distinctiveSearchPhrase = cleanDistinctiveSearchPhrase(
+    body.distinctive_search_phrase || body.search_phrase || body.meta_search_phrase
+  );
+  const automationSalesRepNameRaw = cleanAutomationText(body.sales_rep_name);
 
   try {
     let sameConversationClientDoc = null;
@@ -903,6 +962,12 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       if (lastChatwootContactAt && lastChatwootContactAt > (existingClient.lastChatwootContactAt || 0)) {
         updateData.lastChatwootContactAt = lastChatwootContactAt;
       }
+      if (distinctiveSearchPhrase && (!existingClient.distinctiveSearchPhrase || lastChatwootContactAt > (existingClient.lastChatwootContactAt || 0))) {
+        updateData.distinctiveSearchPhrase = distinctiveSearchPhrase;
+      }
+      if (automationSalesRepNameRaw) {
+        updateData.automationSalesRepNameRaw = automationSalesRepNameRaw;
+      }
 
       batch.update(existingDoc.ref, updateData);
 
@@ -925,6 +990,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         delayStatus: calculateFollowUpDelayStatus(followUpStartTime, scheduledTime),
         appointmentId: null,
         isAutomated: true,
+        automationSalesRepNameRaw,
         chatwootConversationId: body.chatwoot_conversation_id || null,
       });
 
@@ -984,6 +1050,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       countryCode: body.country_code || "+20",
       source: mappedSource,
       profileLink: body.profile_link ? String(body.profile_link).trim() : "",
+      distinctiveSearchPhrase,
+      automationSalesRepNameRaw,
       preferredMethod: mappedMethod,
       lastChatwootContactAt: lastChatwootContactAt || null,
       createdVia: "ai_automation",
@@ -1027,6 +1095,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       delayStatus: "on_time",
       appointmentId: null,
       isAutomated: true,
+      automationSalesRepNameRaw,
       chatwootConversationId: body.chatwoot_conversation_id || null,
     });
 

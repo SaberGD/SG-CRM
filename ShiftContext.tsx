@@ -2,7 +2,8 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import * as firestore from 'firebase/firestore';
 import { db } from './firebase';
 import { useAuth } from './App';
-import { UserRole, Shift, ShiftBreakEntry } from './types';
+import { Shift, ShiftBreakEntry } from './types';
+import { isShiftTrackedRole } from './utils/roles';
 
 // One cumulative 30-minute break budget per day, spendable across up to
 // MAX_BREAK_SEGMENTS separate start/stop cycles (not 30 fresh minutes per click).
@@ -80,10 +81,10 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isEndModalOpen, setIsEndModalOpen] = useState(false);
 
   // The shift system always tracks the real logged-in user, never an
-  // admin's "view as" target -- effectiveRole flips to SALES_AGENT while
-  // viewing as one, but that must not force the admin's own account through
+  // admin's "view as" target -- effectiveRole can flip while previewing another
+  // role, but that must not force the admin's own account through
   // the shift gate or create a shift doc for them.
-  const isShiftApplicable = effectiveRole === UserRole.SALES_AGENT && !viewingAsUser;
+  const isShiftApplicable = isShiftTrackedRole(user?.role) && !viewingAsUser;
   const isGateOpen = !!shift && shift.status === 'reviewing' && !gateDismissed;
 
   useEffect(() => {

@@ -16,6 +16,7 @@ import {
 import FloatingPanel from '../components/FloatingPanel';
 import { BREAK_DAILY_BUDGET_MS, BREAK_GRACE_MS, MAX_BREAK_SEGMENTS, getUsedBreakMs } from '../ShiftContext';
 import { formatDuration } from '../utils/time';
+import { isShiftTrackedRole } from '../utils/roles';
 
 function todayDateStr(): string {
   const d = new Date();
@@ -497,11 +498,11 @@ const AdminPanel: React.FC = () => {
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 p-6 space-y-4">
         <h2 className="text-lg font-black flex items-center gap-2"><Clock size={20} className="text-primary-500" /> حالة الفريق الآن</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {users.filter(u => u.role === UserRole.SALES_AGENT && !u.isDeactivated).map(u => (
+          {users.filter(u => isShiftTrackedRole(u.role) && !u.isDeactivated).map(u => (
             <TeamStatusCard key={u.uid} agent={u} shift={latestShiftByUser[u.uid]} now={liveNow} />
           ))}
-          {users.filter(u => u.role === UserRole.SALES_AGENT && !u.isDeactivated).length === 0 && (
-            <p className="text-xs font-bold text-slate-400 italic py-4">مفيش سيلز مفعّلين حاليًا</p>
+          {users.filter(u => isShiftTrackedRole(u.role) && !u.isDeactivated).length === 0 && (
+            <p className="text-xs font-bold text-slate-400 italic py-4">مفيش سيلز أو مشرفين مفعّلين حاليًا</p>
           )}
         </div>
       </div>
@@ -668,7 +669,7 @@ const AdminPanel: React.FC = () => {
                           )
                         )}
 
-                        {u.role === UserRole.SALES_AGENT && !u.isDeactivated && (
+                        {isShiftTrackedRole(u.role) && !u.isDeactivated && (
                           <button
                             onClick={() => handleOpenResetShiftModal(u)}
                             className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 rounded-xl hover:scale-105 transition-all"

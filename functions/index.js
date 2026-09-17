@@ -372,6 +372,7 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 const db = admin.firestore();
+const { planAccountingBookingSync } = require("./accountingSync");
 
 const ALLOWED_AUTO_STATUSES = ["interested", "potential", "not_interested"];
 const ALLOWED_METHODS = ["phone", "whatsapp", "meeting", "other"];
@@ -530,34 +531,44 @@ exports.accountingCrmBridge = onRequest({ region: "us-central1", cors: true }, a
     const product = booking.productId
       ? await accountingDocument(`${productCollection}/${encodeURIComponent(booking.productId)}`, actor.token)
       : null;
-    const price = Number(booking.pricing?.finalPriceSnapshot || 0);
-    const paid = Number(booking.paymentSummary?.paidTotal || 0);
     const now = Date.now();
+    const auditRef = db.collection("integrationEvents").doc(`accounting_booking_${bookingId}`);
     const result = await db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(db.collection("clients").doc(match.id));
       const current = snapshot.data() || {};
-      if (current.accountingBookingIds?.includes(bookingId)) return "already_synced";
-      const bookedAt = Date.parse(`${booking.bookingDate}T12:00:00+03:00`) || now;
-      const isLatestBooking = bookedAt >= (current.accountingLatestBookingDate || 0);
+      if (current.accountingBookingIds?.includes(bookingId)) return { action: "already_synced" };
+      const plan = planAccountingBookingSync(current, booking, product?.name);
       transaction.update(snapshot.ref, {
         accountingBookingIds: admin.firestore.FieldValue.arrayUnion(bookingId),
         accountingLastSyncedAt: now,
-        ...(isLatestBooking ? {
-        status: "booked", isBooked: true,
-        bookedCourseId: String(booking.productId || ""),
-        bookedCourseName: String(product?.name || current.bookedCourseName || current.serviceName || ""),
-        totalPrice: price, paidAmount: paid, remainingAmount: Math.max(0, price - paid),
-        bookingDate: bookedAt,
-        accountingLatestBookingDate: bookedAt,
-        } : {}),
+        ...(plan.isLatestBooking ? plan.applied : {}),
+      });
+      transaction.set(auditRef, {
+        correlationId: `accounting_booking_${bookingId}`,
+        sourceSystem: "accounting",
+        targetSystem: "crm",
+        eventType: "booking_confirmed",
+        status: plan.isLatestBooking ? "completed" : "linked_older_booking",
+        sourceRef: bookingId,
+        targetRef: snapshot.id,
+        changedFields: plan.changedFields,
+        overwrittenFinancialFields: plan.overwrittenFinancialFields,
+        previous: plan.previous,
+        incoming: plan.applied,
+        processedAt: now,
+        processedBy: actor.uid,
       });
       const log = db.collection("logs").doc();
       transaction.set(log, { userId: actor.uid, userName: actor.email, action: `تأكيد حجز من الحسابات: ${bookingId}`,
         targetId: snapshot.id, targetName: current.name || "", timestamp: now });
-      return "updated";
+      return {
+        action: plan.isLatestBooking ? "updated" : "linked_older_booking",
+        overwroteFinancials: plan.overwrittenFinancialFields.length > 0,
+      };
     });
-    return res.json({ success: true, action: result, clientId: match.id });
+    return res.json({ success: true, ...result, clientId: match.id });
   } catch (error) {
+    if (error instanceof RangeError) return res.status(409).json({ error: error.message });
     console.error("accountingCrmBridge failed:", error);
     return res.status(500).json({ error: "CRM integration unavailable" });
   }

@@ -2,6 +2,7 @@
   "name": "functions",
   "description": "Firebase Cloud Functions for Meta Conversions API and Gemini AI bridge",
   "scripts": {
+    "test": "node --test accountingSync.test.js",
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
     "deploy": "firebase deploy --only functions"

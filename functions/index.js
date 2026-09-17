@@ -509,6 +509,8 @@ exports.accountingCrmBridge = onRequest({ region: "us-central1", cors: true }, a
       return res.json({ found: true, client: {
         id: match.id, name: match.data.name || "", status: match.data.status || "",
         serviceName: match.data.serviceName || "", isBooked: !!match.data.isBooked,
+        salesAgentName: match.data.salesAgentName || "",
+        lastFollowUpDate: match.data.lastFollowUpDate || null,
       } });
     }
 

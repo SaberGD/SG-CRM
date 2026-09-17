@@ -432,6 +432,135 @@ function buildPhoneVariations(phoneFull) {
   return Array.from(variations).slice(0, 10);
 }
 
+const ACCOUNTING_PROJECT_ID = "crm---acounting-sg";
+const accountingAuthApp = admin.apps.find((app) => app.name === "accounting-auth") ||
+  admin.initializeApp({ projectId: ACCOUNTING_PROJECT_ID }, "accounting-auth");
+
+function firestoreValue(value) {
+  if (!value) return null;
+  if ("stringValue" in value) return value.stringValue;
+  if ("integerValue" in value) return Number(value.integerValue);
+  if ("doubleValue" in value) return value.doubleValue;
+  if ("booleanValue" in value) return value.booleanValue;
+  if ("nullValue" in value) return null;
+  if ("mapValue" in value) return firestoreFields(value.mapValue.fields || {});
+  if ("arrayValue" in value) return (value.arrayValue.values || []).map(firestoreValue);
+  return null;
+}
+
+function firestoreFields(fields) {
+  return Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, firestoreValue(value)]));
+}
+
+async function accountingDocument(path, token) {
+  const url = `https://firestore.googleapis.com/v1/projects/${ACCOUNTING_PROJECT_ID}/databases/(default)/documents/${path}`;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Accounting document read failed (${response.status})`);
+  return firestoreFields((await response.json()).fields || {});
+}
+
+async function authorizedAccountingUser(req, needsBookingPermission = false) {
+  const match = /^Bearer (.+)$/i.exec(req.get("authorization") || "");
+  if (!match) return null;
+  const token = match[1];
+  const decoded = await admin.auth(accountingAuthApp).verifyIdToken(token);
+  const email = String(decoded.email || "").trim().toLowerCase();
+  if (!email) return null;
+  const [profile, allowed] = await Promise.all([
+    accountingDocument(`users/${encodeURIComponent(decoded.uid)}`, token),
+    accountingDocument(`allowed_users/${encodeURIComponent(email)}`, token),
+  ]);
+  if (!profile?.isActive || profile.email?.toLowerCase() !== email) return null;
+  if (email !== "saber.gd.fl@gmail.com" && !allowed?.isActive) return null;
+  if (needsBookingPermission) {
+    const permissions = await accountingDocument("settings/permissions", token);
+    const defaultAllowed = ["admin", "supervisor", "manager", "training_team_leader"].includes(profile.role);
+    if (!(permissions?.createBookings?.[profile.role] ?? defaultAllowed)) return null;
+  }
+  return { token, uid: decoded.uid, email };
+}
+
+async function findClientForAccounting(phone, countryCode) {
+  const normalized = normalizeIncomingPhone(phone, countryCode);
+  if (!normalized) return null;
+  const matches = await db.collection("clients").where("phone", "in", buildPhoneVariations(normalized)).limit(2).get();
+  if (matches.empty) return null;
+  if (matches.size !== 1) return { ambiguous: matches.size > 1 };
+  const doc = matches.docs[0];
+  return { id: doc.id, data: doc.data() };
+}
+
+exports.accountingCrmBridge = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const action = req.body?.action;
+  if (!["lookup", "syncBooking"].includes(action)) return res.status(400).json({ error: "Invalid action" });
+
+  try {
+    const actor = await authorizedAccountingUser(req, action === "syncBooking");
+    if (!actor) return res.status(403).json({ error: "Accounting access denied" });
+
+    if (action === "lookup") {
+      const phone = String(req.body?.phone || "").trim();
+      if (!phone || phone.length > 32) return res.status(400).json({ error: "Invalid phone" });
+      const match = await findClientForAccounting(phone, req.body?.countryCode || "+20");
+      if (match?.ambiguous) return res.json({ found: false, ambiguous: true });
+      if (!match) return res.json({ found: false });
+      return res.json({ found: true, client: {
+        id: match.id, name: match.data.name || "", status: match.data.status || "",
+        serviceName: match.data.serviceName || "", isBooked: !!match.data.isBooked,
+      } });
+    }
+
+    const bookingId = String(req.body?.bookingId || "").trim();
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(bookingId)) return res.status(400).json({ error: "Invalid booking ID" });
+    const booking = await accountingDocument(`bookings/${bookingId}`, actor.token);
+    if (!booking || booking.status !== "ACTIVE" || booking.isDeleted || !booking.customerId) {
+      return res.status(409).json({ error: "Booking is not active" });
+    }
+    const customer = await accountingDocument(`customers/${encodeURIComponent(booking.customerId)}`, actor.token);
+    if (!customer || customer.isDeleted) return res.status(409).json({ error: "Customer not found" });
+    const match = await findClientForAccounting(customer.fullWhatsapp || customer.whatsapp, customer.countryCode || "+20");
+    if (match?.ambiguous) return res.status(409).json({ error: "Multiple CRM clients match this phone" });
+    if (!match) return res.json({ success: true, action: "no_match" });
+
+    const productCollection = booking.productType === "diploma" ? "diplomas" : "courses";
+    const product = booking.productId
+      ? await accountingDocument(`${productCollection}/${encodeURIComponent(booking.productId)}`, actor.token)
+      : null;
+    const price = Number(booking.pricing?.finalPriceSnapshot || 0);
+    const paid = Number(booking.paymentSummary?.paidTotal || 0);
+    const now = Date.now();
+    const result = await db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(db.collection("clients").doc(match.id));
+      const current = snapshot.data() || {};
+      if (current.accountingBookingIds?.includes(bookingId)) return "already_synced";
+      const bookedAt = Date.parse(`${booking.bookingDate}T12:00:00+03:00`) || now;
+      const isLatestBooking = bookedAt >= (current.accountingLatestBookingDate || 0);
+      transaction.update(snapshot.ref, {
+        accountingBookingIds: admin.firestore.FieldValue.arrayUnion(bookingId),
+        accountingLastSyncedAt: now,
+        ...(isLatestBooking ? {
+        status: "booked", isBooked: true,
+        bookedCourseId: String(booking.productId || ""),
+        bookedCourseName: String(product?.name || current.bookedCourseName || current.serviceName || ""),
+        totalPrice: price, paidAmount: paid, remainingAmount: Math.max(0, price - paid),
+        bookingDate: bookedAt,
+        accountingLatestBookingDate: bookedAt,
+        } : {}),
+      });
+      const log = db.collection("logs").doc();
+      transaction.set(log, { userId: actor.uid, userName: actor.email, action: `تأكيد حجز من الحسابات: ${bookingId}`,
+        targetId: snapshot.id, targetName: current.name || "", timestamp: now });
+      return "updated";
+    });
+    return res.json({ success: true, action: result, clientId: match.id });
+  } catch (error) {
+    console.error("accountingCrmBridge failed:", error);
+    return res.status(500).json({ error: "CRM integration unavailable" });
+  }
+});
+
 function parseAutomationTimestamp(...candidates) {
   for (const candidate of candidates) {
     if (candidate === undefined || candidate === null || candidate === "") continue;
@@ -919,7 +1048,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         lastFollowUpDate: followUpStartTime,
       };
 
-      if (existingClient.status !== "not_interested") {
+      if (existingClient.status !== "not_interested" && existingClient.status !== "booked" && !existingClient.isBooked) {
         updateData.status = mappedStatus;
       }
       if (matchedLabelIds.length > 0) {

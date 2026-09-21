@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useShift, BREAK_DAILY_BUDGET_MS, BREAK_GRACE_MS, MAX_BREAK_SEGMENTS, getUsedBreakMs } from '../ShiftContext';
+import { useShift, BREAK_DAILY_BUDGET_MS, BREAK_GRACE_MS, MAX_BREAK_SEGMENTS, getUsedBreakMs, todayDateStr } from '../ShiftContext';
 import { formatDuration } from '../utils/time';
 import { Clock, Coffee, Square } from 'lucide-react';
 
@@ -12,7 +12,7 @@ const ShiftWidget: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  if (!shift || (shift.status !== 'active' && shift.status !== 'on_break')) return null;
+  if (!shift || shift.date !== todayDateStr() || (shift.status !== 'active' && shift.status !== 'on_break')) return null;
 
   const elapsedWorkMs = shift.startedAt ? now - shift.startedAt : 0;
   const breaks = shift.breaks || [];

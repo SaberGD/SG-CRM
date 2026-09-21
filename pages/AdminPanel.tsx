@@ -61,15 +61,19 @@ const AdminPanel: React.FC = () => {
   // Live team status (today's shifts, refreshed live)
   const [todayShifts, setTodayShifts] = useState<Shift[]>([]);
   const [liveNow, setLiveNow] = useState(Date.now());
+  const liveDate = useMemo(() => {
+    const d = new Date(liveNow);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, [liveNow]);
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'shifts'), where('date', '==', todayDateStr())),
+      query(collection(db, 'shifts'), where('date', '==', liveDate)),
       (snap) => setTodayShifts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Shift))),
       (err) => console.error('AdminPanel today-shifts snapshot error:', err)
     );
     return () => unsub();
-  }, []);
+  }, [liveDate]);
 
   useEffect(() => {
     const interval = setInterval(() => setLiveNow(Date.now()), 1000);

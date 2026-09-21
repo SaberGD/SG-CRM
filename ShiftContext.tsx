@@ -11,9 +11,15 @@ const BREAK_DAILY_BUDGET_MS = 30 * 60 * 1000;
 const BREAK_GRACE_MS = 5 * 60 * 1000;
 const MAX_BREAK_SEGMENTS = 3;
 
-function todayDateStr(): string {
+export function todayDateStr(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function msUntilNextDay(): number {
+  const nextDay = new Date();
+  nextDay.setHours(24, 0, 0, 0);
+  return Math.max(1000, nextDay.getTime() - Date.now() + 250);
 }
 
 // Sums only closed segments -- an in-progress (still open) segment contributes
@@ -58,12 +64,12 @@ const ShiftContext = createContext<ShiftContextType>({
 
 export const useShift = () => useContext(ShiftContext);
 
-async function createFreshShift(userId: string, userName: string) {
+async function createFreshShift(userId: string, userName: string, date = todayDateStr()) {
   const now = Date.now();
   const newShift: Omit<Shift, 'id'> = {
     userId,
     userName,
-    date: todayDateStr(),
+    date,
     createdAt: now,
     status: 'reviewing',
     preShiftReviewStartedAt: now,
@@ -77,6 +83,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { user, effectiveRole, viewingAsUser } = useAuth();
   const [shift, setShift] = useState<Shift | null>(null);
   const [loading, setLoading] = useState(true);
+  const [currentDate, setCurrentDate] = useState(todayDateStr);
   const [gateDismissed, setGateDismissed] = useState(false);
   const [isEndModalOpen, setIsEndModalOpen] = useState(false);
 
@@ -88,11 +95,29 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const isGateOpen = !!shift && shift.status === 'reviewing' && !gateDismissed;
 
   useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const scheduleNextDay = () => {
+      timeoutId = setTimeout(() => {
+        setCurrentDate(todayDateStr());
+        scheduleNextDay();
+      }, msUntilNextDay());
+    };
+
+    scheduleNextDay();
+    return () => clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
     if (!user || !isShiftApplicable) {
       setShift(null);
       setLoading(false);
       return;
     }
+
+    setLoading(true);
+    setShift(null);
+    setGateDismissed(false);
 
     let unsub: (() => void) | undefined;
     (async () => {
@@ -100,13 +125,13 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const q = firestore.query(
           firestore.collection(db, 'shifts'),
           firestore.where('userId', '==', user.uid),
-          firestore.where('date', '==', todayDateStr()),
+          firestore.where('date', '==', currentDate),
           firestore.orderBy('createdAt', 'desc'),
           firestore.limit(1)
         );
         const snap = await firestore.getDocs(q);
         if (snap.empty) {
-          await createFreshShift(user.uid, user.name);
+          await createFreshShift(user.uid, user.name, currentDate);
         }
         unsub = firestore.onSnapshot(q, (s) => {
           if (!s.empty) {
@@ -127,7 +152,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     })();
 
     return () => { if (unsub) unsub(); };
-  }, [user, isShiftApplicable]);
+  }, [user, isShiftApplicable, currentDate]);
 
   const startShift = useCallback(async () => {
     if (!shift) return;
@@ -184,8 +209,8 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const startNewShift = useCallback(async () => {
     if (!user) return;
     setGateDismissed(false);
-    await createFreshShift(user.uid, user.name);
-  }, [user]);
+    await createFreshShift(user.uid, user.name, currentDate);
+  }, [user, currentDate]);
 
   const openGate = useCallback(() => setGateDismissed(false), []);
   const dismissGate = useCallback(() => setGateDismissed(true), []);

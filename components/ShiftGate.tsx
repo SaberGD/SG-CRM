@@ -95,8 +95,14 @@ const ShiftGate: React.FC = () => {
 
   const handleStart = async () => {
     setStarting(true);
-    await startShift();
-    setStarting(false);
+    try {
+      await startShift();
+    } catch (err) {
+      console.error('ShiftGate start-shift failed:', err);
+      alert('مقدرناش نبدأ الشيفت دلوقتي. جرّب مرة تانية، ولو المشكلة مستمرة بلغ الأدمن.');
+    } finally {
+      setStarting(false);
+    }
   };
 
   const totalPending = pendingClients.length + pendingFollowUpClients.length;
@@ -156,7 +162,7 @@ const ShiftGate: React.FC = () => {
               <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center justify-center gap-2">
                 <Sparkles className="text-orange-500" size={22} /> قبل ما تبدأ، راجع شغل الأتمتة
               </h2>
-              <p className="text-slate-400 font-bold text-xs mt-1">لازم تراجع وتأكد على البيانات دي الأول عشان نبدأ الشيفت رسمياً</p>
+              <p className="text-slate-400 font-bold text-xs mt-1">راجع بيانات الأتمتة دلوقتي أو ارجعلها بعد بدء الشيفت</p>
             </div>
 
             {loadingData ? (
@@ -166,9 +172,10 @@ const ShiftGate: React.FC = () => {
                 {totalPending > 0 ? (
                   <div className="p-5 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-2xl text-center">
                     <Sparkles className="mx-auto text-orange-500 mb-2" size={24} />
-                    <p className="font-black text-orange-700 dark:text-orange-400 text-sm mb-3">
-                      عندك {queue.length} عميل AI Generated محتاج توافق عليه، واحد واحد
+                    <p className="font-black text-orange-700 dark:text-orange-400 text-sm mb-1">
+                      عندك {queue.length} عميل AI Generated محتاج مراجعة
                     </p>
+                    <p className="text-[11px] font-bold text-orange-600/80 dark:text-orange-300/80 mb-3">تقدر تبدأ الشيفت وترجعلهم في أي وقت</p>
                     <button onClick={() => setQueueOpen(true)} className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-xs">
                       يلا نراجعهم
                     </button>
@@ -191,15 +198,13 @@ const ShiftGate: React.FC = () => {
                   )}
                 </div>
 
-                {totalPending === 0 && (
-                  <button
-                    onClick={handleStart}
-                    disabled={starting}
-                    className="w-full py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all bg-primary-500 hover:bg-primary-600 text-white shadow-xl disabled:opacity-50"
-                  >
-                    <CheckCircle2 size={18} /> {starting ? 'جاري البدء...' : 'تمام، ابدأ الشيفت'}
-                  </button>
-                )}
+                <button
+                  onClick={handleStart}
+                  disabled={starting}
+                  className="w-full py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all bg-primary-500 hover:bg-primary-600 text-white shadow-xl disabled:opacity-50"
+                >
+                  <CheckCircle2 size={18} /> {starting ? 'جاري البدء...' : totalPending > 0 ? 'ابدأ الشيفت وراجعهم بعدين' : 'تمام، ابدأ الشيفت'}
+                </button>
                 <button onClick={() => setStep('welcome')} className="w-full text-center text-[11px] font-bold text-slate-400 flex items-center justify-center gap-1">
                   <ArrowLeft size={12} /> رجوع
                 </button>

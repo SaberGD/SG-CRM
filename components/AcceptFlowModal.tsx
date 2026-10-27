@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
@@ -26,7 +26,7 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
   );
   const [saving, setSaving] = useState(false);
   const [editingFollowUp, setEditingFollowUp] = useState(false);
-  const [fuDate, setFuDate] = useState(() => working.nextFollowUpDate ? new Date(working.nextFollowUpDate).toISOString().slice(0, 16) : '');
+  const [fuDate, setFuDate] = useState(() => working.nextFollowUpDate ? (() => { const d = new Date(working.nextFollowUpDate); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 16); })() : '');
 
   const [form, setForm] = useState({
     name: client.name,
@@ -36,10 +36,12 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
     source: client.source || ClientSource.OTHER,
   });
 
-  if (!phase) {
-    onDone(working);
-    return null;
-  }
+  // Nothing left to review for this client: hand control back after render, not during it.
+  useEffect(() => {
+    if (!phase) onDone(working);
+  }, [phase]);
+
+  if (!phase) return null;
 
   const advanceOrFinish = (updated: Client) => {
     setWorking(updated);

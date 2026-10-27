@@ -12,6 +12,7 @@ import { UserRole, Client, User } from '../types';
 import ShiftGate from './ShiftGate';
 import ShiftWidget from './ShiftWidget';
 import EndShiftModal from './EndShiftModal';
+import ErrorBoundary from './ErrorBoundary';
 
 const AlarmManager: React.FC<{ user: any }> = ({ user }) => {
   const [activeAlarm, setActiveAlarm] = useState<Client | null>(null);
@@ -227,9 +228,9 @@ const Layout: React.FC = () => {
           </button>
         </div>
       )}
-      <AlarmManager user={user} />
-      <ShiftGate />
-      <EndShiftModal />
+      <ErrorBoundary name="Alarm" silent><AlarmManager user={user} /></ErrorBoundary>
+      <ErrorBoundary name="ShiftGate" silent><ShiftGate /></ErrorBoundary>
+      <ErrorBoundary name="EndShift" silent><EndShiftModal /></ErrorBoundary>
 
       <header className="lg:hidden flex items-center justify-between p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-100 dark:border-slate-800 sticky top-0 z-50">
         <button onClick={() => setIsSidebarOpen(true)} className="sg-icon-btn text-slate-600 dark:text-slate-300">
@@ -345,8 +346,8 @@ const Layout: React.FC = () => {
 
       <main className="flex-1 overflow-x-hidden p-4 lg:p-6 xl:p-8">
         <div className="max-w-7xl mx-auto">
-          <ShiftWidget />
-          <Outlet />
+          <ErrorBoundary name="ShiftWidget" silent><ShiftWidget /></ErrorBoundary>
+          <ErrorBoundary name={location.pathname} key={location.pathname}><Outlet /></ErrorBoundary>
         </div>
       </main>
     </div>

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useShift, BREAK_DAILY_BUDGET_MS, BREAK_GRACE_MS, MAX_BREAK_SEGMENTS, getUsedBreakMs, todayDateStr } from '../ShiftContext';
 import { formatDuration } from '../utils/time';
-import { Clock, Coffee, Square } from 'lucide-react';
+import { Clock, Coffee } from 'lucide-react';
 
 const ShiftWidget: React.FC = () => {
-  const { shift, startBreak, endBreak, openEndModal } = useShift();
+  const { shift, startBreak, endBreak } = useShift();
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -65,9 +65,6 @@ const ShiftWidget: React.FC = () => {
             <Coffee size={14} /> {breakRemainingMs > 0 ? 'إنهاء البريك دلوقتي' : 'أكدت إني رجعت، نكمل شغل'}
           </button>
         )}
-        <button onClick={openEndModal} className="sg-btn sg-btn-danger !py-2.5 !px-4 text-[11px]">
-          <Square size={14} /> خلصت شغل!
-        </button>
       </div>
     </div>
   );

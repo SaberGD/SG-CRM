@@ -1,4 +1,4 @@
-const CACHE_NAME = 'crm-system-cache-v1';
+const CACHE_NAME = 'crm-system-cache-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -46,8 +46,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Always revalidate the HTML shell so users never run a stale bundle
+  const isPage = event.request.mode === 'navigate' || event.request.destination === 'document';
   event.respondWith(
-    fetch(event.request)
+    fetch(isPage ? new Request(event.request, { cache: 'no-store' }) : event.request)
       .then((response) => {
         // Check if we received a valid response
         if (!response || response.status !== 200 || response.type !== 'basic') {

@@ -90,15 +90,31 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-          .then((reg) => {
-            console.log('[Service Worker] Registered successfully with scope:', reg.scope);
-          })
-          .catch((err) => {
-            console.error('[Service Worker] Registration failed:', err);
-          });
+        const hadController = !!navigator.serviceWorker.controller;
+        navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+          .then((reg) => reg.update())
+          .catch((err) => console.error('[Service Worker] Registration failed:', err));
+        // A new service worker took over -> reload once so the latest bundle runs
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (hadController && !window.__reloading) { window.__reloading = true; location.reload(); }
+        });
       });
     }
+    // Long-lived tabs: when the tab regains focus, reload if a newer bundle was deployed
+    (function () {
+      const current = (document.querySelector('script[type="module"][src*="assets/index-"]') || {}).src;
+      if (!current) return;
+      let last = 0;
+      document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState !== 'visible' || Date.now() - last < 60000) return;
+        last = Date.now();
+        try {
+          const html = await (await fetch('/index.html?v=' + last, { cache: 'no-store' })).text();
+          const m = html.match(/assets\/index-[A-Za-z0-9_-]+\.js/);
+          if (m && !current.endsWith(m[0])) location.reload();
+        } catch (e) {}
+      });
+    })();
   </script>
 </body>
 </html>

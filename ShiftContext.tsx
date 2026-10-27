@@ -214,7 +214,11 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const openGate = useCallback(() => setGateDismissed(false), []);
   const dismissGate = useCallback(() => setGateDismissed(true), []);
-  const openEndModal = useCallback(() => setIsEndModalOpen(true), []);
+  const openEndModal = useCallback(() => {
+    console.trace('[Shift] openEndModal called');
+    if (!window.confirm('متأكد إنك عايز تنهي الشيفت؟')) return;
+    setIsEndModalOpen(true);
+  }, []);
   const closeEndModal = useCallback(() => setIsEndModalOpen(false), []);
 
   return (

@@ -88,17 +88,12 @@
   <div id="root"></div>
 <script type="module" src="/index.tsx"></script>
   <script>
+    // Service worker retired: unregister any old one and drop its caches
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        const hadController = !!navigator.serviceWorker.controller;
-        navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
-          .then((reg) => reg.update())
-          .catch((err) => console.error('[Service Worker] Registration failed:', err));
-        // A new service worker took over -> reload once so the latest bundle runs
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          if (hadController && !window.__reloading) { window.__reloading = true; location.reload(); }
-        });
-      });
+      navigator.serviceWorker.getRegistrations()
+        .then((regs) => regs.forEach((r) => r.update().catch(() => {}).then(() => r.unregister())))
+        .catch(() => {});
+      if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k))).catch(() => {});
     }
     // Long-lived tabs: when the tab regains focus, reload if a newer bundle was deployed
     (function () {

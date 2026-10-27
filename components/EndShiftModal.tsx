@@ -6,7 +6,7 @@ import { useAuth } from '../App';
 import { useShift } from '../ShiftContext';
 import { Client } from '../types';
 import { X, AlertTriangle, MessageCircle, CheckCircle2, ArrowLeft, Sparkles } from 'lucide-react';
-import AcceptFlowModal from './AcceptFlowModal';
+import AcceptFlowModal, { needsClientAccept, needsFollowUpAccept } from './AcceptFlowModal';
 
 type Step = 'pending' | 'overdue' | 'whatsapp' | 'done';
 
@@ -35,14 +35,15 @@ const EndShiftModal: React.FC = () => {
           firestore.where('salesAgentId', '==', user.uid),
           firestore.where('reviewedBySales', '==', false)
         ));
-        setPendingClients(unreviewedSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(c => c.createdVia === 'ai_automation'));
+        setPendingClients(unreviewedSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(needsClientAccept));
 
         const unreviewedFollowUpSnap = await firestore.getDocs(firestore.query(
           clientsRef,
           firestore.where('salesAgentId', '==', user.uid),
           firestore.where('nextFollowUpReviewedBySales', '==', false)
         ));
-        setPendingFollowUpClients(unreviewedFollowUpSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+        // Only follow-ups the automation proposed are reviewable; others would be phantom queue items.
+        setPendingFollowUpClients(unreviewedFollowUpSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(needsFollowUpAccept));
 
         const overdueSnap = await firestore.getDocs(firestore.query(
           clientsRef,
@@ -165,6 +166,7 @@ const EndShiftModal: React.FC = () => {
 
       {queueOpen && queue[0] && (
         <AcceptFlowModal
+          key={queue[0].id}
           client={queue[0]}
           onClose={() => setQueueOpen(false)}
           onDone={handleQueueItemDone}

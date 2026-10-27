@@ -1449,6 +1449,7 @@ const ClientDetails: React.FC = () => {
 
       {isAcceptFlowOpen && client && (
         <AcceptFlowModal
+          key={client.id}
           client={client}
           onClose={() => setIsAcceptFlowOpen(false)}
           onDone={(updated) => {

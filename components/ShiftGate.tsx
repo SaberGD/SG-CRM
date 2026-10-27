@@ -5,7 +5,7 @@ import { useAuth } from '../App';
 import { useShift } from '../ShiftContext';
 import { Client, DailyReport } from '../types';
 import { Sparkles, CheckCircle2, Clock, PlayCircle, Eye, ArrowLeft, MessageSquare } from 'lucide-react';
-import AcceptFlowModal from './AcceptFlowModal';
+import AcceptFlowModal, { needsClientAccept, needsFollowUpAccept } from './AcceptFlowModal';
 
 const ShiftGate: React.FC = () => {
   const { user } = useAuth();
@@ -64,14 +64,15 @@ const ShiftGate: React.FC = () => {
           firestore.where('reviewedBySales', '==', false)
         ));
         const unreviewed = unreviewedSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
-        setPendingClients(unreviewed.filter(c => c.createdVia === 'ai_automation'));
+        setPendingClients(unreviewed.filter(needsClientAccept));
 
         const unreviewedFollowUpSnap = await firestore.getDocs(firestore.query(
           clientsRef,
           firestore.where('salesAgentId', '==', user.uid),
           firestore.where('nextFollowUpReviewedBySales', '==', false)
         ));
-        setPendingFollowUpClients(unreviewedFollowUpSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+        // Only follow-ups the automation proposed are reviewable; others would be phantom queue items.
+        setPendingFollowUpClients(unreviewedFollowUpSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(needsFollowUpAccept));
 
         const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
@@ -216,6 +217,7 @@ const ShiftGate: React.FC = () => {
 
       {queueOpen && queue[0] && (
         <AcceptFlowModal
+          key={queue[0].id}
           client={queue[0]}
           onClose={() => setQueueOpen(false)}
           onDone={handleQueueItemDone}

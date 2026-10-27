@@ -11,10 +11,10 @@ interface Props {
   onDone: (updated: Client) => void;
 }
 
-function needsClientAccept(c: Client) {
+export function needsClientAccept(c: Client) {
   return c.createdVia === 'ai_automation' && !c.reviewedBySales;
 }
-function needsFollowUpAccept(c: Client) {
+export function needsFollowUpAccept(c: Client) {
   return c.nextFollowUpSetVia === 'ai_automation' && !c.nextFollowUpReviewedBySales && !!c.nextFollowUpDate;
 }
 

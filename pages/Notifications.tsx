@@ -250,6 +250,7 @@ const Notifications: React.FC = () => {
 
       {acceptFlowClient && (
         <AcceptFlowModal
+          key={acceptFlowClient.id}
           client={acceptFlowClient}
           onClose={() => setAcceptFlowClient(null)}
           onDone={() => setAcceptFlowClient(null)}

@@ -8,7 +8,7 @@ import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { User, UserRole, Client, FollowUp, ActivityLog, Shift } from '../types';
 import {
-  ShieldCheck, UserCog, Mail, ShieldAlert, Trash2, Search, Edit3,
+  UserCog, Mail, ShieldAlert, Trash2, Search, Edit3,
   X, Check, Users, Calendar, BarChart, Phone, Eye, ArrowLeft,
   FileText, Activity, AlertCircle, UserX, UserCheck, ArrowRightLeft,
   PauseCircle, CheckCircle2, RefreshCw, Sparkles, UserMinus, Coffee, Clock
@@ -471,13 +471,11 @@ const AdminPanel: React.FC = () => {
   }
 
   return (
-    <div className="space-y-8 animate-fade-in pb-20">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+    <div className="sg-page space-y-6 animate-fade-in">
+      <header className="sgui-heading">
         <div>
-          <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter flex items-center gap-4">
-            <ShieldCheck className="text-primary-500" size={40} /> إدارة <span className="text-primary-500">فريق العمل</span>
-          </h1>
-          <p className="text-slate-500 font-bold mt-1">عرض والتحكم في كافة مستخدمي وصلاحيات النظام، وإيقاف الموظفين وتحويل عُملائهم</p>
+          <h1>إدارة فريق العمل</h1>
+          <p>عرض والتحكم في كافة مستخدمي وصلاحيات النظام، وإيقاف الموظفين وتحويل عُملائهم</p>
         </div>
         <div className="relative w-full md:w-80">
           <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />

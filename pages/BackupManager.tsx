@@ -10,6 +10,7 @@ import {
   Download, Upload, Database, FileSpreadsheet, Archive, 
   AlertTriangle, CheckCircle2, RefreshCw, ShieldAlert 
 } from 'lucide-react';
+import { PageHeader } from '../components/ui';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -145,18 +146,12 @@ const BackupManager: React.FC = () => {
   if (!isHighRole) return <div className="p-20 text-center font-black text-rose-500">غير مصرح لك بالدخول لهذه الصفحة</div>;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-10 animate-fade-in pb-20">
-      <header className="text-center space-y-4">
-        <div className="w-20 h-20 bg-primary-500 text-white rounded-[2rem] flex items-center justify-center mx-auto shadow-xl shadow-primary-500/20">
-          <Database size={40} />
-        </div>
-        <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">إدارة <span className="text-primary-500">النسخ الاحتياطي</span></h1>
-        <p className="text-slate-500 font-bold">تأمين بيانات النظام، التصدير، والاستعادة</p>
-      </header>
+    <div className="sg-page space-y-6 animate-fade-in">
+      <PageHeader title="النسخ الاحتياطي" subtitle="تأمين بيانات النظام: التصدير والاستعادة" />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Backup Section */}
-        <div className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl space-y-8">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl space-y-8">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-blue-50 dark:bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center">
               <Archive size={24} />
@@ -181,7 +176,7 @@ const BackupManager: React.FC = () => {
         </div>
 
         {/* Restore Section */}
-        <div className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl space-y-8 relative overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl space-y-8 relative overflow-hidden">
           {!isAdmin && (
             <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center p-8 text-center">
               <ShieldAlert size={48} className="text-rose-500 mb-4" />

@@ -34,9 +34,10 @@ export const normalizeLabelColor = (color?: string) => {
 export const getLabelColorStyle = (color?: string, selected = true): CSSProperties => {
   const normalizedColor = normalizeLabelColor(color);
 
+  // Tinted chip (shared look): the label color mixed into the theme text color stays readable in light and dark.
   return {
-    backgroundColor: selected ? normalizedColor : 'transparent',
-    borderColor: normalizedColor,
-    color: selected ? '#fff' : normalizedColor,
+    backgroundColor: selected ? `color-mix(in srgb, ${normalizedColor} 16%, transparent)` : 'transparent',
+    borderColor: selected ? normalizedColor : `color-mix(in srgb, ${normalizedColor} 40%, transparent)`,
+    color: `color-mix(in srgb, ${normalizedColor} 72%, var(--sg-text))`,
   };
 };

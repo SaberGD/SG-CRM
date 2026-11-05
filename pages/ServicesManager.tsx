@@ -36,11 +36,11 @@ const ServicesManager: React.FC = () => {
   };
 
   return (
-    <div className="space-y-10">
-      <header className="flex justify-between items-center">
+    <div className="sg-page space-y-6 animate-fade-in">
+      <header className="sgui-heading">
         <div>
-          <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">إدارة الخدمات</h1>
-          <p className="text-slate-500 font-bold mt-1">إضافة وتعديل الكورسات والمسارات التعليمية</p>
+          <h1>الخدمات</h1>
+          <p>إضافة وتعديل الكورسات والمسارات التعليمية</p>
         </div>
         <button onClick={() => { setEditingService(null); setFormData({name:'', description:'', category:'', isActive:true}); setIsModalOpen(true); }} className="bg-primary-500 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-primary-600 transition-all">إضافة خدمة جديدة</button>
       </header>

@@ -4,6 +4,7 @@ import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestor
 import { db } from '../firebase';
 import { ActivityLog } from '../types';
 import { Clock, User, UserPlus, Edit3, PhoneIncoming } from 'lucide-react';
+import { PageHeader } from '../components/ui';
 
 const ActivityLogs: React.FC = () => {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
@@ -28,11 +29,8 @@ const ActivityLogs: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-10">
-      <header>
-        <h1 className="text-4xl font-black text-slate-900 dark:text-white no-tracking">سجل النشاطات</h1>
-        <p className="text-slate-500 dark:text-slate-400 font-bold mt-1 no-tracking">مراقبة العمليات والتحركات في النظام</p>
-      </header>
+    <div className="sg-page space-y-6 animate-fade-in">
+      <PageHeader title="سجل النشاطات" subtitle="مراقبة العمليات والتحركات في النظام" />
 
       <div className="bg-white dark:bg-slate-900 rounded-4xl shadow-xl shadow-slate-200/40 dark:shadow-none border border-slate-100 dark:border-slate-800 overflow-hidden">
         {loading ? (

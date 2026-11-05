@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
 import { sendMetaEvent } from '../metaService';
@@ -19,8 +19,8 @@ import {
   Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2,
   Phone, MessageSquare, User, Clock, X,
   ExternalLink, Layers, AlertTriangle, Upload, Download, Sparkles,
-  SlidersHorizontal, ChevronDown, Facebook, Instagram, Music2, Globe2, UserPlus
-} from 'lucide-react';
+  SlidersHorizontal, ChevronDown, Facebook, Instagram, Music2, Globe2, UserPlus, MoreHorizontal } from 'lucide-react';
+import { PageHeader } from '../components/ui';
 import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
 import { searchTerm, matchesSearch, buildSearchKeys } from '../utils/searchKeys.mjs';
 import { normalizePhoneKey } from '../utils/clientMerge.mjs';
@@ -206,6 +206,15 @@ const ClientsList: React.FC = () => {
   const canBulkTransfer = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
   const canEditChatId = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR;
   const UNASSIGNED_AGENT = '__unassigned__';
+
+  // The header search box sends ?q=... here.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q === null) return;
+    setSearchTerm(q);
+    setSearchParams({}, { replace: true });
+  }, [searchParams]);
 
   // Debounce search
   useEffect(() => {
@@ -865,53 +874,41 @@ const ClientsList: React.FC = () => {
 
   return (
     <div className="sg-page space-y-6 animate-fade-in">
-      <header className="sg-page-header">
-        <div>
-          <h1 className="sg-title">قائمة <span className="text-primary-500">العملاء</span></h1>
-          <p className="sg-subtitle">إدارة بيانات المتقدمين والمتابعات، المعروض حالياً: {clients.length}</p>
-        </div>
-        <div className="sg-actions">
-          <button onClick={() => setIsAddModalOpen(true)} className="sg-btn sg-btn-primary">
-            <Plus size={18} /> إضافة عميل جديد
+      <PageHeader
+        title="العملاء"
+        subtitle={<>بيانات المتقدمين والمتابعات · المعروض حالياً <span className="sgui-count">{clients.length}</span></>}
+        actions={<>
+          <button onClick={() => setIsAddModalOpen(true)} className="sgui-button is-primary">
+            <Plus size={18} /> إضافة عميل
           </button>
-
-          {isAdmin && (
-            <button 
-              onClick={() => navigate('/ai-assistant')} 
-              className="sg-btn sg-btn-ai"
-              title="فتح المساعد الذكي (مارو) وتحليل العملاء واقتراحات المتابعة"
-            >
-              <Sparkles size={18} className="text-amber-300" /> اقتراحات مارو (AI)
-            </button>
-          )}
-
-          <button 
-            onClick={() => setIsBulkImportOpen(true)} 
-            className="sg-btn sg-btn-success"
-          >
-            <Upload size={18} /> استيراد جماعي
+          <button onClick={() => setIsBulkImportOpen(true)} className="sgui-button">
+            <Upload size={18} /> استيراد
           </button>
-
-          {canBulkTransfer && (
-            <button onClick={() => setIsBulkTransferOpen(true)} className="sg-btn sg-btn-warning">
-              <Layers size={18} /> تحويل جماعي
-            </button>
-          )}
-
-          <button 
-            onClick={() => exportBookingsToExcel(clients)} 
-            className="sg-btn sg-btn-secondary"
-            title="تصدير الحجوزات الحالية إلى ملف Excel"
-          >
-            <Download size={18} /> تصدير Excel
-          </button>
-        </div>
-      </header>
+          <details className="sgui-action-menu">
+            <summary><MoreHorizontal size={18} /> إجراءات أخرى</summary>
+            <div>
+              <button type="button" onClick={() => exportBookingsToExcel(clients)} title="تصدير الحجوزات الحالية إلى ملف Excel">
+                <Download size={17} /> تصدير الحجوزات Excel
+              </button>
+              {canBulkTransfer && (
+                <button type="button" onClick={() => setIsBulkTransferOpen(true)}>
+                  <Layers size={17} /> تحويل جماعي
+                </button>
+              )}
+              {isAdmin && (
+                <button type="button" onClick={() => navigate('/ai-assistant')} title="فتح المساعد الذكي (مارو) وتحليل العملاء واقتراحات المتابعة">
+                  <Sparkles size={17} /> اقتراحات مارو (AI)
+                </button>
+              )}
+            </div>
+          </details>
+        </>}
+      />
 
       {/* Filters */}
-      <div className="sg-surface sg-filter-surface space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-            <div className="relative">
+      <div className="sgui-filter-panel space-y-4">
+          <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
+            <div className="relative col-span-2 xl:col-span-1">
               <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                 type="text" placeholder="بحث بالاسم أو الهاتف..." 
@@ -961,7 +958,7 @@ const ClientsList: React.FC = () => {
           </div>
 
           {isAdvancedFiltersOpen && (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 animate-fade-in">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
             <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
               <option value="all">كل التصنيفات (Labels)</option>
               {allLabels.map(l => <option key={l.id} value={l.id}>{l.text}</option>)}
@@ -1002,49 +999,26 @@ const ClientsList: React.FC = () => {
           )}
       </div>
 
-      {canDelete && (
-        <div className="sg-danger-strip px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-lg">
-              <Trash2 size={20} />
-            </div>
-            <div>
-              <p className="text-sm font-black text-rose-700 dark:text-rose-300">الحذف الجماعي للعملاء</p>
-              <p className="text-[10px] font-bold text-rose-500/80 dark:text-rose-200/80">
-                {selectedClientIds.length > 0
-                  ? `تم تحديد ${selectedClientIds.length} عميل للحذف النهائي`
-                  : 'حدد العملاء من المربعات الموجودة بجانب أسمائهم ثم اضغط حذف'}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={toggleVisibleSelection}
-              disabled={filteredClients.length === 0}
-              className="sg-btn sg-btn-secondary text-[10px] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+      {canDelete && selectedClientIds.length > 0 && (
+        <div className="sgui-selection-bar" role="region" aria-label="العملاء المحددين">
+          <strong>تم تحديد {selectedClientIds.length} عميل</strong>
+          <div>
+            <button type="button" onClick={toggleVisibleSelection} disabled={filteredClients.length === 0} className="sgui-button">
               {allVisibleSelected ? 'إلغاء تحديد الظاهر' : 'تحديد كل الظاهر'}
             </button>
-            <button
-              onClick={handleBulkDelete}
-              disabled={selectedClientIds.length === 0 || isBulkDeleting}
-              className={`sg-btn text-[10px] ${
-                selectedClientIds.length === 0 || isBulkDeleting
-                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-800'
-                  : 'bg-rose-600 text-white hover:bg-rose-700 active:scale-95'
-              }`}
-            >
+            <button type="button" onClick={() => setSelectedClientIds([])} className="sgui-button">إلغاء التحديد</button>
+            <button type="button" onClick={handleBulkDelete} disabled={isBulkDeleting} className="sgui-button is-danger">
               <Trash2 size={16} />
-              {isBulkDeleting ? 'جاري الحذف...' : selectedClientIds.length > 0 ? `حذف ${selectedClientIds.length} عميل` : 'حذف المحدد'}
+              {isBulkDeleting ? 'جاري الحذف...' : `حذف ${selectedClientIds.length} عميل`}
             </button>
           </div>
         </div>
       )}
 
       {/* Table */}
-      <div className="sg-surface sg-table-shell">
+      <div className="sgui-table-wrap">
         <div className="overflow-x-auto">
-          <table className="sg-table w-full text-right">
+          <table className="sgui-card-table w-full text-right">
             <thead>
               <tr>
                 {canDelete && (
@@ -1058,21 +1032,11 @@ const ClientsList: React.FC = () => {
                     />
                   </th>
                 )}
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">العميل / وقت التسجيل</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">الحالة / الخدمة</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">المواصفات</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">المسؤول</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
-                  الإجراءات
-                  <div className="flex justify-center gap-3 mt-1 text-[7px] opacity-70 font-bold">
-                    <span>واتساب</span>
-                    <span>اتصال</span>
-                    <span>السجل</span>
-                    {isAdmin && <span>مارو AI</span>}
-                    {isHighRole && <span>تحويل</span>}
-                    {canDelete && <span>حذف</span>}
-                  </div>
-                </th>
+                <th>العميل / وقت التسجيل</th>
+                <th>الحالة / الخدمة</th>
+                <th>المواصفات</th>
+                <th className="text-center">المسؤول</th>
+                <th className="text-center">الإجراءات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1090,7 +1054,7 @@ const ClientsList: React.FC = () => {
                 return (
                 <tr key={client.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all ${selectedClientSet.has(client.id) ? 'bg-rose-50/60 dark:bg-rose-500/5' : (isUnreviewedAi || isUnreviewedFollowUp) ? 'bg-orange-50/60 dark:bg-orange-500/10 border-r-2 border-orange-400' : ''}`}>
                   {canDelete && (
-                    <td className="px-6 py-6 text-center">
+                    <td className="sgui-cell-select text-center">
                       <input
                         type="checkbox"
                         checked={selectedClientSet.has(client.id)}
@@ -1100,7 +1064,7 @@ const ClientsList: React.FC = () => {
                       />
                     </td>
                   )}
-                  <td className="px-8 py-6">
+                  <td className="sgui-cell-wide">
                     <div className="flex items-center gap-3">
                       <div
                         className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${sourceMeta.box}`}
@@ -1187,8 +1151,8 @@ const ClientsList: React.FC = () => {
                       </div>
                     </div>
                   </td>
-                  <td className="px-8 py-6">
-                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${StatusLabels[client.status]?.color || ''}`}>
+                  <td>
+                    <span className={`sgui-state ${StatusLabels[client.status]?.color || ''}`}>
                       {StatusLabels[client.status]?.ar}
                     </span>
                     <p className="text-[10px] font-bold text-slate-500 mt-1">{client.serviceName}</p>
@@ -1212,14 +1176,14 @@ const ClientsList: React.FC = () => {
                       </div>
                     )}
                   </td>
-                  <td className="px-8 py-6">
+                  <td>
                     <div className="flex flex-wrap gap-1">
                       <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.gender === Gender.MALE ? 'ذكر' : client.gender === Gender.FEMALE ? 'أنثى' : 'لم يحدد'}</span>
                       <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : client.laptop === LaptopStatus.WITHOUT ? 'بدون لابتوب' : 'لم يحدد'}</span>
                       <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : client.mode === AttendanceMode.OFFLINE ? 'أوفلاين' : 'لم يحدد'}</span>
                     </div>
                   </td>
-                  <td className="px-8 py-6 text-center">
+                  <td className="text-center">
                     {!isHighRole && poolAgentId && client.salesAgentId === poolAgentId ? (
                       <button
                         onClick={() => handleAssignToMe(client)}
@@ -1229,29 +1193,26 @@ const ClientsList: React.FC = () => {
                         <UserPlus size={11} /> Assign to me
                       </button>
                     ) : (
-                      <span className="text-[10px] text-slate-500 font-bold italic">{client.salesAgentName}</span>
+                      <span className="text-xs text-slate-500">{client.salesAgentName}</span>
                     )}
                   </td>
-                  <td className="px-8 py-6">
+                  <td className="sgui-cell-wide sgui-cell-actions">
                     <div className="flex justify-center gap-2">
-                      <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="sg-icon-btn bg-emerald-50 text-emerald-500 dark:bg-emerald-500/10"><MessageCircle size={16} /></a>
-                      <a href={`tel:${client.phone}`} title="اتصال هاتفي" className="sg-icon-btn bg-blue-50 text-blue-500 dark:bg-blue-500/10"><Phone size={16} /></a>
-                      <button onClick={() => navigate(`/clients/${client.id}`)} title="عرض السجل والمتابعة" className="sg-icon-btn bg-primary-50 text-primary-500 dark:bg-primary-500/10"><History size={16} /></button>
+                      <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="sgui-icon-button is-whatsapp" aria-label="واتساب"><MessageCircle size={16} /></a>
+                      <a href={`tel:${client.phone}`} title="اتصال هاتفي" className="sgui-icon-button" aria-label="اتصال"><Phone size={16} /></a>
+                      <button onClick={() => navigate(`/clients/${client.id}`)} title="عرض السجل والمتابعة" className="sgui-icon-button" aria-label="السجل والمتابعة"><History size={16} /></button>
                       {isAdmin && (
                         <button 
                           onClick={() => navigate(`/clients/${client.id}`)} 
                           title={client.aiRecommendation ? "عرض اقتراحات مارو (AI)" : "استخراج اقتراحات مارو (AI)"} 
-                          className={`sg-icon-btn ${
-                            client.aiRecommendation 
-                              ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 shadow-sm' 
-                              : 'bg-slate-100 text-slate-400 hover:text-indigo-600 dark:bg-slate-800 dark:text-slate-500'
-                          }`}
+                          className={`sgui-icon-button ${client.aiRecommendation ? 'is-marked' : ''}`}
+                          aria-label="اقتراحات مارو"
                         >
-                          <Sparkles size={16} className={client.aiRecommendation ? 'text-amber-500' : ''} />
+                          <Sparkles size={16} />
                         </button>
                       )}
                       {isHighRole && (
-                        <button onClick={() => { setSelectedClient(client); setIsTransferModalOpen(true); }} title="تحويل العميل لموظف آخر" className="sg-icon-btn bg-amber-50 text-amber-500 dark:bg-amber-500/10"><ArrowRightLeft size={16} /></button>
+                        <button onClick={() => { setSelectedClient(client); setIsTransferModalOpen(true); }} title="تحويل العميل لموظف آخر" className="sgui-icon-button" aria-label="تحويل العميل"><ArrowRightLeft size={16} /></button>
                       )}
                       {canDelete && (
                         <button onClick={async () => { 
@@ -1272,7 +1233,7 @@ const ClientsList: React.FC = () => {
                           } else if (confirmation !== null) {
                             alert("كلمة التأكيد غير صحيحة، لم يتم الحذف.");
                           }
-                        }} title="حذف العميل" className="sg-icon-btn bg-rose-50 text-rose-500 dark:bg-rose-500/10"><Trash2 size={16} /></button>
+                        }} title="حذف العميل" aria-label="حذف العميل" className="sgui-icon-button is-danger"><Trash2 size={16} /></button>
                       )}
                     </div>
                   </td>
@@ -1284,11 +1245,11 @@ const ClientsList: React.FC = () => {
         </div>
         
         {hasMore && (
-          <div className="p-8 flex justify-center bg-slate-50/50 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800">
-            <button 
-              onClick={() => fetchClients(true)} 
+          <div className="sgui-load-more">
+            <button
+              onClick={() => fetchClients(true)}
               disabled={isLoadingMore}
-              className="bg-white dark:bg-slate-900 px-10 py-4 rounded-2xl font-black text-xs shadow-md hover:shadow-lg transition-all border border-slate-100 dark:border-slate-800 flex items-center gap-2"
+              className="sgui-button"
             >
               {isLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد من العملاء'}
             </button>

@@ -4,7 +4,7 @@ import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { doc, setDoc, getDocs, collection, query, where, updateDoc, getDoc } from 'firebase/firestore';
 import { auth, db, logActivity } from '../firebase';
 import { UserRole, Invitation } from '../types';
-import { LayoutDashboard, AlertCircle, Chrome } from 'lucide-react';
+import { AlertCircle, Chrome } from 'lucide-react';
 
 const Login: React.FC = () => {
   const [error, setError] = useState('');
@@ -85,71 +85,27 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 relative overflow-hidden">
-      <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-primary-500/10 rounded-full blur-[120px]"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-600/10 rounded-full blur-[120px]"></div>
+    <div className="sg-crm-login" dir="rtl">
+      <div className="sg-crm-login-card animate-fade-in">
+        <img src="/saber-group-logo.png" alt="Saber Group" />
+        <h1>تسجيل الدخول لنظام المبيعات</h1>
+        <p>الدخول مسموح للإيميلات اللي الإدارة ضافتها بس.</p>
 
-      <div className="w-full max-w-[500px] z-10 animate-fade-in">
-        <div className="text-center mb-10">
-          <div className="w-20 h-20 bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl flex items-center justify-center mb-6 mx-auto border border-slate-100 dark:border-slate-800">
-            <LayoutDashboard className="text-primary-500" size={40} />
-          </div>
-          <h1 className="text-3xl font-black text-slate-950 dark:text-white uppercase tracking-tighter">
-            SABER GROUP <span className="text-primary-500">CRM SYSTEM</span>
-          </h1>
+        {error && <div className="sg-crm-login-error" role="alert">{error}</div>}
+
+        <div className="sg-crm-login-actions">
+          <button type="button" onClick={handleGoogleLogin} disabled={loading} className="sgui-button is-primary">
+            <Chrome size={18} aria-hidden="true" />
+            {loading ? 'جاري التحقق...' : 'الدخول بحساب Google'}
+          </button>
+          <button type="button" onClick={openInNewTab} className="sgui-button">
+            فتح في تبويب مستقل (لو نافذة الدخول اتمنعت)
+          </button>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
-          <div className="p-8 md:p-12">
-            <div className="animate-fade-in">
-              <div className="text-center mb-8">
-                <h2 className="text-xl font-black text-slate-800 dark:text-slate-200">
-                  تسجيل الدخول للنظام
-                </h2>
-                <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase flex items-center justify-center gap-1">
-                  <AlertCircle size={10}/> مسموح فقط للإيميلات المضافة من قبل الإدارة
-                </p>
-              </div>
-
-              {error && (
-                <div className="mb-6 p-4 bg-rose-50 text-rose-600 rounded-2xl text-[10px] font-black text-center border border-rose-100">
-                  {error}
-                </div>
-              )}
-
-              <div className="space-y-6">
-                <button
-                  type="button"
-                  onClick={handleGoogleLogin}
-                  disabled={loading}
-                  className="w-full py-6 rounded-3xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-black shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-4 border border-slate-100 dark:border-slate-700 text-base"
-                >
-                  <Chrome className="text-rose-500" size={24} />
-                  {loading ? 'جاري التحقق...' : 'الدخول عبر Gmail'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={openInNewTab}
-                  className="w-full py-4 rounded-3xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs transition-all flex items-center justify-center gap-2 border border-transparent"
-                >
-                  فتح في تبويب مستقل (حل مشكلة حظر النافذة المنبثقة)
-                </button>
-
-                <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
-                  <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 text-center leading-relaxed">
-                    يرجى استخدام إيميل Google المعتمد الخاص بك. إذا لم تتمكن من الدخول، تأكد من أن الأدمن قد أضاف إيميلك في قائمة الوصول.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-8 text-center border-t border-slate-50 dark:border-slate-800 pt-6">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Educational Excellence & Management
-                </p>
-              </div>
-            </div>
-          </div>
+        <div className="sg-crm-login-note">
+          <AlertCircle size={14} aria-hidden="true" />
+          <span>استخدم إيميل Google المعتمد بتاعك. لو مش قادر تدخل، اتأكد إن الأدمن ضاف إيميلك في قائمة الوصول.</span>
         </div>
       </div>
     </div>

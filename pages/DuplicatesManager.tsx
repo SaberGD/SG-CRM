@@ -3,7 +3,7 @@ import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { Client, UserRole } from '../types';
-import { Copy, GitMerge, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { GitMerge, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { normalizeName, normalizePhoneKey, planMerge } from '../utils/clientMerge.mjs';
 
 type Group = { phoneKey: string; clients: Client[] };
@@ -98,10 +98,10 @@ const DuplicatesManager: React.FC = () => {
   if (!isAdmin) return <div className="p-10 text-center font-bold text-slate-500">الصفحة دي للأدمن فقط.</div>;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8 pb-20 animate-fade-in">
-      <header>
-        <h1 className="text-3xl font-black text-slate-900 dark:text-white flex items-center gap-3"><Copy /> العملاء المكررين</h1>
-        <p className="text-slate-500 font-bold mt-1">عملاء بنفس رقم التليفون. الدمج بيحافظ على المتابعات والحجز، والسجل المحذوف بيتأرشف.</p>
+    <div className="sg-page space-y-6 animate-fade-in">
+      <header className="mb-2">
+        <h1>العملاء المكررين</h1>
+        <p className="text-sm text-slate-500 mt-1">عملاء بنفس رقم التليفون. الدمج بيحافظ على المتابعات والحجز، والسجل المحذوف بيتأرشف.</p>
       </header>
       {message && <div className="rounded-2xl bg-emerald-50 text-emerald-700 font-bold p-4 text-sm">{message}</div>}
       {loading ? <p className="text-slate-500 font-bold">جاري التحميل…</p> : (

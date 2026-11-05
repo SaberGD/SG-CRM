@@ -7,12 +7,20 @@ import { auth, db, logActivity } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { collection, query, where, onSnapshot, getDocs, getDoc, doc, getCountFromServer } from 'firebase/firestore';
 import {
-  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog, Database, Sparkles, Copy, CalendarCheck } from 'lucide-react';
+  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, UserCog, Database, Sparkles, Copy, CalendarCheck, Search } from 'lucide-react';
 import { UserRole, Client, User } from '../types';
 import ShiftGate from './ShiftGate';
 import ShiftWidget from './ShiftWidget';
 import EndShiftModal from './EndShiftModal';
 import ErrorBoundary from './ErrorBoundary';
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  [UserRole.ADMIN]: 'أدمن',
+  [UserRole.SUPERVISOR]: 'مشرف',
+  [UserRole.MANAGER]: 'مدير',
+  [UserRole.TEAM_LEADER]: 'تيم ليدر',
+  [UserRole.SALES_AGENT]: 'سيلز',
+};
 
 const AlarmManager: React.FC<{ user: any }> = ({ user }) => {
   const [activeAlarm, setActiveAlarm] = useState<Client | null>(null);
@@ -87,40 +95,34 @@ const AlarmManager: React.FC<{ user: any }> = ({ user }) => {
   if (!activeAlarm && !hasOverdueTasks) return null;
 
   return (
-    <div className="fixed bottom-6 left-6 z-[999] flex flex-col gap-4 max-w-sm w-full animate-fade-in">
+    <div className="sg-crm-alarms" aria-live="assertive">
       {activeAlarm && (
-        <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-6 shadow-2xl border-4 border-primary-500 space-y-4 animate-bounce">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-primary-500 text-white rounded-2xl flex items-center justify-center shrink-0">
-              <PhoneOutgoing size={24} />
-            </div>
-            <div className="flex-1">
-              <h4 className="text-sm font-black dark:text-white">موعد مكالمة الآن!</h4>
-              <p className="text-[11px] font-bold text-primary-600 truncate">{activeAlarm.name}</p>
+        <div className="sg-crm-alarm is-call">
+          <div className="sg-crm-alarm-head">
+            <span className="sg-crm-alarm-icon"><PhoneOutgoing size={20} /></span>
+            <div>
+              <strong>موعد مكالمة الآن</strong>
+              <p>{activeAlarm.name}</p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => { setActiveAlarm(null); navigate(`/clients/${activeAlarm.id}`); }} className="flex-1 py-3 bg-primary-500 text-white rounded-xl text-[10px] font-black">فتح العميل</button>
-            <button onClick={() => setIsMuted(true)} className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-xl"><VolumeX size={16}/></button>
+          <div className="sg-crm-alarm-actions">
+            <button type="button" className="sgui-button is-primary" onClick={() => { setActiveAlarm(null); navigate(`/clients/${activeAlarm.id}`); }}>فتح العميل</button>
+            <button type="button" className="sgui-button" onClick={() => setIsMuted(true)} aria-label="كتم الصوت"><VolumeX size={16} /></button>
           </div>
         </div>
       )}
 
       {hasOverdueTasks && !dangerMuted && (
-        <div className="bg-rose-500 text-white rounded-[2rem] p-6 shadow-2xl space-y-4 border-2 border-white/20">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center animate-pulse">
-              <AlertTriangle size={20} />
+        <div className="sg-crm-alarm is-overdue">
+          <div className="sg-crm-alarm-head">
+            <span className="sg-crm-alarm-icon"><AlertTriangle size={20} /></span>
+            <div>
+              <strong>فيه متابعات متأخرة</strong>
+              <p>صفّي جدول المتابعات الأول</p>
             </div>
-            <div className="flex-1">
-              <h4 className="text-xs font-black">تنبيه: يوجد مهام متأخرة!</h4>
-              <p className="text-[10px] opacity-80 font-bold">يرجى تصفية جدول المتابعات فوراً</p>
-            </div>
-            <button onClick={() => setDangerMuted(true)} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
-              <X size={18} />
-            </button>
+            <button type="button" className="sg-crm-alarm-close" onClick={() => setDangerMuted(true)} aria-label="إخفاء"><X size={16} /></button>
           </div>
-          <button onClick={() => { setDangerMuted(true); navigate('/notifications'); }} className="w-full py-3 bg-white text-rose-500 rounded-xl text-[10px] font-black uppercase">انتقل لجدول المهام</button>
+          <button type="button" className="sgui-button" onClick={() => { setDangerMuted(true); navigate('/notifications'); }}>افتح جدول المهام</button>
         </div>
       )}
     </div>
@@ -176,27 +178,28 @@ const Layout: React.FC = () => {
   }, [effectiveRole]);
 
   useEffect(() => {
-    const theme = localStorage.getItem('theme');
-    if (theme === 'light') {
-      setIsDark(false);
-      document.documentElement.classList.remove('dark');
-    } else {
-      setIsDark(true);
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    }
+    setIsDark(document.documentElement.classList.contains('dark'));
   }, []);
 
-  const toggleTheme = () => {
-    if (isDark) {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    } else {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    }
-    setIsDark(!isDark);
+  const setTheme = (dark: boolean) => {
+    document.documentElement.classList.toggle('dark', dark);
+    try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
+    setIsDark(dark);
   };
+
+  // Header search (same as the accounting header): jumps to the clients list with the query.
+  const [globalSearch, setGlobalSearch] = useState('');
+  const globalSearchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (e.key !== '/' || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable) return;
+      e.preventDefault();
+      globalSearchRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Sidebar grouped into sections (same idea as the accounting and training systems).
   type NavItem = { name: string; path: string; icon: any; group: string };
@@ -225,144 +228,129 @@ const Layout: React.FC = () => {
     setIsSidebarOpen(false);
   }, [location.pathname]);
 
+  const sections = navItems.reduce<{ title: string; items: NavItem[] }[]>((acc, item) => {
+    const last = acc[acc.length - 1];
+    if (last && last.title === item.group) last.items.push(item);
+    else acc.push({ title: item.group, items: [item] });
+    return acc;
+  }, []);
+  const isActivePath = (path: string) => (path === '/' ? location.pathname === '/' : location.pathname === path || location.pathname.startsWith(`${path}/`));
+  const currentPage = location.pathname.startsWith('/clients/') ? 'ملف العميل' : (navItems.find(i => isActivePath(i.path))?.name || 'مساحة العمل');
+  const displayName = user?.name || user?.email?.split('@')[0] || 'مستخدم';
+
   return (
-    <div className={`min-h-screen flex flex-col lg:flex-row bg-[#f4f1ee] dark:bg-[#10100f] transition-colors duration-300 ${viewingAsUser ? 'pt-9' : ''}`}>
-      {viewingAsUser && (
-        <div className="fixed top-0 inset-x-0 z-[100] bg-amber-500 text-white py-2 px-4 flex items-center justify-center gap-3 shadow-lg">
-          <Eye size={14} className="shrink-0" />
-          <span className="text-[11px] font-black">بتشوف السيستم دلوقتي بعين: {viewingAsUser.name}</span>
-          <button onClick={() => setViewingAsUser(null)} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg text-[10px] font-black shrink-0">
-            رجوع لحسابك
-          </button>
-        </div>
-      )}
+    <div className="sg-crm-shell" dir="rtl">
       <ErrorBoundary name="Alarm" silent><AlarmManager user={user} /></ErrorBoundary>
       <ErrorBoundary name="ShiftGate" silent><ShiftGate /></ErrorBoundary>
       <ErrorBoundary name="EndShift" silent><EndShiftModal /></ErrorBoundary>
 
-      <header className="lg:hidden flex items-center justify-between p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-100 dark:border-slate-800 sticky top-0 z-50">
-        <button onClick={() => setIsSidebarOpen(true)} className="sg-icon-btn text-slate-600 dark:text-slate-300">
-          <Menu size={24} />
-        </button>
-        <div className="text-center">
-          <h1 className="text-sm font-black text-slate-950 dark:text-white uppercase tracking-tighter">SABER GROUP</h1>
-        </div>
-        <div className="w-10 h-10 bg-primary-500 rounded-xl flex items-center justify-center text-white font-black text-xs">
-          {user?.name?.[0] || '?'}
-        </div>
-      </header>
-
-      <nav className="lg:hidden flex overflow-x-auto no-scrollbar bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-100 dark:border-slate-800 p-2 gap-2 sticky top-[65px] z-40">
-        {navItems.map((item) => (
-          <Link 
-            key={item.path} 
-            to={item.path} 
-            className={`flex items-center px-4 py-2 text-[10px] font-black rounded-xl whitespace-nowrap transition-all ${location.pathname === item.path ? 'bg-primary-500 text-white shadow-lg' : 'text-slate-500 bg-slate-50 dark:bg-slate-800'}`}
-          >
-            <item.icon className="ml-2" size={14} /> {item.name}
-          </Link>
-        ))}
-      </nav>
-
       {liveNotification && (
-        <div className="fixed top-20 lg:top-6 left-1/2 -translate-x-1/2 z-[1000] bg-white dark:bg-slate-900 px-6 py-4 rounded-3xl shadow-2xl border-2 border-primary-500 animate-fade-in flex items-center gap-4 w-[90%] max-w-md">
-          <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse shrink-0"></div>
-          <span className="font-black text-[10px] lg:text-sm">{liveNotification}</span>
-        </div>
+        <div className="sg-crm-toast animate-fade-in" role="status"><i aria-hidden="true"></i><span>{liveNotification}</span></div>
       )}
 
-      {isSidebarOpen && (
-        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-[60] lg:hidden" onClick={() => setIsSidebarOpen(false)}></div>
-      )}
+      {isSidebarOpen && <div className="sg-crm-backdrop lg:hidden" onClick={() => setIsSidebarOpen(false)}></div>}
 
-      <aside className={`fixed inset-y-0 right-0 z-[70] w-72 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-l border-slate-100 dark:border-slate-800 transition-transform lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="flex flex-col h-full p-6 overflow-y-auto overscroll-contain">
-          <div className="flex justify-between items-center mb-8 text-right">
-            <div>
-              <h1 className="text-xl font-black text-slate-950 dark:text-white uppercase tracking-tighter">SABER GROUP</h1>
-              <p className="text-primary-500 font-black text-[10px] uppercase mt-1">CRM SYSTEM</p>
-            </div>
-            <button onClick={() => setIsSidebarOpen(false)} className="sg-icon-btn lg:hidden text-slate-400">
-              <X size={20} />
-            </button>
+      <aside id="crm-navigation" className="sg-crm-sidebar" data-open={isSidebarOpen} aria-label="قائمة النظام">
+        <div className="sg-crm-brand">
+          <div>
+            <img src="/saber-group-logo.png" alt="Saber Group" />
+            <span>نظام المبيعات CRM</span>
           </div>
+          <button type="button" onClick={() => setIsSidebarOpen(false)} className="sg-crm-menu-button" aria-label="إغلاق القائمة">
+            <X size={18} />
+          </button>
+        </div>
 
-          <nav className="flex-1 space-y-1">
-            {navItems.map((item, i) => (
-              <React.Fragment key={item.path}>
-                {(i === 0 || navItems[i - 1].group !== item.group) && (
-                  <div className="px-4 pt-4 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">{item.group}</div>
-                )}
-                <Link to={item.path} className={`flex items-center px-4 py-2.5 text-sm font-black rounded-xl transition-all ${location.pathname === item.path ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/20' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                  <item.icon className="ml-3" size={20} /> {item.name}
+        <nav className="sg-crm-nav">
+          {sections.map(section => (
+            <div key={section.title}>
+              <h3 className="sg-crm-nav-section">{section.title}</h3>
+              {section.items.map(item => (
+                <Link key={item.path} to={item.path} className={`sg-crm-nav-item ${isActivePath(item.path) ? 'is-active' : ''}`} aria-current={isActivePath(item.path) ? 'page' : undefined}>
+                  <item.icon size={19} aria-hidden="true" />
+                  <span>{item.name}</span>
                 </Link>
-              </React.Fragment>
-            ))}
-          </nav>
+              ))}
+            </div>
+          ))}
+        </nav>
 
-          <div className="pt-6 space-y-3">
+        <div className="sg-crm-sidebar-footer">
+          <div className="sg-crm-user">
+            <div className="sg-crm-avatar">{displayName[0]}</div>
+            <div className="min-w-0">
+              <strong>{displayName}</strong>
+              <small>{ROLE_LABELS[effectiveRole as UserRole] || effectiveRole}</small>
+            </div>
+          </div>
+          <button type="button" onClick={() => signOut(auth)} className="sg-crm-logout">
+            <LogOut size={18} aria-hidden="true" /> <span>تسجيل خروج</span>
+          </button>
+        </div>
+      </aside>
+
+      <div className="sg-crm-main">
+        {viewingAsUser && (
+          <div className="sg-crm-view-banner">
+            <Eye size={15} aria-hidden="true" />
+            <span>بتشوف السيستم دلوقتي بعين: {viewingAsUser.name}</span>
+            <button type="button" onClick={() => setViewingAsUser(null)}>رجوع لحسابك</button>
+          </div>
+        )}
+        <header className="sg-crm-header">
+          <div>
+            <button type="button" onClick={() => setIsSidebarOpen(true)} className="sg-crm-menu-button" aria-label="فتح القائمة" aria-controls="crm-navigation" aria-expanded={isSidebarOpen}>
+              <Menu size={20} />
+            </button>
+            <form
+              role="search"
+              className="sg-crm-search"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const q = globalSearch.trim();
+                if (!q) return;
+                navigate(`/clients?q=${encodeURIComponent(q)}`);
+                setGlobalSearch('');
+                globalSearchRef.current?.blur();
+              }}
+            >
+              <Search size={16} aria-hidden="true" />
+              <input ref={globalSearchRef} value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} placeholder="ابحث عن عميل بالاسم أو الرقم..." aria-label="بحث عن عميل" />
+              <kbd>/</kbd>
+            </form>
+            <div className="sg-crm-current-page"><span>مساحة العمل</span><strong>{currentPage}</strong></div>
+          </div>
+          <div>
             {user?.role === UserRole.ADMIN && (
-              <div className="p-4 bg-amber-50 dark:bg-amber-500/10 rounded-2xl border border-amber-100 dark:border-amber-500/20 space-y-3">
+              <details className="sgui-action-menu sg-crm-view-menu">
+                <summary aria-label="عرض بصلاحية"><Eye size={16} aria-hidden="true" /><span className="hidden md:inline">عرض بصلاحية</span></summary>
                 <div>
-                  <div className="flex items-center gap-2 mb-2 text-amber-600">
-                    <Eye size={16} /> <span className="text-[10px] font-black uppercase">عرض بصلاحية:</span>
-                  </div>
-                  <select
-                    className="w-full bg-white dark:bg-slate-800 text-[10px] font-black p-2 rounded-xl outline-none disabled:opacity-50"
-                    value={effectiveRole || ''}
-                    onChange={(e) => setEffectiveRole(e.target.value as UserRole)}
-                    disabled={!!viewingAsUser}
-                  >
-                    {Object.values(UserRole).map(r => <option key={r} value={r}>{r}</option>)}
+                  <label htmlFor="crm-view-role">الصلاحية</label>
+                  <select id="crm-view-role" value={effectiveRole || ''} onChange={(e) => setEffectiveRole(e.target.value as UserRole)} disabled={!!viewingAsUser}>
+                    {Object.values(UserRole).map(r => <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>)}
                   </select>
-                </div>
-                <div className="pt-2 border-t border-amber-100 dark:border-amber-500/20">
-                  <div className="flex items-center gap-2 mb-2 text-amber-600">
-                    <UserCog size={16} /> <span className="text-[10px] font-black uppercase">View as سيلز معين:</span>
-                  </div>
-                  <select
-                    className="w-full bg-white dark:bg-slate-800 text-[10px] font-black p-2 rounded-xl outline-none"
-                    value={viewingAsUser?.uid || ''}
-                    onChange={(e) => {
-                      const agent = viewableAgents.find(a => a.uid === e.target.value);
-                      setViewingAsUser(agent || null);
-                    }}
-                  >
+                  <label htmlFor="crm-view-agent">سيلز معيّن</label>
+                  <select id="crm-view-agent" value={viewingAsUser?.uid || ''} onChange={(e) => setViewingAsUser(viewableAgents.find(a => a.uid === e.target.value) || null)}>
                     <option value="">بدون — حسابك أنت</option>
                     {viewableAgents.map(a => <option key={a.uid} value={a.uid}>{a.name}</option>)}
                   </select>
                 </div>
-              </div>
+              </details>
             )}
-            <button onClick={toggleTheme} className="flex items-center w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-black text-slate-600 dark:text-slate-300">
-              {isDark ? <Sun className="ml-3" size={18} /> : <Moon className="ml-3" size={18} />}
-              {isDark ? 'الوضع النهاري' : 'الوضع الليلي'}
-            </button>
-            <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-              <div className="flex items-center mb-4">
-                <div className="w-10 h-10 bg-primary-500 rounded-2xl flex items-center justify-center text-white font-black">
-                  {user?.name?.[0] || '?'}
-                </div>
-                <div className="mr-3 overflow-hidden">
-                  {/* تم الإصلاح هنا لضمان عرض الاسم الفعلي المجلوب من Firestore */}
-                  <p className="text-xs font-black truncate text-right">{user?.name || user?.email?.split('@')[0] || 'مستخدم'}</p>
-                  <p className="text-[10px] text-slate-400 uppercase text-right">{effectiveRole}</p>
-                </div>
-              </div>
-              <button onClick={() => signOut(auth)} className="flex items-center w-full px-3 py-2 text-xs font-black text-rose-500 bg-rose-50 dark:bg-rose-500/10 rounded-xl">
-                <LogOut className="ml-2" size={14} /> تسجيل خروج
-              </button>
+            <div className="sg-crm-theme-switch" role="group" aria-label="اختيار المظهر">
+              <button type="button" className={!isDark ? 'is-active' : ''} onClick={() => setTheme(false)} aria-pressed={!isDark} aria-label="الوضع الفاتح" title="الوضع الفاتح"><Sun size={16} /></button>
+              <button type="button" className={isDark ? 'is-active' : ''} onClick={() => setTheme(true)} aria-pressed={isDark} aria-label="الوضع الداكن" title="الوضع الداكن"><Moon size={16} /></button>
             </div>
           </div>
-        </div>
-      </aside>
+        </header>
 
-      <main className="flex-1 overflow-x-hidden p-4 lg:p-6 xl:p-8">
-        <div className="max-w-7xl mx-auto">
-          <ErrorBoundary name="ShiftWidget" silent><ShiftWidget /></ErrorBoundary>
-          <ErrorBoundary name={location.pathname} key={location.pathname}><Outlet /></ErrorBoundary>
-        </div>
-      </main>
+        <main className="sg-crm-content">
+          <div>
+            <ErrorBoundary name="ShiftWidget" silent><ShiftWidget /></ErrorBoundary>
+            <ErrorBoundary name={location.pathname} key={location.pathname}><Outlet /></ErrorBoundary>
+          </div>
+        </main>
+      </div>
       {user && assistantEnabled && <MaroAssistant />}
     </div>
   );

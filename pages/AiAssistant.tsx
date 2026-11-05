@@ -714,39 +714,38 @@ export const AiAssistant: React.FC = () => {
     <div className="space-y-8 dir-rtl">
       
       {/* Top Banner Header & Controls */}
-      <div className="bg-gradient-to-l from-slate-900 via-indigo-950 to-slate-900 rounded-[3rem] p-8 lg:p-12 text-white shadow-2xl relative overflow-hidden border border-slate-800 space-y-6">
-        <div className="absolute top-0 left-0 w-96 h-96 bg-primary-500/10 rounded-full blur-3xl -ml-20 -mt-20 pointer-events-none"></div>
+      <div className="sgui-panel p-5 md:p-6 space-y-5">
         
-        <div className="relative z-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500/20 text-primary-300 rounded-2xl border border-primary-500/30 text-xs font-black">
-                <Sparkles size={16} className="text-primary-400 animate-pulse" />
+              <div className="sgui-state">
+                <Sparkles size={16} className="text-primary-600 animate-pulse" />
                 <span>المساعد الذكي (مارو) - نظام إدارة الحصص والجولات</span>
               </div>
 
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500/20 text-indigo-300 rounded-2xl border border-indigo-500/40 text-xs font-black">
-                <Layers size={16} className="text-indigo-400" />
+              <div className="sgui-state">
+                <Layers size={16} className="text-primary-600" />
                 <span>الجولة الحالية: Round {currentRound}</span>
               </div>
             </div>
 
-            <h1 className="text-3xl lg:text-4xl font-black tracking-tight">تحليل العملاء بنظام الجولات (Round-based AI Analysis)</h1>
-            <p className="text-slate-300 text-xs lg:text-sm font-bold max-w-2xl leading-relaxed">
+            <h1>تحليل العملاء بنظام الجولات (Round-based AI Analysis)</h1>
+            <p className="text-slate-500 text-sm max-w-2xl leading-relaxed">
               يتم تحليل جميع العملاء المؤهلين بالتتابع حتى إكمال الجولة (Round {currentRound}). لا يتم إعادة تحليل أي عميل تم فحصه بالراوند الحالي حتى اكتمال كافة العملاء والبدء في الراوند التالي.
             </p>
 
             {/* Round Progress Meter */}
-            <div className="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/80 max-w-xl space-y-2">
+            <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl max-w-xl space-y-2">
               <div className="flex justify-between items-center text-xs font-black">
-                <span className="text-slate-300 flex items-center gap-2">
-                  <Tag size={14} className="text-indigo-400" /> تقدم الجولة Round {currentRound}:
+                <span className="text-slate-600 dark:text-slate-300 flex items-center gap-2">
+                  <Tag size={14} className="text-primary-600" /> تقدم الجولة Round {currentRound}:
                 </span>
-                <span className="text-indigo-300">{roundAnalyzedCount} من {roundTotalCount} عميل ({roundPercent}%)</span>
+                <span className="text-primary-600">{roundAnalyzedCount} من {roundTotalCount} عميل ({roundPercent}%)</span>
               </div>
-              <div className="w-full bg-slate-900 h-2.5 rounded-full overflow-hidden border border-slate-700/50">
+              <div className="w-full bg-slate-200 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden">
                 <div 
-                  className="bg-gradient-to-r from-primary-500 via-indigo-500 to-emerald-400 h-full transition-all duration-500"
+                  className="bg-primary-500 h-full transition-all duration-500"
                   style={{ width: `${Math.min(100, roundPercent)}%` }}
                 ></div>
               </div>
@@ -756,9 +755,9 @@ export const AiAssistant: React.FC = () => {
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => setShowKnowledgeModal(true)}
-              className="px-4 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-black text-xs rounded-2xl transition flex items-center gap-2 shrink-0"
+              className="sgui-button"
             >
-              <BookOpen size={16} className="text-primary-400" />
+              <BookOpen size={16} className="text-primary-600" />
               <span>قاعدة المعرفة</span>
             </button>
 
@@ -769,10 +768,10 @@ export const AiAssistant: React.FC = () => {
                   <button
                     onClick={handleRevertLastBatch}
                     disabled={isBatchAnalyzing || isRevertingBatch}
-                    className="px-5 py-3.5 bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-700/80 font-black text-xs rounded-2xl transition flex items-center gap-2 shrink-0 disabled:opacity-50 shadow-lg"
+                    className="sgui-button is-danger disabled:opacity-50"
                     title="التراجع عن تحليل آخر دفعة واستعادة الحالة السابقة للعملاء"
                   >
-                    <RotateCcw size={16} className={`text-rose-400 ${isRevertingBatch ? 'animate-spin' : ''}`} />
+                    <RotateCcw size={16} className={`text-rose-600 ${isRevertingBatch ? 'animate-spin' : ''}`} />
                     <span>
                       {isRevertingBatch
                         ? 'جاري التراجع...'
@@ -784,27 +783,27 @@ export const AiAssistant: React.FC = () => {
                 <button
                   onClick={() => setShowBatchConfigModal(true)}
                   disabled={isBatchAnalyzing || isRevertingBatch}
-                  className="px-4 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 font-black text-xs rounded-2xl transition flex items-center gap-2 shrink-0"
+                  className="sgui-button"
                   title="تحديد السيلز الشغالين وحصة كل سيلز اليومية"
                 >
-                  <SlidersHorizontal size={16} className="text-amber-400" />
+                  <SlidersHorizontal size={16} className="text-amber-600" />
                   <span>السيلز الشغالين ({selectedActiveAgentIds.length}) & الحصة ({perAgentQuota})</span>
                 </button>
 
                 <button
                   onClick={handleStartNextRoundManually}
                   disabled={isBatchAnalyzing || isRevertingBatch}
-                  className="px-5 py-3.5 bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 border border-indigo-700/80 font-black text-xs rounded-2xl transition flex items-center gap-2 shrink-0 disabled:opacity-50"
+                  className="sgui-button disabled:opacity-50"
                   title="إغلاق الجولة الحالية والبدء في الجولة التالية لإتاحة جميع العملاء للتحليل من جديد"
                 >
-                  <RotateCcw size={16} className="text-indigo-400" />
+                  <RotateCcw size={16} className="text-primary-600" />
                   <span>بدء راوند جديد (Round {currentRound + 1})</span>
                 </button>
 
                 <button
                   onClick={() => handleBatchAnalyze()}
                   disabled={isBatchAnalyzing || isRevertingBatch}
-                  className="px-7 py-3.5 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white font-black text-xs uppercase rounded-2xl shadow-xl transition-all flex items-center gap-3 shrink-0 disabled:opacity-50"
+                  className="sgui-button is-primary disabled:opacity-50"
                 >
                   {isBatchAnalyzing ? (
                     <>
@@ -823,7 +822,7 @@ export const AiAssistant: React.FC = () => {
               <button
                 onClick={() => handleBatchAnalyze()}
                 disabled={isBatchAnalyzing}
-                className="px-7 py-3.5 bg-gradient-to-r from-primary-500 via-indigo-600 to-purple-600 hover:from-primary-600 hover:to-indigo-700 text-white font-black text-xs uppercase rounded-2xl shadow-xl transition-all flex items-center gap-3 shrink-0 disabled:opacity-50"
+                className="sgui-button is-primary disabled:opacity-50"
               >
                 {isBatchAnalyzing ? (
                   <>
@@ -832,7 +831,7 @@ export const AiAssistant: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    <Zap size={18} className="text-amber-300" />
+                    <Zap size={18} className="text-amber-600" />
                     <span>تشغيل اقتراحات مارو لعملائي (دفعة {perAgentQuota} عميل - Round {currentRound})</span>
                   </>
                 )}
@@ -842,33 +841,33 @@ export const AiAssistant: React.FC = () => {
         </div>
 
         {/* Customizable Batch Size & Filter Controls Bar */}
-        <div className="relative z-10 pt-4 border-t border-slate-800/80 grid grid-cols-1 md:grid-cols-12 gap-4 items-center text-xs">
+        <div className="pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-12 gap-4 items-center text-xs">
           
           {/* Checkbox: Ignore Not Interested & Booked */}
-          <div className="md:col-span-5 flex items-center gap-3 bg-slate-800/60 p-3.5 rounded-2xl border border-slate-700/60">
-            <Filter size={16} className="text-primary-400 shrink-0" />
-            <label className="font-bold text-slate-300 flex items-center gap-2 cursor-pointer select-none">
+          <div className="md:col-span-5 flex items-center gap-3 bg-slate-50 dark:bg-slate-800 p-3.5 rounded-xl">
+            <Filter size={16} className="text-primary-600 shrink-0" />
+            <label className="font-bold text-slate-600 dark:text-slate-300 flex items-center gap-2 cursor-pointer select-none">
               <input 
                 type="checkbox" 
                 checked={onlyInterested} 
                 onChange={(e) => setOnlyInterested(e.target.checked)}
-                className="w-4 h-4 rounded text-primary-500 focus:ring-primary-500 bg-slate-900 border-slate-700"
+                className="w-4 h-4"
               />
               <span>تجاهل غير المهتمين والذين حجزوا بالفعل (التركيز على من لم يحجز بعد)</span>
             </label>
           </div>
 
           {/* Quota Per Active Agent Input & Summary */}
-          <div className="md:col-span-7 flex flex-wrap items-center justify-between gap-3 bg-slate-800/60 p-3.5 rounded-2xl border border-slate-700/60">
+          <div className="md:col-span-7 flex flex-wrap items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800 p-3.5 rounded-xl">
             <div className="flex items-center gap-2">
-              <span className="font-black text-slate-300 shrink-0">حصة كل سيلز شغال:</span>
+              <span className="font-black text-slate-600 dark:text-slate-300 shrink-0">حصة كل سيلز شغال:</span>
               <input 
                 type="number"
                 min={1}
                 max={500}
                 value={perAgentQuota}
                 onChange={(e) => setPerAgentQuota(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-20 bg-slate-900 text-white font-black text-center border border-slate-700 rounded-xl px-2 py-1 focus:outline-none focus:border-primary-500"
+                className="w-20 text-center px-2 py-1"
               />
               <span className="text-slate-400 font-bold">عميل/سيلز</span>
             </div>
@@ -883,7 +882,7 @@ export const AiAssistant: React.FC = () => {
                   className={`px-2.5 py-1 rounded-lg font-black text-[11px] transition ${
                     perAgentQuota === quota 
                       ? 'bg-primary-500 text-white shadow' 
-                      : 'bg-slate-900 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
                   }`}
                 >
                   {quota} عميل
@@ -896,14 +895,14 @@ export const AiAssistant: React.FC = () => {
 
         {/* Batch Progress Bar */}
         {isBatchAnalyzing && (
-          <div className="relative z-10 space-y-2 pt-2">
-            <div className="flex justify-between text-xs font-black text-slate-300">
+          <div className="space-y-2 pt-2">
+            <div className="flex justify-between text-xs font-black text-slate-600 dark:text-slate-300">
               <span>جاري المعالجة المتوازية السريعة بالذكاء الاصطناعي...</span>
               <span>{batchProgress}%</span>
             </div>
-            <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700">
+            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden">
               <div 
-                className="bg-gradient-to-r from-primary-500 via-indigo-500 to-emerald-400 h-full rounded-full transition-all duration-300"
+                className="bg-primary-500 h-full rounded-full transition-all duration-300"
                 style={{ width: `${batchProgress}%` }}
               ></div>
             </div>
@@ -1413,7 +1412,7 @@ export const AiAssistant: React.FC = () => {
                           <button
                             onClick={() => handleAnalyzeClient(client)}
                             disabled={isAnalyzingThis}
-                            className="px-4 py-2.5 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white rounded-xl text-xs font-black shadow transition flex items-center justify-center gap-2 mx-auto disabled:opacity-50"
+                            className="px-4 py-2.5 bg-primary-500 text-white rounded-xl text-xs font-black shadow transition flex items-center justify-center gap-2 mx-auto disabled:opacity-50"
                           >
                             <Sparkles size={14} className={isAnalyzingThis ? 'animate-spin' : ''} />
                             <span>{isAnalyzingThis ? 'جاري استخراج اقتراحات مارو...' : 'استخراج اقتراحات مارو الآن'}</span>
@@ -1995,7 +1994,7 @@ export const AiAssistant: React.FC = () => {
                   handleBatchAnalyze();
                 }}
                 disabled={selectedActiveAgentIds.length === 0}
-                className="px-6 py-3 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white rounded-2xl font-black text-xs transition flex items-center gap-2 shadow-lg disabled:opacity-50"
+                className="px-6 py-3 bg-primary-500 text-white rounded-2xl font-black text-xs transition flex items-center gap-2 shadow-lg disabled:opacity-50"
               >
                 <Zap size={16} />
                 <span>بدء تشغيل الدفعة الآن ({selectedActiveAgentIds.length * perAgentQuota} عميل)</span>

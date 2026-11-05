@@ -20,6 +20,7 @@ import {
   MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw,
   Facebook, Instagram, Music2, Globe2, CalendarX, UserPlus
 } from 'lucide-react';
+import { Badge } from '../components/ui';
 import FloatingPanel from '../components/FloatingPanel';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
 import AcceptFlowModal from '../components/AcceptFlowModal';
@@ -585,13 +586,13 @@ const ClientDetails: React.FC = () => {
           {client.reviewedAt && ` - ${new Date(client.reviewedAt).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
         </p>
       )}
-      <header className="sg-surface p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-5">
+      <header className="sgui-panel p-5 md:p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-5">
         <div className="flex items-center gap-5">
-          <div className="w-16 h-16 bg-primary-500 text-white rounded-2xl flex items-center justify-center text-2xl font-black">{client.name[0]}</div>
+          <div className="sgui-avatar-lg">{client.name[0]}</div>
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-black text-slate-900 dark:text-white">{client.name}</h1>
-              <button onClick={() => setIsEditModalOpen(true)} className="sg-icon-btn !w-9 !h-9 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-primary-500"><Edit2 size={16}/></button>
+              <button onClick={() => setIsEditModalOpen(true)} className="sgui-icon-button" title="تعديل بيانات العميل" aria-label="تعديل بيانات العميل"><Edit2 size={16}/></button>
             </div>
             {client.position && (
               <p className="text-slate-400 font-bold text-xs mt-0.5">{client.position}</p>
@@ -628,7 +629,7 @@ const ClientDetails: React.FC = () => {
                     setTimeout(() => setCopiedSearchPhrase(false), 1800);
                   }}
                   disabled={!client.distinctiveSearchPhrase}
-                  className="sg-icon-btn !h-8 !w-8 bg-slate-100 text-slate-500 hover:text-primary-500 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-slate-800 dark:text-slate-300"
+                  className="sgui-icon-button disabled:cursor-not-allowed disabled:opacity-40"
                   title={client.distinctiveSearchPhrase ? 'نسخ جملة البحث' : 'لا توجد جملة بحث لنسخها'}
                   aria-label="نسخ جملة البحث المميزة"
                 >
@@ -637,25 +638,25 @@ const ClientDetails: React.FC = () => {
               </div>
             )}
             <div className="flex flex-wrap gap-2 mt-3">
-              <span className={`${sourceMeta.chip} px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1`} title={`مصدر العميل: ${sourceMeta.label}`}>
+              <span className={`${sourceMeta.chip} sgui-state`} title={`مصدر العميل: ${sourceMeta.label}`}>
                 <SourceIcon size={10}/>
                 {sourceMeta.label}
               </span>
               {client.profileLink && (
-                <a href={client.profileLink} target="_blank" className="bg-blue-100 dark:bg-blue-500/10 text-blue-500 px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1 hover:underline">
+                <a href={client.profileLink} target="_blank" className="sgui-state is-info hover:underline">
                   <ExternalLink size={10}/> رابط الحساب
                 </a>
               )}
-              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.gender === Gender.MALE ? 'ذكر' : client.gender === Gender.FEMALE ? 'أنثى' : 'لم يحدد'}</span>
-              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : client.laptop === LaptopStatus.WITHOUT ? 'بدون لابتوب' : 'لم يحدد'}</span>
-              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : client.mode === AttendanceMode.OFFLINE ? 'أوفلاين' : 'لم يحدد'}</span>
+              <span className="sgui-state">{client.gender === Gender.MALE ? 'ذكر' : client.gender === Gender.FEMALE ? 'أنثى' : 'لم يحدد'}</span>
+              <span className="sgui-state">{client.laptop === LaptopStatus.WITH ? 'لابتوب' : client.laptop === LaptopStatus.WITHOUT ? 'بدون لابتوب' : 'لم يحدد'}</span>
+              <span className="sgui-state">{client.mode === AttendanceMode.ONLINE ? 'أونلاين' : client.mode === AttendanceMode.OFFLINE ? 'أوفلاين' : 'لم يحدد'}</span>
               {client.labels?.map(labelId => {
                 const label = allLabels.find(l => l.id === labelId);
                 if (!label) return null;
                 return (
                   <span 
                     key={labelId} 
-                    className="px-3 py-1 rounded-full text-[9px] font-black text-white"
+                    className="sgui-state border"
                     style={getLabelColorStyle(label.color)}
                   >
                     {label.text}
@@ -668,23 +669,23 @@ const ClientDetails: React.FC = () => {
         <div className="sg-actions">
            {!isCommunicating && !showForm && (
             <>
-              <button onClick={() => handleStartCall()} className="sg-btn sg-btn-primary px-6">
+              <button onClick={() => handleStartCall()} className="sgui-button is-primary">
                 <Play size={18} /> بدء المتابعة
               </button>
-              <button onClick={() => setIsScheduleModalOpen(true)} className="sg-btn sg-btn-warning">
+              <button onClick={() => setIsScheduleModalOpen(true)} className="sgui-button">
                 <CalendarPlus size={18} /> جدولة موعد
               </button>
-              <button onClick={() => setIsManualModalOpen(true)} className="sg-btn sg-btn-secondary">
+              <button onClick={() => setIsManualModalOpen(true)} className="sgui-button">
                 <HistoryIcon size={18} /> تم التواصل مسبقاً
               </button>
             </>
           )}
           {isCommunicating && (
             <>
-              <button onClick={() => { setIsCommunicating(false); setShowForm(true); }} className="sg-btn sg-btn-danger px-6 animate-pulse">
+              <button onClick={() => { setIsCommunicating(false); setShowForm(true); }} className="sgui-button is-primary">
                 <Square size={18} /> إنهاء وتسجيل
               </button>
-              <button onClick={handleCancelCall} className="sg-btn sg-btn-secondary px-5" title="لو اتضغطت بالغلط">
+              <button onClick={handleCancelCall} className="sgui-button" title="لو اتضغطت بالغلط">
                 <X size={16} /> تراجع
               </button>
             </>
@@ -693,68 +694,47 @@ const ClientDetails: React.FC = () => {
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="sg-surface p-5 flex items-center gap-4">
-           <div className="w-11 h-11 bg-blue-50 dark:bg-blue-500/10 text-blue-500 rounded-xl flex items-center justify-center"><Clock size={22}/></div>
-           <div><p className="text-[10px] font-black text-slate-400 uppercase">وقت التسجيل في النظام</p><p className="text-xs font-black text-slate-900 dark:text-white">{new Date(client.createdAt).toLocaleString('ar-EG')}</p></div>
+        <div className="sgui-info-card">
+          <span className="sgui-row-icon"><Clock size={18}/></span>
+          <div><span>وقت التسجيل في النظام</span><strong>{new Date(client.createdAt).toLocaleString('ar-EG')}</strong></div>
         </div>
-        <div className={`p-5 rounded-2xl text-center flex flex-col items-center justify-center relative overflow-hidden ${
-          client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales
-            ? 'bg-orange-500 text-white'
-            : client.nextFollowUpDate && client.nextFollowUpDate < Date.now() ? 'bg-rose-500 text-white' : 'bg-primary-500 text-white'
-        }`}>
-           <p className="text-[10px] font-black uppercase opacity-80 mb-2 flex items-center gap-1.5">
-             {client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales && <Sparkles size={11} />}
-             الموعد المجدول القادم
-             {client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales && ' (مُقترح من الأتمتة)'}
-           </p>
-           <p className="text-xl font-black">{client.nextFollowUpDate ? new Date(client.nextFollowUpDate).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'غير محدد'}</p>
-           {client.nextFollowUpDate && client.nextFollowUpMethod && (
-             <p className="text-[10px] font-black mt-1 bg-white/20 px-3 py-1 rounded-full">{CommMethodLabels[client.nextFollowUpMethod].ar}</p>
-           )}
-           {client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales ? (
-             <div className="mt-4 space-y-2">
-               {client.nextFollowUpReason && (
-                 <p className="text-[9px] font-bold bg-white/15 px-3 py-1.5 rounded-lg">{client.nextFollowUpReason}</p>
-               )}
-               <button
-                 onClick={() => setIsAcceptFlowOpen(true)}
-                 className="bg-white text-orange-600 px-4 py-2 rounded-xl text-[10px] font-black shadow-lg hover:scale-105 transition-all flex items-center gap-1 mx-auto"
-               >
-                 <Sparkles size={12} /> Accept
-               </button>
-             </div>
-           ) : client.nextFollowUpSetVia === 'ai_automation' && client.nextFollowUpReviewedBySales && client.nextFollowUpReviewedByName ? (
-             <p className="text-[9px] font-bold mt-2 opacity-80">AI Generated & Accepted by {client.nextFollowUpReviewedByName}</p>
-           ) : null}
-           {client.nextFollowUpDate && !isCommunicating && !showForm && (
-             <button
-               onClick={() => handleStartCall('scheduled')}
-               className="mt-4 bg-white text-primary-500 px-4 py-2 rounded-xl text-[10px] font-black shadow-lg hover:scale-105 transition-all"
-             >
-               بدء المتابعة لهذا الموعد
-             </button>
-           )}
-           {client.nextFollowUpDate && isAdmin && (
-             <button
-               onClick={handleAdminCancelFollowUp}
-               title="أدمن فقط — بيمسح الموعد المجدول بس"
-               className="mt-2 bg-white/15 text-white px-4 py-2 rounded-xl text-[10px] font-black hover:bg-white/25 transition-all flex items-center gap-1 mx-auto"
-             >
-               <CalendarX size={12} /> إلغاء المتابعة
-             </button>
-           )}
-        </div>
-        <div className="sg-surface p-5 flex items-center gap-4">
-           <div className="w-11 h-11 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 rounded-xl flex items-center justify-center"><UserCheck size={22}/></div>
-           <div><p className="text-[10px] font-black text-slate-400 uppercase">الحالة الحالية</p><p className="text-xs font-black text-slate-900 dark:text-white">{StatusLabels[client.status].ar}</p></div>
+        {(() => {
+          const suggested = client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales;
+          const overdue = !!client.nextFollowUpDate && client.nextFollowUpDate < Date.now();
+          return (
+            <div className={`sgui-info-card is-followup ${suggested ? 'is-warning' : overdue ? 'is-danger' : ''}`}>
+              <span className="sgui-row-icon">{suggested ? <Sparkles size={18} /> : <CalendarPlus size={18} />}</span>
+              <div className="min-w-0 flex-1">
+                <span>الموعد المجدول القادم{suggested && ' (مقترح من الأتمتة)'}</span>
+                <strong>{client.nextFollowUpDate ? new Date(client.nextFollowUpDate).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'غير محدد'}</strong>
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  {client.nextFollowUpDate && client.nextFollowUpMethod && <Badge>{CommMethodLabels[client.nextFollowUpMethod].ar}</Badge>}
+                  {overdue && !suggested && <Badge tone="danger">فات الموعد</Badge>}
+                  {!suggested && client.nextFollowUpSetVia === 'ai_automation' && client.nextFollowUpReviewedByName && <small>AI Generated & Accepted by {client.nextFollowUpReviewedByName}</small>}
+                </div>
+                {suggested && client.nextFollowUpReason && <p className="sgui-info-note">{client.nextFollowUpReason}</p>}
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {suggested && <button onClick={() => setIsAcceptFlowOpen(true)} className="sgui-button is-primary"><Sparkles size={14} /> Accept</button>}
+                  {client.nextFollowUpDate && !isCommunicating && !showForm && (
+                    <button onClick={() => handleStartCall('scheduled')} className="sgui-button">بدء المتابعة لهذا الموعد</button>
+                  )}
+                  {client.nextFollowUpDate && isAdmin && (
+                    <button onClick={handleAdminCancelFollowUp} title="أدمن فقط — بيمسح الموعد المجدول بس" className="sgui-button is-danger"><CalendarX size={14} /> إلغاء المتابعة</button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+        <div className="sgui-info-card">
+          <span className="sgui-row-icon"><UserCheck size={18}/></span>
+          <div><span>الحالة الحالية</span><strong>{StatusLabels[client.status].ar}</strong></div>
         </div>
       </div>
 
       {client.notes && (
-        <div className="sg-surface p-5 flex items-start gap-4">
-          <div className="w-11 h-11 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 rounded-xl flex items-center justify-center shrink-0">
-            <FileText size={22} />
-          </div>
+        <div className="sgui-info-card items-start">
+          <span className="sgui-row-icon"><FileText size={18} /></span>
           <div className="min-w-0">
             <p className="text-[10px] font-black text-slate-400 uppercase mb-1">ملاحظات العميل</p>
             <p className="text-sm font-bold text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">{client.notes}</p>
@@ -764,25 +744,25 @@ const ClientDetails: React.FC = () => {
 
       {/* AI Sales Assistant Card for this Client */}
       {isAdmin && (
-      <div className="bg-slate-900 p-6 rounded-3xl text-white border border-slate-800 space-y-5 relative overflow-hidden">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-5">
+      <div className="sgui-panel p-5 md:p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-primary-500/20 text-primary-400 rounded-2xl flex items-center justify-center border border-primary-500/30 shrink-0">
-              <Sparkles size={24} />
+            <div className="sgui-row-icon">
+              <Sparkles size={20} />
             </div>
             <div>
               <h3 className="text-lg font-black flex items-center gap-2">
                 <span>اقتراحات مارو بالذكاء الاصطناعي (Maro AI)</span>
-                <Sparkles size={18} className="text-primary-400" />
+                
               </h3>
-              <p className="text-xs font-bold text-slate-400">تحليل تلقائي ذكي وسيناريو إقناع مخصص بناءً على سجل هذا العميل</p>
+              <p className="text-xs text-slate-500">تحليل تلقائي ذكي وسيناريو إقناع مخصص بناءً على سجل هذا العميل</p>
             </div>
           </div>
 
           <button
             onClick={handleRunAiAnalysis}
             disabled={isAnalyzingAi}
-            className="sg-btn sg-btn-ai disabled:opacity-50"
+            className="sgui-button disabled:opacity-50"
           >
             <RefreshCw size={14} className={isAnalyzingAi ? 'animate-spin' : ''} />
             <span>{isAnalyzingAi ? 'جاري استخراج اقتراحات مارو...' : 'استخراج / تحديث اقتراحات مارو'}</span>
@@ -792,20 +772,20 @@ const ClientDetails: React.FC = () => {
         {client.aiRecommendation ? (
           <div className="space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700/50 space-y-1">
+              <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
                 <p className="text-[10px] font-black text-slate-400 uppercase">الموعد المقترح</p>
-                <p className="text-sm font-black text-primary-300">{client.aiRecommendation.suggestedDate} ({client.aiRecommendation.suggestedTime || '12:00'})</p>
+                <p className="text-sm font-black text-primary-600">{client.aiRecommendation.suggestedDate} ({client.aiRecommendation.suggestedTime || '12:00'})</p>
               </div>
 
-              <div className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700/50 space-y-1">
+              <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
                 <p className="text-[10px] font-black text-slate-400 uppercase">قناة التواصل الأفضل</p>
-                <p className="text-sm font-black text-indigo-300">{client.aiRecommendation.suggestedChannel}</p>
+                <p className="text-sm font-black text-primary-600">{client.aiRecommendation.suggestedChannel}</p>
               </div>
 
-              <div className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700/50 space-y-1">
+              <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
                 <p className="text-[10px] font-black text-slate-400 uppercase">مستوى الأولوية</p>
                 <span className={`inline-block px-3 py-1 rounded-xl text-xs font-black ${
-                  client.aiRecommendation.conversionPriority === 'عالي' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                  client.aiRecommendation.conversionPriority === 'عالي' ? 'sgui-state is-danger' : 'sgui-state is-warning'
                 }`}>
                   أولوية {client.aiRecommendation.conversionPriority}
                 </span>
@@ -814,12 +794,12 @@ const ClientDetails: React.FC = () => {
 
             <div className="space-y-2">
               <p className="text-[10px] font-black text-slate-400 uppercase">رأي وتحليل مارو الذكي:</p>
-              <p className="text-xs font-bold text-slate-200 leading-relaxed bg-slate-800/40 p-4 rounded-2xl border border-slate-800">{client.aiRecommendation.insightsSummary}</p>
+              <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed bg-slate-50 dark:bg-slate-800 p-4 rounded-xl">{client.aiRecommendation.insightsSummary}</p>
             </div>
 
-            <div className="space-y-2 bg-primary-500/10 p-5 rounded-2xl border border-primary-500/20">
+            <div className="space-y-2 bg-slate-50 dark:bg-slate-800 p-5 rounded-xl border border-slate-100 dark:border-slate-800">
               <div className="flex justify-between items-center">
-                <p className="text-xs font-black text-primary-300 flex items-center gap-1">
+                <p className="text-xs font-black text-primary-600 flex items-center gap-1">
                   <Sparkles size={14} /> سيناريو الإقناع والرد على الاعتراضات (توصية مارو):
                 </p>
                 <button
@@ -828,31 +808,31 @@ const ClientDetails: React.FC = () => {
                     setCopiedPitch(true);
                     setTimeout(() => setCopiedPitch(false), 2000);
                   }}
-                  className="px-3 py-1 bg-slate-800 text-xs font-black rounded-lg hover:bg-slate-700 transition flex items-center gap-1 text-slate-300"
+                  className="sgui-button"
                 >
-                  {copiedPitch ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                  {copiedPitch ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
                   <span>{copiedPitch ? 'تم النسخ' : 'نسخ النص'}</span>
                 </button>
               </div>
-              <p className="text-xs font-bold text-white leading-relaxed">{client.aiRecommendation.suggestedPitch}</p>
+              <p className="text-sm text-slate-800 dark:text-slate-100 leading-relaxed whitespace-pre-wrap">{client.aiRecommendation.suggestedPitch}</p>
             </div>
 
             {client.aiRecommendation.salesTip && (
-              <p className="text-xs font-bold text-amber-300 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">
+              <p className="text-sm text-amber-700 bg-amber-50 dark:bg-amber-500/10 p-3 rounded-xl">
                 <strong>نصيحة ذهبية:</strong> {client.aiRecommendation.salesTip}
               </p>
             )}
 
             <div className="pt-2 flex justify-between items-center">
               {client.aiRecommendation.status === 'ACCEPTED' ? (
-                <div className="text-xs font-black text-emerald-400 flex items-center gap-2 bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/20 w-full justify-center">
+                <div className="text-sm text-emerald-700 flex items-center gap-2 bg-emerald-50 dark:bg-emerald-500/10 p-3 rounded-xl w-full justify-center">
                   <CheckCircle2 size={16} />
                   <span>تم اعتماد توصية مارو في جدول المتابعات بواسطة {client.aiRecommendation.acceptedByName || 'الموظف'}</span>
                 </div>
               ) : (
                 <button
                   onClick={handleApplyAiRecommendation}
-                  className="sg-btn sg-btn-success w-full"
+                  className="sgui-button is-primary w-full"
                 >
                   <CheckCircle2 size={18} />
                   <span>اعتماد توصية مارو وتحويلها لمتابعة حقيقية في جدولك</span>
@@ -862,11 +842,11 @@ const ClientDetails: React.FC = () => {
           </div>
         ) : (
           <div className="text-center py-6 space-y-3">
-            <p className="text-xs font-bold text-slate-400">لا توجد اقتراحات ذكاء اصطناعي (مارو) حالياً لـ {client.name}.</p>
+            <p className="text-sm text-slate-500">لا توجد اقتراحات ذكاء اصطناعي (مارو) حالياً لـ {client.name}.</p>
             <button
               onClick={handleRunAiAnalysis}
               disabled={isAnalyzingAi}
-              className="sg-btn sg-btn-ai mx-auto"
+              className="sgui-button mx-auto"
             >
               <Sparkles size={16} />
               <span>{isAnalyzingAi ? 'جاري التحليل...' : 'استخراج اقتراحات مارو لتحليل العميل'}</span>

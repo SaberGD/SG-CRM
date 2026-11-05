@@ -62,7 +62,7 @@ const LabelsManager: React.FC = () => {
     <div className="sg-page space-y-7 animate-fade-in text-right">
       <header className="sg-page-header">
         <div>
-          <h1 className="sg-title">إدارة <span className="text-primary-500">التصنيفات</span></h1>
+          <h1 className="sg-title">التصنيفات</h1>
           <p className="sg-subtitle">تصنيف العملاء لتسهيل الوصول والبحث والفلترة</p>
         </div>
         <button onClick={() => setIsModalOpen(true)} className="sg-btn sg-btn-primary">

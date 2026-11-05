@@ -503,11 +503,11 @@ const Reports: React.FC = () => {
   if (loading) return <div className="text-center py-40 font-black animate-pulse text-primary-500">جاري تحميل البيانات الذكية...</div>;
 
   return (
-    <div className="space-y-10 pb-20 max-w-7xl mx-auto animate-fade-in">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+    <div className="sg-page space-y-6 animate-fade-in">
+      <header className="sgui-heading">
         <div>
-          <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">نظام <span className="text-primary-500">التقارير</span> المتطور</h1>
-          <p className="text-slate-500 font-bold mt-1">قياس الأداء، إدارة الأهداف، والتحليلات الذكية</p>
+          <h1>التقارير</h1>
+          <p>قياس الأداء، إدارة الأهداف، والتحليلات الذكية</p>
         </div>
         <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
           <button 

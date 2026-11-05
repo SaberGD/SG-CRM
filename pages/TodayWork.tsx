@@ -86,16 +86,16 @@ const TodayWork: React.FC = () => {
   );
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-20 animate-fade-in">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+    <div className="sg-page space-y-6 animate-fade-in">
+      <header className="sgui-heading">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-white">شغل النهارده</h1>
-          <p className="text-slate-500 font-bold mt-1">المتأخر، وموعد النهارده، وعملاء مهتمين من غير موعد متابعة.</p>
+          <h1>شغل النهارده</h1>
+          <p>المتأخر، وموعد النهارده، وعملاء مهتمين من غير موعد متابعة.</p>
         </div>
         {isLeader && (
           <div className="flex gap-2 text-xs font-black">
-            <button onClick={() => setMine(true)} className={`px-4 py-2 rounded-xl ${mine ? 'bg-primary-500 text-white' : 'bg-slate-100 dark:bg-slate-800'}`}>عملائي</button>
-            <button onClick={() => setMine(false)} className={`px-4 py-2 rounded-xl ${!mine ? 'bg-primary-500 text-white' : 'bg-slate-100 dark:bg-slate-800'}`}>كل الفريق</button>
+            <button onClick={() => setMine(true)} aria-pressed={mine} className={`sgui-button ${mine ? 'is-primary' : ''}`}>عملائي</button>
+            <button onClick={() => setMine(false)} aria-pressed={!mine} className={`sgui-button ${!mine ? 'is-primary' : ''}`}>كل الفريق</button>
           </div>
         )}
       </header>

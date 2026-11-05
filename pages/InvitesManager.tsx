@@ -78,11 +78,11 @@ const InvitesManager: React.FC = () => {
   if (!isHighRole) return <div className="text-center py-40 font-black">غير مصرح لك بدخول هذه الصفحة</div>;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-10 animate-fade-in pb-20">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+    <div className="sg-page space-y-6 animate-fade-in">
+      <header className="sgui-heading">
         <div>
-          <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">سجل <span className="text-primary-500">الوصول</span></h1>
-          <p className="text-slate-500 font-bold mt-1">تحديد الإيميلات المسموح لها بإنشاء حسابات في النظام</p>
+          <h1>الدعوات وسجل الوصول</h1>
+          <p>تحديد الإيميلات المسموح لها بإنشاء حسابات في النظام</p>
         </div>
         <button onClick={() => setIsModalOpen(true)} className="bg-primary-500 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase shadow-xl hover:bg-primary-600 transition-all flex items-center gap-2">
           <UserPlus size={18} /> إضافة إيميل مسموح

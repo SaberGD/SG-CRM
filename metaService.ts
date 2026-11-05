@@ -1,3 +1,5 @@
+import { auth } from "./firebase";
+
 export type MetaEventName = "Lead" | "Purchase";
 
 // Deployed Firebase Cloud Function (see /functions/index.js) - not a secret,
@@ -21,9 +23,12 @@ interface SendMetaEventParams {
  */
 export const sendMetaEvent = ({ eventName, phone, value, currency, contentName, contentCategory, eventId }: SendMetaEventParams) => {
   if (!phone) return;
-  fetch(META_CAPI_URL, {
+  (async () => fetch(META_CAPI_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(auth.currentUser ? { Authorization: `Bearer ${await auth.currentUser.getIdToken()}` } : {}),
+    },
     body: JSON.stringify({
       eventName,
       phone,
@@ -34,7 +39,7 @@ export const sendMetaEvent = ({ eventName, phone, value, currency, contentName, 
       eventId,
       sourceUrl: window.location.href,
     }),
-  }).catch((error) => {
+  }))().catch((error) => {
     console.error("sendMetaEvent error:", error);
   });
 };

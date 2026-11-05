@@ -11,7 +11,36 @@ function hashForMeta(value) {
  * so Meta Ads can optimize on real bookings/payments instead of only ad clicks.
  * Called from SG-CRM's metaService.ts.
  */
+// The AI and Meta endpoints used to be open to anyone on the internet. They now need
+// either an active staff member's Firebase ID token (what the CRM web app sends) or
+// the automation secret (server-to-server callers such as n8n).
+async function requireStaffOrAutomation(req, res) {
+  const secret = process.env.AUTOMATION_SECRET || "";
+  if (secret && req.get("x-automation-secret") === secret) return { automation: true };
+  const match = (req.get("authorization") || "").match(/^Bearer (.+)$/);
+  if (!match) {
+    res.status(401).json({ error: "Sign in required" });
+    return null;
+  }
+  try {
+    const token = await admin.auth().verifyIdToken(match[1]);
+    const email = String(token.email || "").toLowerCase();
+    if (email === "saber.gd.fl@gmail.com" && token.email_verified === true) return { uid: token.uid, email };
+    const snap = await db.collection("users").doc(token.uid).get();
+    if (!snap.exists || snap.data().isDeactivated === true) {
+      res.status(403).json({ error: "Account is not active" });
+      return null;
+    }
+    return { uid: token.uid, email };
+  } catch (err) {
+    res.status(401).json({ error: "Invalid or expired sign-in" });
+    return null;
+  }
+}
+
 exports.metaCapiEvent = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  const caller = await requireStaffOrAutomation(req, res);
+  if (!caller) return;
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -94,6 +123,8 @@ const ai = new GoogleGenAI({
  * Mirrors server.ts's POST /api/gemini/predict-sales route.
  */
 exports.geminiPredictSales = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  const caller = await requireStaffOrAutomation(req, res);
+  if (!caller) return;
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -148,6 +179,8 @@ exports.geminiPredictSales = onRequest({ region: "us-central1", cors: true }, as
  * Mirrors server.ts's POST /api/gemini/analyze-report route.
  */
 exports.geminiAnalyzeReport = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  const caller = await requireStaffOrAutomation(req, res);
+  if (!caller) return;
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -217,6 +250,8 @@ function generateFallbackClientAnalysis(client) {
  * route, including its embedded SABER GROUP knowledge base and rule-based fallback.
  */
 exports.geminiAnalyzeClient = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  const caller = await requireStaffOrAutomation(req, res);
+  if (!caller) return;
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }

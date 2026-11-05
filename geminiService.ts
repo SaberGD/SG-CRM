@@ -1,6 +1,13 @@
 import { Client, FollowUp, DailyReport, ClientStatus } from "./types";
+import { auth } from "./firebase";
 
 const CLOUD_FUNCTIONS_BASE = "https://us-central1-sg-crm-e3a38.cloudfunctions.net";
+
+// The AI endpoints require the signed-in user's ID token.
+const authHeaders = async (): Promise<Record<string, string>> => ({
+  "Content-Type": "application/json",
+  ...(auth.currentUser ? { Authorization: `Bearer ${await auth.currentUser.getIdToken()}` } : {}),
+});
 
 /**
  * Predicts sales opportunity and analyzes lead history via the geminiPredictSales
@@ -11,7 +18,7 @@ export const predictSalesOpportunity = async (client: Client, followUps: FollowU
   try {
     const response = await fetch(`${CLOUD_FUNCTIONS_BASE}/geminiPredictSales`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await authHeaders(),
       body: JSON.stringify({ client, followUps }),
     });
     if (!response.ok) {
@@ -32,7 +39,7 @@ export const analyzeDailyReport = async (report: DailyReport) => {
   try {
     const response = await fetch(`${CLOUD_FUNCTIONS_BASE}/geminiAnalyzeReport`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await authHeaders(),
       body: JSON.stringify({ report }),
     });
     if (!response.ok) {
@@ -55,7 +62,7 @@ export const analyzeClientWithAi = async (client: Client, followUps: FollowUp[] 
   try {
     const response = await fetch(`${CLOUD_FUNCTIONS_BASE}/geminiAnalyzeClient`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await authHeaders(),
       body: JSON.stringify({ client, followUps }),
     });
     if (!response.ok) {

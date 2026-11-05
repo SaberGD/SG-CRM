@@ -3,7 +3,7 @@
 const brand = Object.fromEntries([50, 100, 200, 300, 400, 500, 600, 700, 800, 900].map((n) => [n, `rgb(var(--primary-${n}) / <alpha-value>)`]));
 module.exports = {
   darkMode: 'class',
-  content: ['./index.html', './*.{ts,tsx}', './components/**/*.{ts,tsx}', './pages/**/*.{ts,tsx}', './utils/**/*.{ts,tsx,mjs}'],
+  content: ['./index.html', './{App,ShiftContext,index,types}.{ts,tsx}', './components/**/*.{ts,tsx}', './pages/**/*.{ts,tsx}', './utils/**/*.{ts,tsx,mjs}'],
   theme: {
     extend: {
       colors: {

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit, getCountFromServer, QueryConstraint } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../App';
 import { Client, User, UserRole, ClientStatus } from '../types';
@@ -37,42 +37,41 @@ const Dashboard: React.FC = () => {
     setError(null);
     
     const clientsRef = collection(db, 'clients');
-    let q;
-    
-    // القواعد تفرض قيوداً: إذا لم يكن مديراً، يجب أن يفلتر دائماً حسب المعرف الخاص به
-    if (isHighRole && selectedAgentId === 'all') {
-      q = query(clientsRef);
-    } else if (isHighRole && selectedAgentId !== 'all') {
-      q = query(clientsRef, where('salesAgentId', '==', selectedAgentId));
-    } else {
-      // Viewing as a specific agent (effectiveUser) scopes to their data,
-      // not the real admin's -- see setViewingAsUser in App.tsx.
-      q = query(clientsRef, where('salesAgentId', '==', effectiveUser?.uid || user.uid));
-    }
-
-    const unsub = onSnapshot(q, (snapshot) => {
-      const all = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Client));
-      const now = Date.now();
-      const todayStart = new Date().setHours(0,0,0,0);
-      const todayEnd = new Date().setHours(23,59,59,999);
-      
-      const bookedCount = all.filter(c => c.isBooked || c.status === ClientStatus.BOOKED).length;
-
-      setStats(prev => ({
-        ...prev,
-        total: all.length,
-        today: all.filter(c => c.nextFollowUpDate && c.nextFollowUpDate >= todayStart && c.nextFollowUpDate <= todayEnd).length,
-        upcoming: all.filter(c => c.nextFollowUpDate && c.nextFollowUpDate > todayEnd).length,
-        overdue: all.filter(c => c.nextFollowUpDate && c.nextFollowUpDate < now).length,
-        booked: bookedCount,
-      }));
-      setClients(all);
-      setLoading(false);
-    }, (err) => {
-      console.error("Dashboard Snapshot Error:", err);
-      setError("لا تملك صلاحية كافية لعرض كافة هذه البيانات أو انتهت جلسة العمل.");
-      setLoading(false);
-    });
+    // Reads are kept low (same rule as the accounting system): the numbers come from
+    // server-side counts (1 read per 1,000 clients) and the task lists read only the
+    // clients that actually have a follow-up date in range, capped and sorted.
+    // Before this, every open of the dashboard read ALL clients through a live listener.
+    const agentId = isHighRole && selectedAgentId !== 'all' ? selectedAgentId : (effectiveUser?.uid || user.uid);
+    const scope: QueryConstraint[] = isHighRole && selectedAgentId === 'all' ? [] : [where('salesAgentId', '==', agentId)];
+    let cancelled = false;
+    (async () => {
+      try {
+        const now = Date.now();
+        const todayStart = new Date().setHours(0, 0, 0, 0);
+        const todayEnd = new Date().setHours(23, 59, 59, 999);
+        const count = (extra: QueryConstraint[]) => getCountFromServer(query(clientsRef, ...scope, ...extra)).then((r) => r.data().count);
+        const [total, today, upcoming, overdue, booked] = await Promise.all([
+          count([]),
+          count([where('nextFollowUpDate', '>=', todayStart), where('nextFollowUpDate', '<=', todayEnd)]),
+          count([where('nextFollowUpDate', '>', todayEnd)]),
+          count([where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now)]),
+          count([where('status', '==', ClientStatus.BOOKED)]),
+        ]);
+        const [overdueSnap, futureSnap] = await Promise.all([
+          getDocs(query(clientsRef, ...scope, where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now), orderBy('nextFollowUpDate', 'asc'), limit(100))),
+          getDocs(query(clientsRef, ...scope, where('nextFollowUpDate', '>=', now), orderBy('nextFollowUpDate', 'asc'), limit(150))),
+        ]);
+        if (cancelled) return;
+        setStats(prev => ({ ...prev, total, today, upcoming, overdue, booked }));
+        setClients([...overdueSnap.docs, ...futureSnap.docs].map(d => ({ id: d.id, ...d.data() } as Client)));
+        setLoading(false);
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Dashboard load error:", err);
+        setError("لا تملك صلاحية كافية لعرض كافة هذه البيانات أو انتهت جلسة العمل.");
+        setLoading(false);
+      }
+    })();
 
     if (isHighRole) {
       const todayStart = new Date().setHours(0,0,0,0);
@@ -83,7 +82,7 @@ const Dashboard: React.FC = () => {
         .catch(() => console.warn("Could not fetch transfers stats."));
     }
 
-    return () => unsub();
+    return () => { cancelled = true; };
   }, [user, effectiveRole, effectiveUser, selectedAgentId]);
 
   const fetchAgents = async () => {

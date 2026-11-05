@@ -4,13 +4,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SABER GROUP CRM SYSTEM</title>
+  <title>SG · المبيعات</title>
   
   <!-- PWA & Mobile Web App Meta Tags -->
   <meta name="theme-color" content="#10100f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="CRM SYSTEM">
+  <meta name="apple-mobile-web-app-title" content="SG المبيعات">
   <meta name="mobile-web-app-capable" content="yes">
   
   <!-- Manifest & Icon Links -->
@@ -52,21 +52,6 @@
         .catch(() => {});
       if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k))).catch(() => {});
     }
-    // Long-lived tabs: when the tab regains focus, reload if a newer bundle was deployed
-    (function () {
-      const current = (document.querySelector('script[type="module"][src*="assets/index-"]') || {}).src;
-      if (!current) return;
-      let last = 0;
-      document.addEventListener('visibilitychange', async () => {
-        if (document.visibilityState !== 'visible' || Date.now() - last < 60000) return;
-        last = Date.now();
-        try {
-          const html = await (await fetch('/index.html?v=' + last, { cache: 'no-store' })).text();
-          const m = html.match(/assets\/index-[A-Za-z0-9_-]+\.js/);
-          if (m && !current.endsWith(m[0])) location.reload();
-        } catch (e) {}
-      });
-    })();
   </script>
 </body>
 </html>

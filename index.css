@@ -130,6 +130,12 @@ html[data-color-theme] .sg-crm-shell .sg-crm-search input { width: 100%; min-hei
 .sgui-side-panel-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 20px; }
 @media (max-width: 767px) { .sgui-side-panel { top: 0; bottom: 0; right: 0; width: 100%; border-radius: 0; } .sgui-side-panel-body { padding: 16px 14px; } }
 
+/* New-version banner (all systems show the same one). */
+.sg-update-banner { position: fixed; bottom: 16px; inset-inline: 16px; z-index: 1200; display: flex; justify-content: center; pointer-events: none; }
+.sg-update-banner > div { pointer-events: auto; display: flex; align-items: center; gap: 12px; max-width: 460px; padding: 12px 16px; border-radius: 12px; background: #2b231e; color: #fff; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3); font-family: Cairo, sans-serif; font-size: 14px; }
+.sg-update-banner svg { color: #ffa36f; flex-shrink: 0; }
+.sg-update-banner button { flex-shrink: 0; min-height: 36px; padding: 6px 14px; border: 0; border-radius: 8px; background: #c73520; color: #fff; font: inherit; font-weight: 700; }
+
 /* Login */
 .sg-crm-login { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; color: var(--sg-text); background: var(--sg-bg); font-family: Cairo, Inter, sans-serif; }
 .sg-crm-login-card { width: min(100%, 420px); padding: 32px 28px; border: 1px solid var(--sg-line); border-radius: 12px; background: var(--sg-panel); box-shadow: var(--sg-shadow); text-align: center; }

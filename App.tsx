@@ -12,6 +12,7 @@ import { ShiftProvider } from './ShiftContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import { LoadingState } from './components/ui';
+import UpdateBanner from './components/UpdateBanner';
 
 // Every other page is its own file, downloaded the first time it is opened, so the first
 // screen loads only what it needs (the app used to be one 1.8 MB file).
@@ -224,6 +225,7 @@ const App: React.FC = () => {
 
   return (
     <AuthContext.Provider value={{ user, effectiveRole, setEffectiveRole, viewingAsUser, setViewingAsUser, effectiveUser, loading }}>
+      <UpdateBanner />
       <HashRouter>
         <Routes>
           <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />

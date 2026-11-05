@@ -20,6 +20,9 @@ import {
   MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw,
   Facebook, Instagram, Music2, Globe2, CalendarX, UserPlus
 } from 'lucide-react';
+import { useServices, useLabels, useStaff } from '../utils/refData';
+import { usePagedList } from '../utils/usePagedQuery';
+import Pager from '../components/Pager';
 import { Badge } from '../components/ui';
 import FloatingPanel from '../components/FloatingPanel';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
@@ -72,7 +75,6 @@ const ClientDetails: React.FC = () => {
   const [isAcceptFlowOpen, setIsAcceptFlowOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [copiedSearchPhrase, setCopiedSearchPhrase] = useState(false);
-  const [poolAgentId, setPoolAgentId] = useState<string | null>(null);
 
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
 
@@ -193,8 +195,11 @@ const ClientDetails: React.FC = () => {
   }, []);
   
   // Services for booking
-  const [services, setServices] = useState<Service[]>([]);
-  const [allLabels, setAllLabels] = useState<Label[]>([]);
+  // Shared session store: read once, not on every client opened.
+  const services = useServices();
+  const allLabels = useLabels();
+  const staff = useStaff();
+  const poolAgentId = useMemo(() => staff.find(u => (u.email || '').toLowerCase() === POOL_AGENT_EMAIL.toLowerCase())?.uid || null, [staff]);
   
   // Scheduling
   const [nextDate, setNextDate] = useState('');
@@ -247,7 +252,7 @@ const ClientDetails: React.FC = () => {
     });
 
     const unsubFollowups = firestore.onSnapshot(
-      firestore.query(firestore.collection(db, 'followups'), firestore.where('clientId', '==', id), firestore.orderBy('timestamp', 'desc')),
+      firestore.query(firestore.collection(db, 'followups'), firestore.where('clientId', '==', id), firestore.orderBy('timestamp', 'desc'), firestore.limit(100)),
       (snap) => {
         setFollowUps(snap.docs.map(d => ({ id: d.id, ...d.data() } as FollowUp)));
       }, (err) => {
@@ -256,7 +261,8 @@ const ClientDetails: React.FC = () => {
     );
 
     const unsubLogs = firestore.onSnapshot(
-      firestore.query(firestore.collection(db, 'logs'), firestore.where('targetId', '==', id), firestore.orderBy('timestamp', 'desc')),
+      // The newest 40 actions are plenty for the timeline (some clients have hundreds).
+      firestore.query(firestore.collection(db, 'logs'), firestore.where('targetId', '==', id), firestore.orderBy('timestamp', 'desc'), firestore.limit(40)),
       (snap) => {
         setActivityLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as ActivityLog)));
       }, (err) => {
@@ -264,36 +270,13 @@ const ClientDetails: React.FC = () => {
       }
     );
 
-    const unsubServices = firestore.onSnapshot(firestore.collection(db, 'services'), (snap) => {
-      setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
-    }, (err) => {
-      console.error("ClientDetails Services Snapshot Error:", err);
-    });
-
-    const unsubLabels = firestore.onSnapshot(firestore.collection(db, 'labels'), (snap) => {
-      setAllLabels(snap.docs.map(d => ({ id: d.id, ...d.data() } as Label)));
-    }, (err) => {
-      console.error("ClientDetails Labels Snapshot Error:", err);
-    });
-
     return () => {
       unsubClient();
       unsubFollowups();
       unsubLogs();
-      unsubServices();
-      unsubLabels();
     };
   }, [id]);
 
-  useEffect(() => {
-    firestore.getDocs(firestore.query(
-      firestore.collection(db, 'users'),
-      firestore.where('email', '==', POOL_AGENT_EMAIL),
-      firestore.limit(1)
-    )).then(snap => {
-      if (!snap.empty) setPoolAgentId(snap.docs[0].id);
-    }).catch(err => console.error('Failed to resolve pool agent id:', err));
-  }, []);
 
   useEffect(() => {
     let interval: any;
@@ -311,6 +294,7 @@ const ClientDetails: React.FC = () => {
     ];
     return items.sort((a, b) => b.timestamp - a.timestamp);
   }, [followUps, activityLogs, client?.transferHistory]);
+  const timelinePage = usePagedList(unifiedTimeline, 10, id);
 
   const handleStartCall = async (appointmentId?: string) => {
     if (!user || !client) return;
@@ -860,7 +844,7 @@ const ClientDetails: React.FC = () => {
         <div className="lg:col-span-2 space-y-4">
           <h2 className="text-xl font-black flex items-center gap-3 text-slate-900 dark:text-white"><History className="text-primary-500" /> التايم لاين (سجل التواصل)</h2>
           <div className="relative border-r-2 border-slate-100 dark:border-slate-800 pr-6 space-y-5">
-            {unifiedTimeline.map((item: any) => {
+            {timelinePage.rows.map((item: any) => {
               const isUnreviewedAiFollowUp = item.type === 'followup' && item.isAutomated && !item.reviewedBySales;
               return (
               <div key={item.id} className="relative">
@@ -930,6 +914,7 @@ const ClientDetails: React.FC = () => {
               );
             })}
           </div>
+          <Pager page={timelinePage.page} pageCount={timelinePage.pageCount} reachablePage={timelinePage.reachablePage} total={timelinePage.total} pageSize={timelinePage.pageSize} onPage={timelinePage.goToPage} noun="حدث" />
         </div>
 
         <aside className="space-y-5">

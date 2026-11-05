@@ -1,73 +1,84 @@
-
-import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase';
+import React, { useMemo, useState } from 'react';
+import { QueryConstraint, where } from 'firebase/firestore';
 import { ActivityLog } from '../types';
-import { Clock, User, UserPlus, Edit3, PhoneIncoming } from 'lucide-react';
-import { PageHeader } from '../components/ui';
+import { Clock, UserPlus, Edit3, PhoneIncoming, ClipboardList } from 'lucide-react';
+import { PageHeader, EmptyState, LoadingState } from '../components/ui';
+import FilterPanel, { Field } from '../components/FilterPanel';
+import Pager from '../components/Pager';
+import { usePagedQuery } from '../utils/usePagedQuery';
+import { useStaff } from '../utils/refData';
 
+const DAY = 86400000;
+
+// Activity log: 10 per page, read page by page (it used to keep a live listener on the last 50).
 const ActivityLogs: React.FC = () => {
-  const [logs, setLogs] = useState<ActivityLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const staff = useStaff();
+  const people = useMemo(() => staff.filter(u => !u.isDeactivated).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar')), [staff]);
+  const [userId, setUserId] = useState('all');
+  const [day, setDay] = useState('');
 
-  useEffect(() => {
-    const q = query(collection(db, 'logs'), orderBy('timestamp', 'desc'), limit(50));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivityLog)));
-      setLoading(false);
-    }, (err) => {
-      console.error("ActivityLogs Snapshot Error:", err);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+  const constraints = useMemo(() => {
+    const c: QueryConstraint[] = [];
+    if (userId !== 'all') c.push(where('userId', '==', userId));
+    if (day) {
+      const d = new Date(day); d.setHours(0, 0, 0, 0);
+      c.push(where('timestamp', '>=', d.getTime()), where('timestamp', '<', d.getTime() + DAY));
+    }
+    return c;
+  }, [userId, day]);
+
+  const logs = usePagedQuery<ActivityLog>({
+    collectionName: 'logs', constraints, queryKey: JSON.stringify([userId, day]), orderField: 'timestamp', orderDirection: 'desc',
+  });
 
   const getIcon = (action: string) => {
-    if (action.includes("إضافة")) return <div className="p-3 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 rounded-2xl"><UserPlus size={20} /></div>;
-    if (action.includes("تعديل")) return <div className="p-3 bg-amber-50 dark:bg-amber-500/10 text-amber-500 rounded-2xl"><Edit3 size={20} /></div>;
-    return <div className="p-3 bg-primary-50 dark:bg-primary-500/10 text-primary-500 rounded-2xl"><PhoneIncoming size={20} /></div>;
+    if (action.includes('إضافة')) return <span className="sgui-row-icon is-good"><UserPlus size={18} /></span>;
+    if (action.includes('تعديل') || action.includes('تحديث')) return <span className="sgui-row-icon is-warning"><Edit3 size={18} /></span>;
+    return <span className="sgui-row-icon"><PhoneIncoming size={18} /></span>;
   };
 
   return (
     <div className="sg-page space-y-6 animate-fade-in">
-      <PageHeader title="سجل النشاطات" subtitle="مراقبة العمليات والتحركات في النظام" />
+      <PageHeader title="سجل النشاطات" subtitle="مين عمل إيه وإمتى في النظام" />
 
-      <div className="bg-white dark:bg-slate-900 rounded-4xl shadow-xl shadow-slate-200/40 dark:shadow-none border border-slate-100 dark:border-slate-800 overflow-hidden">
-        {loading ? (
-          <div className="text-center py-20 animate-pulse font-black text-slate-400">جاري تحميل السجلات...</div>
-        ) : logs.length === 0 ? (
-          <div className="text-center py-20 text-slate-400 font-bold">لا توجد سجلات بعد</div>
+      <FilterPanel
+        activeCount={(userId !== 'all' ? 1 : 0) + (day ? 1 : 0)}
+        advancedCount={day ? 1 : 0}
+        onReset={() => { setUserId('all'); setDay(''); }}
+        main={
+          <Field label="الموظف">
+            <select value={userId} onChange={e => setUserId(e.target.value)}>
+              <option value="all">كل الموظفين</option>
+              {people.map(u => <option key={u.uid} value={u.uid}>{u.name || u.email}</option>)}
+            </select>
+          </Field>
+        }
+        advanced={
+          <Field label="يوم معيّن">
+            <input type="date" value={day} onChange={e => setDay(e.target.value)} />
+          </Field>
+        }
+      />
+
+      <section className="sgui-panel p-4 md:p-5">
+        {logs.loading && logs.rows.length === 0 ? <LoadingState label="جاري تحميل السجلات..." /> : logs.rows.length === 0 ? (
+          <EmptyState icon={ClipboardList}>مفيش نشاطات هنا</EmptyState>
         ) : (
-          <div className="divide-y divide-slate-50 dark:divide-slate-800">
-            {logs.map((log) => (
-              <div key={log.id} className="p-6 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex items-center gap-5">
-                {getIcon(log.action)}
-                <div className="flex-1">
-                  <div className="flex justify-between items-start">
-                    <p className="text-sm font-bold text-slate-900 dark:text-white no-tracking">
-                      قام <span className="text-primary-500 font-black">{log.userName}</span>
-                      {" "}{log.action}{" "}
-                      للعميل <span className="font-black underline">{log.targetName}</span>
-                    </p>
-                    <span className="text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-400 px-3 py-1.5 rounded-full flex items-center">
-                      <Clock size={12} className="ml-1" />
-                      {new Date(log.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex items-center gap-4">
-                    <span className="text-[10px] font-black uppercase text-slate-400 flex items-center tracking-widest">
-                      <User size={10} className="ml-1" /> Agent ID: {log.userId.slice(-6)}
-                    </span>
-                    <span className="text-[10px] font-black uppercase text-slate-400 flex items-center tracking-widest">
-                      Date: {new Date(log.timestamp).toLocaleDateString('ar-EG')}
-                    </span>
-                  </div>
+          <div className="sgui-list">
+            {logs.rows.map((log) => (
+              <div key={log.id} className="sgui-row is-static">
+                {getIcon(log.action || '')}
+                <div className="sgui-row-main">
+                  <p className="sgui-row-text"><b>{log.userName}</b> {log.action}{log.targetName && <> · <b>{log.targetName}</b></>}</p>
+                  <small>{new Date(log.timestamp).toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long' })}</small>
                 </div>
+                <span className="sgui-state"><Clock size={12} /> {new Date(log.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
             ))}
           </div>
         )}
-      </div>
+        <Pager page={logs.page} pageCount={logs.pageCount} reachablePage={logs.reachablePage} total={logs.total} pageSize={logs.pageSize} loading={logs.loading} onPage={logs.goToPage} noun="نشاط" />
+      </section>
     </div>
   );
 };

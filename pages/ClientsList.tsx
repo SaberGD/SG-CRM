@@ -11,9 +11,9 @@ import {
   ClientSource, SourceLabels
 } from '../types';
 import FloatingPanel from '../components/FloatingPanel';
-import { BulkImportModal } from '../components/BulkImportModal';
+// Loaded only when opened (it carries the Excel library).
+const BulkImportModal = React.lazy(() => import('../components/BulkImportModal').then((m) => ({ default: m.BulkImportModal })));
 import AcceptFlowModal from '../components/AcceptFlowModal';
-import { exportBookingsToExcel } from '../utils/exportClients';
 import { getLabelColorStyle } from '../utils/labelColors';
 import { 
   Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2,
@@ -22,7 +22,11 @@ import {
   SlidersHorizontal, ChevronDown, Facebook, Instagram, Music2, Globe2, UserPlus, MoreHorizontal } from 'lucide-react';
 import { PageHeader } from '../components/ui';
 import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
-import { searchTerm, matchesSearch, buildSearchKeys } from '../utils/searchKeys.mjs';
+import { searchTerm as toSearchKey, matchesSearch, buildSearchKeys } from '../utils/searchKeys.mjs';
+import { usePagedQuery } from '../utils/usePagedQuery';
+import { useServices, useLabels, useAgentOptions, useStaff } from '../utils/refData';
+import Pager from '../components/Pager';
+import FilterPanel, { Field } from '../components/FilterPanel';
 import { normalizePhoneKey } from '../utils/clientMerge.mjs';
 import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
@@ -60,26 +64,14 @@ const getClientSourceMeta = (source?: ClientSource) => {
   }
 };
 
-// Global cache for clients to reduce reads
-const clientsCache: {
-  data: Client[];
-  lastVisible: firestore.DocumentData | null;
-  hasMore: boolean;
-  filters: string;
-} = {
-  data: [],
-  lastVisible: null,
-  hasMore: true,
-  filters: ''
-};
-
 const ClientsList: React.FC = () => {
   const { user, effectiveRole, effectiveUser, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const [clients, setClients] = useState<Client[]>(clientsCache.data);
-  const [services, setServices] = useState<Service[]>([]);
-  const [allLabels, setAllLabels] = useState<Label[]>([]);
-  const [salesAgents, setSalesAgents] = useState<{id: string, name: string}[]>([]);
+  // Reference data comes from the shared session store (read once, not on every visit).
+  const services = useServices(true);
+  const allLabels = useLabels();
+  const salesAgents = useAgentOptions();
+  const staff = useStaff();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -93,32 +85,17 @@ const ClientsList: React.FC = () => {
   const [filterSalesAgent, setFilterSalesAgent] = useState<string>('all');
   const [filterTransferType, setFilterTransferType] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'createdAt' | 'lastChatwootContactAsc'>('createdAt');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
 
   useEffect(() => {
     fetchExchangeRates().then(rates => setExchangeRates(rates));
   }, []);
 
-  useEffect(() => {
-    firestore.getDocs(firestore.query(
-      firestore.collection(db, 'users'),
-      firestore.where('email', '==', POOL_AGENT_EMAIL),
-      firestore.limit(1)
-    )).then(snap => {
-      if (!snap.empty) setPoolAgentId(snap.docs[0].id);
-    }).catch(err => console.error('Failed to resolve pool agent id:', err));
-  }, []);
-  
-  // Pagination
-  const [lastVisible, setLastVisible] = useState<firestore.DocumentData | null>(clientsCache.lastVisible);
-  const [hasMore, setHasMore] = useState(clientsCache.hasMore);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [totalRead, setTotalRead] = useState(0);
+  // The shared "Saber Group" pool account, found in the staff list (no extra read).
+  const poolAgentId = useMemo(() => staff.find(u => (u.email || '').toLowerCase() === POOL_AGENT_EMAIL.toLowerCase())?.uid || null, [staff]);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [acceptFlowClient, setAcceptFlowClient] = useState<Client | null>(null);
-  const [poolAgentId, setPoolAgentId] = useState<string | null>(null);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -224,162 +201,58 @@ const ClientsList: React.FC = () => {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
+  // Recent bulk transfers (leaders): 5 docs.
   useEffect(() => {
-    if (authLoading || !user) return;
-    
-    // Create a key for the current combination of filters
-    const currentFiltersKey = JSON.stringify({
-      effectiveRole,
-      effectiveUserId: effectiveUser?.uid,
-      filterStatus,
-      filterService,
-      filterLabel,
-      filterLaptop,
-      filterMode,
-      filterGender,
-      filterBookedCourse,
-      filterSalesAgent,
-      debouncedSearch,
-      poolAgentId
-    });
+    if (authLoading || !user || !isHighRole) return;
+    return firestore.onSnapshot(
+      firestore.query(firestore.collection(db, 'bulk_transfers'), firestore.orderBy('timestamp', 'desc'), firestore.limit(5)),
+      snap => setRecentBulkTransfers(snap.docs.map(d => ({ id: d.id, ...d.data() } as BulkTransfer))),
+      err => console.error('Bulk transfers listener failed:', err),
+    );
+  }, [authLoading, user?.uid, isHighRole]);
 
-    // If filters have changed, we MUST reset data unless it was already cached for these filters
-    if (clientsCache.filters !== currentFiltersKey) {
-      setClients([]);
-      setLastVisible(null);
-      setHasMore(true);
-      fetchClients(false, debouncedSearch);
-      clientsCache.filters = currentFiltersKey;
+  // The list: 10 clients per page, read page by page (see usePagedQuery).
+  const isSearchActive = debouncedSearch.trim().length > 0;
+  const scopedId = effectiveUser?.uid || user?.uid || '';
+  const listQuery = useMemo(() => {
+    if (authLoading || !user) return { constraints: null, key: '' };
+    // Sales reps also see clients still on the shared pool account; wait for the staff list
+    // so the query is built once with the right ids.
+    if (!isHighRole && staff.length === 0) return { constraints: null, key: '' };
+    const c: firestore.QueryConstraint[] = [];
+    if (isSearchActive) {
+      // Indexed search: searchKeys holds the start of every name word and the last 4-10 phone
+      // digits, so one array-contains query finds "حسن" inside "أسماء حسن" or a number by its tail.
+      c.push(firestore.where('searchKeys', 'array-contains', toSearchKey(debouncedSearch) || '\u0000'));
     }
-
-    const unsubServices = firestore.onSnapshot(firestore.query(firestore.collection(db, 'services'), firestore.where('isActive', '==', true)), snap => {
-      setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
-    }, (err) => {
-      console.error("ClientsList Services Snapshot Error:", err);
-    });
-
-    const unsubLabels = firestore.onSnapshot(firestore.collection(db, 'labels'), snap => {
-      setAllLabels(snap.docs.map(d => ({ id: d.id, ...d.data() } as Label)));
-    }, (err) => {
-      console.error("ClientsList Labels Snapshot Error:", err);
-    });
-
-    if (isHighRole) {
-      firestore.getDocs(firestore.query(firestore.collection(db, 'users'), firestore.where('role', 'in', [UserRole.SALES_AGENT, UserRole.TEAM_LEADER, UserRole.MANAGER, UserRole.SUPERVISOR]))).then(snap => {
-        const activeAgents = snap.docs
-          .map(d => ({ uid: d.id, id: d.id, ...d.data() } as any))
-          .filter(u => !u.isDeactivated)
-          .map(u => ({ id: u.uid || u.id, name: u.name || u.email || 'بدون اسم' }));
-        setSalesAgents(activeAgents);
-      });
-
-      const unsubBulk = firestore.onSnapshot(
-        firestore.query(
-          firestore.collection(db, 'bulk_transfers'), 
-          firestore.orderBy('timestamp', 'desc'), 
-          firestore.limit(5)
-        ), 
-        snap => {
-          setRecentBulkTransfers(snap.docs.map(d => ({ id: d.id, ...d.data() } as BulkTransfer)));
-        }
-      );
-      return () => {
-        unsubBulk();
-        unsubServices();
-        unsubLabels();
-      };
+    if (!isHighRole) {
+      c.push(firestore.where('salesAgentId', 'in', poolAgentId ? [scopedId, poolAgentId] : [scopedId]));
+    } else if (filterSalesAgent !== 'all') {
+      c.push(firestore.where('salesAgentId', '==', filterSalesAgent));
     }
-    
-    return () => {
-      unsubServices();
-      unsubLabels();
-    };
-  }, [authLoading, user, effectiveRole, effectiveUser, filterStatus, filterService, filterLabel, filterLaptop, filterMode, filterGender, filterBookedCourse, filterSalesAgent, debouncedSearch, sortBy, poolAgentId]);
-
-  const fetchClients = async (isMore: boolean, searchOverride?: string) => {
-    if (!user || (!isMore && isLoadingMore)) return;
-    setIsLoadingMore(true);
-
-    const activeSearch = searchOverride !== undefined ? searchOverride : debouncedSearch;
-
-    try {
-      const clientsRef = firestore.collection(db, 'clients');
-      let constraints: firestore.QueryConstraint[] = [];
-
-      // Determine search method
-      const isSearchActive = activeSearch.trim().length > 0;
-      
-      if (isSearchActive) {
-        // Indexed search: searchKeys (kept up to date by the clientSearchIndex Cloud Function)
-        // holds the start of every word of the name and the last 4-10 digits of the phone,
-        // so one array-contains query finds "حسن" inside "أسماء حسن" or a number by its tail.
-        constraints.push(firestore.where('searchKeys', 'array-contains', searchTerm(activeSearch) || '\u0000'));
-      } else if (sortBy === 'lastChatwootContactAsc') {
-        constraints.push(firestore.orderBy('lastChatwootContactAt', 'asc'));
-      } else {
-        constraints.push(firestore.orderBy('createdAt', 'desc'));
-      }
-
-      // Role check -- sales reps also see clients still sitting on the shared
-      // "Saber Group" pool account (unassigned automation clients) so any of
-      // them can claim one; see POOL_AGENT_EMAIL above.
-      if (!isHighRole) {
-        // Viewing as a specific agent (effectiveUser) scopes to their data,
-        // not the real admin's -- see setViewingAsUser in App.tsx.
-        const scopedId = effectiveUser?.uid || user.uid;
-        const ownIds = poolAgentId ? [scopedId, poolAgentId] : [scopedId];
-        constraints.push(firestore.where('salesAgentId', 'in', ownIds));
-      } else if (filterSalesAgent !== 'all') {
-        constraints.push(firestore.where('salesAgentId', '==', filterSalesAgent));
-      }
-
-      // Filter checks
-      if (!isSearchActive) { // Some filters might collide with range search on Name in Firestore
-        if (filterStatus !== 'all') constraints.push(firestore.where('status', '==', filterStatus));
-        if (filterService !== 'all') constraints.push(firestore.where('serviceId', '==', filterService));
-        if (filterLaptop !== 'all') constraints.push(firestore.where('laptop', '==', filterLaptop));
-        if (filterMode !== 'all') constraints.push(firestore.where('mode', '==', filterMode));
-        if (filterGender !== 'all') constraints.push(firestore.where('gender', '==', filterGender));
-        if (filterBookedCourse !== 'all') constraints.push(firestore.where('bookedCourseId', '==', filterBookedCourse));
-        if (filterLabel !== 'all') constraints.push(firestore.where('labels', 'array-contains', filterLabel));
-      }
-
-      if (isMore && lastVisible) {
-        constraints.push(firestore.startAfter(lastVisible));
-      }
-
-      constraints.push(firestore.limit(30));
-
-      const q = firestore.query(clientsRef, ...constraints);
-      const snapshot = await firestore.getDocs(q);
-      
-      const newClients = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Client));
-      
-      let finalClients: Client[];
-      if (isMore) {
-        finalClients = [...clients, ...newClients];
-      } else {
-        finalClients = newClients;
-      }
-
-      setClients(finalClients);
-      const lastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
-      setLastVisible(lastDoc);
-      const more = snapshot.docs.length === 30;
-      setHasMore(more);
-      setTotalRead(prev => prev + snapshot.docs.length);
-
-      // Update global cache
-      clientsCache.data = finalClients;
-      clientsCache.lastVisible = lastDoc;
-      clientsCache.hasMore = more;
-    } catch (err) {
-      console.error("Error fetching clients:", err);
-      // Optional: fallback to local search if query fails (maybe index missing)
-    } finally {
-      setIsLoadingMore(false);
+    if (!isSearchActive) {
+      if (filterStatus !== 'all') c.push(firestore.where('status', '==', filterStatus));
+      if (filterService !== 'all') c.push(firestore.where('serviceId', '==', filterService));
+      if (filterLaptop !== 'all') c.push(firestore.where('laptop', '==', filterLaptop));
+      if (filterMode !== 'all') c.push(firestore.where('mode', '==', filterMode));
+      if (filterGender !== 'all') c.push(firestore.where('gender', '==', filterGender));
+      if (filterBookedCourse !== 'all') c.push(firestore.where('bookedCourseId', '==', filterBookedCourse));
+      if (filterLabel !== 'all') c.push(firestore.where('labels', 'array-contains', filterLabel));
+      if (filterTransferType === 'external') c.push(firestore.where('isExternalTransfer', '==', true));
     }
-  };
+    const key = JSON.stringify([effectiveRole, scopedId, poolAgentId, debouncedSearch, sortBy, filterSalesAgent, filterStatus, filterService, filterLaptop, filterMode, filterGender, filterBookedCourse, filterLabel, filterTransferType]);
+    return { constraints: c, key };
+  }, [authLoading, user?.uid, isHighRole, staff.length, poolAgentId, scopedId, effectiveRole, debouncedSearch, sortBy, filterSalesAgent, filterStatus, filterService, filterLaptop, filterMode, filterGender, filterBookedCourse, filterLabel, filterTransferType]);
+
+  const paged = usePagedQuery<Client>({
+    collectionName: 'clients',
+    constraints: listQuery.constraints,
+    queryKey: listQuery.key,
+    // Search keeps Firestore's own order (no extra index); otherwise newest first or oldest Chatwoot contact.
+    orderField: isSearchActive ? null : sortBy === 'lastChatwootContactAsc' ? 'lastChatwootContactAt' : 'createdAt',
+    orderDirection: sortBy === 'lastChatwootContactAsc' ? 'asc' : 'desc',
+  });
+  const clients = paged.rows;
 
   const filteredClients = useMemo(() => {
     let result = clients;
@@ -387,13 +260,37 @@ const ClientsList: React.FC = () => {
       const term = debouncedSearch.toLowerCase();
       result = result.filter(c => matchesSearch(c, term));
     }
-    if (filterTransferType === 'external') {
-      result = result.filter(c => c.isExternalTransfer === true);
-    } else if (filterTransferType === 'local') {
-      result = result.filter(c => !c.isExternalTransfer);
-    }
+    // "Local payment" has no server-side field to match (most clients lack the flag), so it
+    // only hides external transfers on the page being shown.
+    if (filterTransferType === 'local') result = result.filter(c => !c.isExternalTransfer);
     return result;
   }, [clients, debouncedSearch, filterTransferType]);
+
+  const resetFilters = () => {
+    setSearchTerm(''); setFilterStatus('all'); setFilterService('all'); setFilterSalesAgent('all'); setSortBy('createdAt');
+    setFilterLabel('all'); setFilterBookedCourse('all'); setFilterLaptop('all'); setFilterMode('all'); setFilterGender('all'); setFilterTransferType('all');
+  };
+
+  // Export reads the booked clients in the user's scope once, on demand (the list itself only
+  // holds the page on screen).
+  const [isExporting, setIsExporting] = useState(false);
+  const exportBookings = async () => {
+    if (!user || isExporting) return;
+    setIsExporting(true);
+    try {
+      const c: firestore.QueryConstraint[] = [firestore.where('status', '==', ClientStatus.BOOKED)];
+      if (!isHighRole) c.push(firestore.where('salesAgentId', 'in', poolAgentId ? [scopedId, poolAgentId] : [scopedId]));
+      else if (filterSalesAgent !== 'all') c.push(firestore.where('salesAgentId', '==', filterSalesAgent));
+      const snap = await firestore.getDocs(firestore.query(firestore.collection(db, 'clients'), ...c));
+      const { exportBookingsToExcel } = await import('../utils/exportClients');
+      exportBookingsToExcel(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('تعذر التصدير. حاول مرة أخرى.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const selectedClientSet = useMemo(() => new Set(selectedClientIds), [selectedClientIds]);
   const selectedClients = useMemo(
@@ -405,11 +302,7 @@ const ClientsList: React.FC = () => {
     [filterLabel, filterBookedCourse, filterLaptop, filterMode, filterGender, filterTransferType]
       .filter(value => value !== 'all').length
   ), [filterLabel, filterBookedCourse, filterLaptop, filterMode, filterGender, filterTransferType]);
-  const isAdvancedFiltersOpen = showAdvancedFilters;
 
-  useEffect(() => {
-    if (advancedFiltersCount > 0) setShowAdvancedFilters(true);
-  }, [advancedFiltersCount]);
 
   useEffect(() => {
     const visibleClientIds = new Set(filteredClients.map(client => client.id));
@@ -595,8 +488,7 @@ const ClientsList: React.FC = () => {
       });
       setIsAddModalOpen(false);
       // Reset and Clear cache context so it reloads on next mount or manually reload
-      clientsCache.filters = ''; 
-      fetchClients(false);
+      paged.reload();
     } catch (err) { 
       handleFirestoreError(err, OperationType.CREATE, 'clients');
       alert("حدث خطأ في الصلاحيات أثناء إضافة العميل. يرجى التأكد من إعدادات Firebase.");
@@ -644,8 +536,7 @@ const ClientsList: React.FC = () => {
         deletedNames || `${idsToDelete.length} عميل`
       );
 
-      setClients(prev => prev.filter(client => !idsToDeleteSet.has(client.id)));
-      clientsCache.data = clientsCache.data.filter(client => !idsToDeleteSet.has(client.id));
+      paged.reload();
       setSelectedClientIds([]);
       alert(`تم حذف ${idsToDelete.length} عميل بنجاح.`);
     } catch (error) {
@@ -723,7 +614,7 @@ const ClientsList: React.FC = () => {
       setIsTransferModalOpen(false);
       setSelectedClient(null);
       // Refresh list to show change
-      setClients(clients.map(c => c.id === selectedClient.id ? { ...c, salesAgentId: newAgent.id, salesAgentName: newAgent.name, transferHistory: updatedHistory } : c));
+      paged.patchRow(selectedClient.id, { salesAgentId: newAgent.id, salesAgentName: newAgent.name, transferHistory: updatedHistory } as Partial<Client>);
     } catch (err) { 
       handleFirestoreError(err, OperationType.WRITE, 'clients/transfers');
       alert("حدث خطأ في الصلاحيات أثناء تحويل العميل.");
@@ -738,7 +629,7 @@ const ClientsList: React.FC = () => {
         salesAgentName: user.name,
       });
       await logActivity(user.uid, user.name, 'تعيين عميل لنفسه من حساب Saber Group المشترك', client.id, client.name);
-      setClients(prev => prev.map(c => c.id === client.id ? { ...c, salesAgentId: user.uid, salesAgentName: user.name } : c));
+      paged.patchRow(client.id, { salesAgentId: user.uid, salesAgentName: user.name });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'clients/assign-to-me');
       alert('حدث خطأ أثناء تعيين العميل.');
@@ -808,7 +699,7 @@ const ClientsList: React.FC = () => {
       
       alert(`تم تحويل ${snapshot.size} عميل بنجاح.`);
       setIsBulkTransferOpen(false);
-      fetchClients(false); // Reload list
+      paged.reload();
     } catch (err) {
       console.error(err);
       alert("حدث خطأ أثناء التحويل الجماعي.");
@@ -863,7 +754,7 @@ const ClientsList: React.FC = () => {
       await logActivity(user!.uid, user!.name, `تراجع عن تحويل جماعي (${bt.clientCount} عميل)`, bt.id, `من ${bt.toAgentName} إلى ${bt.fromAgentName}`);
       
       alert("تم التراجع عن التحويل بنجاح.");
-      fetchClients(false);
+      paged.reload();
     } catch (err) {
       console.error(err);
       alert("حدث خطأ أثناء التراجع عن التحويل.");
@@ -876,7 +767,7 @@ const ClientsList: React.FC = () => {
     <div className="sg-page space-y-6 animate-fade-in">
       <PageHeader
         title="العملاء"
-        subtitle={<>بيانات المتقدمين والمتابعات · المعروض حالياً <span className="sgui-count">{clients.length}</span></>}
+        subtitle={<>بيانات المتقدمين والمتابعات{paged.total !== null && <> · <span className="sgui-count">{paged.total.toLocaleString('ar-EG')}</span> عميل</>}</>}
         actions={<>
           <button onClick={() => setIsAddModalOpen(true)} className="sgui-button is-primary">
             <Plus size={18} /> إضافة عميل
@@ -887,8 +778,8 @@ const ClientsList: React.FC = () => {
           <details className="sgui-action-menu">
             <summary><MoreHorizontal size={18} /> إجراءات أخرى</summary>
             <div>
-              <button type="button" onClick={() => exportBookingsToExcel(clients)} title="تصدير الحجوزات الحالية إلى ملف Excel">
-                <Download size={17} /> تصدير الحجوزات Excel
+              <button type="button" onClick={exportBookings} disabled={isExporting} title="تصدير كل الحجوزات اللي في نطاقك لملف Excel">
+                <Download size={17} /> {isExporting ? 'جاري التصدير...' : 'تصدير الحجوزات Excel'}
               </button>
               {canBulkTransfer && (
                 <button type="button" onClick={() => setIsBulkTransferOpen(true)}>
@@ -905,99 +796,92 @@ const ClientsList: React.FC = () => {
         </>}
       />
 
-      {/* Filters */}
-      <div className="sgui-filter-panel space-y-4">
-          <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
-            <div className="relative col-span-2 xl:col-span-1">
-              <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input 
-                type="text" placeholder="بحث بالاسم أو الهاتف..." 
-                className="sg-soft-control w-full pr-12 pl-4 py-3 outline-none font-bold text-sm dark:text-white"
-                value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-              />
+      {/* Filters: daily ones always visible, the rest under "فلاتر متقدمة". */}
+      <FilterPanel
+        advancedCount={advancedFiltersCount}
+        activeCount={advancedFiltersCount + [filterStatus, filterService, filterSalesAgent].filter(v => v !== 'all').length + (searchTerm ? 1 : 0) + (sortBy !== 'createdAt' ? 1 : 0)}
+        onReset={resetFilters}
+        main={<>
+          <Field label="بحث" wide>
+            <div className="sgui-field-search">
+              <Search size={16} aria-hidden="true" />
+              <input type="search" placeholder="اسم العميل أو آخر أرقام التليفون..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
-            <select className="sg-soft-control px-5 py-3 font-black text-xs text-slate-600 outline-none dark:text-slate-300" value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}>
+          </Field>
+          <Field label="الحالة">
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} disabled={isSearchActive}>
+              <option value="all">كل الحالات</option>
+              {Object.entries(StatusLabels).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
+            </select>
+          </Field>
+          <Field label="الخدمة المطلوبة">
+            <select value={filterService} onChange={e => setFilterService(e.target.value)} disabled={isSearchActive}>
+              <option value="all">كل الخدمات</option>
+              {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </Field>
+          {isHighRole && (
+            <Field label="السيلز">
+              <select value={filterSalesAgent} onChange={e => setFilterSalesAgent(e.target.value)}>
+                <option value="all">كل السيلز</option>
+                {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </Field>
+          )}
+          <Field label="الترتيب">
+            <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)} disabled={isSearchActive}>
               <option value="createdAt">الأحدث تسجيلاً</option>
               <option value="lastChatwootContactAsc">الأقدم تواصل في Chatwoot</option>
             </select>
-            <select className="sg-soft-control px-5 py-3 font-black text-xs text-slate-600 outline-none dark:text-slate-300" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-              <option value="all">كل الحالات</option>
-              {Object.entries(StatusLabels).map(([k,v]) => <option key={k} value={k}>{v.ar}</option>)}
-            </select>
-            <select className="sg-soft-control px-5 py-3 font-black text-xs text-slate-600 outline-none dark:text-slate-300" value={filterService} onChange={e => setFilterService(e.target.value)}>
-              <option value="all">كل الخدمات المطلوبة</option>
-              {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            {isHighRole && (
-               <select className="sg-soft-control px-5 py-3 font-black text-xs text-slate-600 outline-none dark:text-slate-300" value={filterSalesAgent} onChange={e => setFilterSalesAgent(e.target.value)}>
-               <option value="all">كل السيلز</option>
-               {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-             </select>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-            <button
-              type="button"
-              onClick={() => setShowAdvancedFilters(prev => !prev)}
-              className="sg-btn sg-btn-secondary"
-              aria-expanded={isAdvancedFiltersOpen}
-            >
-              <SlidersHorizontal size={16} />
-              <span>فلاتر متقدمة</span>
-              {advancedFiltersCount > 0 && (
-                <span className="min-w-5 h-5 px-1.5 rounded-full bg-primary-500 text-white text-[10px] flex items-center justify-center">
-                  {advancedFiltersCount}
-                </span>
-              )}
-              <ChevronDown size={16} className={`transition-transform ${isAdvancedFiltersOpen ? 'rotate-180' : ''}`} />
-            </button>
-            <p className="hidden md:block text-[10px] font-bold text-slate-400">
-              {isAdvancedFiltersOpen ? 'فلتر حسب التصنيف والحجز والمواصفات وطريقة الدفع' : 'الفلاتر الأساسية ظاهرة دائماً، والباقي هنا عند الحاجة'}
-            </p>
-          </div>
-
-          {isAdvancedFiltersOpen && (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
-              <option value="all">كل التصنيفات (Labels)</option>
+          </Field>
+        </>}
+        advanced={<>
+          <Field label="التصنيف (Label)">
+            <select value={filterLabel} onChange={e => setFilterLabel(e.target.value)} disabled={isSearchActive}>
+              <option value="all">كل التصنيفات</option>
               {allLabels.map(l => <option key={l.id} value={l.id}>{l.text}</option>)}
             </select>
-            
-            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterBookedCourse} onChange={e => setFilterBookedCourse(e.target.value)}>
-              <option value="all">الكورس المحجوز</option>
+          </Field>
+          <Field label="الكورس المحجوز">
+            <select value={filterBookedCourse} onChange={e => setFilterBookedCourse(e.target.value)} disabled={isSearchActive}>
+              <option value="all">أي كورس</option>
               {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-
-            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterLaptop} onChange={e => setFilterLaptop(e.target.value)}>
-              <option value="all">حالة اللابتوب</option>
-              <option value={LaptopStatus.WITH}>مع لابتوب</option>
-              <option value={LaptopStatus.WITHOUT}>بدون لابتوب</option>
+          </Field>
+          <Field label="اللابتوب">
+            <select value={filterLaptop} onChange={e => setFilterLaptop(e.target.value)} disabled={isSearchActive}>
+              <option value="all">الكل</option>
+              <option value={LaptopStatus.WITH}>معاه لابتوب</option>
+              <option value={LaptopStatus.WITHOUT}>من غير لابتوب</option>
               <option value={LaptopStatus.UNSPECIFIED}>لم يحدد</option>
             </select>
-
-            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterMode} onChange={e => setFilterMode(e.target.value)}>
-              <option value="all">نظام الحضور</option>
+          </Field>
+          <Field label="نظام الحضور">
+            <select value={filterMode} onChange={e => setFilterMode(e.target.value)} disabled={isSearchActive}>
+              <option value="all">الكل</option>
               <option value={AttendanceMode.ONLINE}>أونلاين</option>
               <option value={AttendanceMode.OFFLINE}>أوفلاين</option>
               <option value={AttendanceMode.UNSPECIFIED}>لم يحدد</option>
             </select>
-
-            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterGender} onChange={e => setFilterGender(e.target.value)}>
-              <option value="all">الجنس</option>
+          </Field>
+          <Field label="الجنس">
+            <select value={filterGender} onChange={e => setFilterGender(e.target.value)} disabled={isSearchActive}>
+              <option value="all">الكل</option>
               <option value={Gender.MALE}>ذكر</option>
               <option value={Gender.FEMALE}>أنثى</option>
               <option value={Gender.UNSPECIFIED}>لم يحدد</option>
             </select>
-
-            <select className="sg-soft-control px-4 py-2.5 font-bold text-[10px] text-slate-600 outline-none dark:text-slate-300" value={filterTransferType} onChange={e => setFilterTransferType(e.target.value)}>
-              <option value="all">طرق الحجز والدفع</option>
+          </Field>
+          <Field label="طريقة الدفع">
+            <select value={filterTransferType} onChange={e => setFilterTransferType(e.target.value)} disabled={isSearchActive}>
+              <option value="all">الكل</option>
               <option value="external">تحويل خارجي (خارج مصر)</option>
               <option value="local">دفع محلي (داخل مصر)</option>
             </select>
-          </div>
-          )}
-      </div>
+          </Field>
+        </>}
+      />
+      {isSearchActive && <p className="sgui-hint">البحث بيدوّر في كل العملاء المتاحين ليك، والفلاتر بتتوقف لحد ما تمسح البحث.</p>}
 
       {canDelete && selectedClientIds.length > 0 && (
         <div className="sgui-selection-bar" role="region" aria-label="العملاء المحددين">
@@ -1222,8 +1106,7 @@ const ClientsList: React.FC = () => {
                               await firestore.deleteDoc(firestore.doc(db, 'clients', client.id));
                               await logActivity(user!.uid, user!.name, `حذف العميل نهائياً: ${client.name}`, client.id, client.name);
                               // Remove from local state and cache
-                              setClients(prev => prev.filter(c => c.id !== client.id));
-                              clientsCache.data = clientsCache.data.filter(c => c.id !== client.id);
+                              paged.patchRow(client.id, null);
                               setSelectedClientIds(prev => prev.filter(id => id !== client.id));
                               alert("تم حذف العميل بنجاح");
                             } catch (error) {
@@ -1244,17 +1127,7 @@ const ClientsList: React.FC = () => {
           </table>
         </div>
         
-        {hasMore && (
-          <div className="sgui-load-more">
-            <button
-              onClick={() => fetchClients(true)}
-              disabled={isLoadingMore}
-              className="sgui-button"
-            >
-              {isLoadingMore ? 'جاري التحميل...' : 'تحميل المزيد من العملاء'}
-            </button>
-          </div>
-        )}
+        <Pager page={paged.page} pageCount={paged.pageCount} reachablePage={paged.reachablePage} total={paged.total} pageSize={paged.pageSize} loading={paged.loading} onPage={paged.goToPage} noun="عميل" />
       </div>
 
       {/* Add Client Panel */}
@@ -1819,17 +1692,21 @@ const ClientsList: React.FC = () => {
       </FloatingPanel>
 
       {/* Bulk Import Modal */}
-      <BulkImportModal 
-        isOpen={isBulkImportOpen}
-        onClose={() => setIsBulkImportOpen(false)}
-        currentUser={{ uid: user?.uid || '', name: user?.name || '' }}
-        salesAgents={salesAgents}
-        services={services}
-        onSuccess={() => {
-          setIsBulkImportOpen(false);
-          fetchClients(false);
-        }}
-      />
+      {isBulkImportOpen && (
+        <React.Suspense fallback={null}>
+          <BulkImportModal 
+            isOpen={isBulkImportOpen}
+            onClose={() => setIsBulkImportOpen(false)}
+            currentUser={{ uid: user?.uid || '', name: user?.name || '' }}
+            salesAgents={salesAgents}
+            services={services}
+            onSuccess={() => {
+              setIsBulkImportOpen(false);
+              paged.reload();
+            }}
+          />
+        </React.Suspense>
+      )}
 
       {acceptFlowClient && (
         <AcceptFlowModal
@@ -1837,7 +1714,7 @@ const ClientsList: React.FC = () => {
           client={acceptFlowClient}
           onClose={() => setAcceptFlowClient(null)}
           onDone={(updated) => {
-            setClients(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c));
+            paged.patchRow(updated.id, updated);
             setAcceptFlowClient(null);
           }}
         />

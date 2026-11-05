@@ -5,6 +5,9 @@ import { useAuth } from '../App';
 import { Client, UserRole } from '../types';
 import { GitMerge, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { normalizeName, normalizePhoneKey, planMerge } from '../utils/clientMerge.mjs';
+import { usePagedList } from '../utils/usePagedQuery';
+import Pager from '../components/Pager';
+import { LoadingState } from '../components/ui';
 
 type Group = { phoneKey: string; clients: Client[] };
 const REASONS: Record<string, string> = {
@@ -12,13 +15,20 @@ const REASONS: Record<string, string> = {
   financial_conflict: 'حجزين بأسعار مختلفة',
 };
 
+// The scan reads every client once (about 3,400 documents), so it runs only when asked and
+// the result is kept for the rest of the session. Follow-up counts are read only for the
+// clients that are actually duplicated (it used to read every client AND every follow-up,
+// ~6,800 documents, on each visit).
+const scanCache: { clients: Client[] | null; followupCounts: Record<string, number>; at: number } = { clients: null, followupCounts: {}, at: 0 };
+
 // Admin page: merges clients that share a phone number. Every removed record is
 // archived in merged_clients first and its follow-ups are moved to the kept record.
 const DuplicatesManager: React.FC = () => {
   const { user, effectiveRole } = useAuth();
-  const [clients, setClients] = useState<Client[]>([]);
-  const [followupCounts, setFollowupCounts] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
+  const [clients, setClients] = useState<Client[]>(scanCache.clients || []);
+  const [scanned, setScanned] = useState(!!scanCache.clients);
+  const [followupCounts, setFollowupCounts] = useState<Record<string, number>>(scanCache.followupCounts);
+  const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [primaryPick, setPrimaryPick] = useState<Record<string, string>>({});
@@ -26,17 +36,31 @@ const DuplicatesManager: React.FC = () => {
 
   const load = async () => {
     setLoading(true);
-    const [cs, fs] = await Promise.all([
-      firestore.getDocs(firestore.collection(db, 'clients')),
-      firestore.getDocs(firestore.collection(db, 'followups')),
-    ]);
-    setClients(cs.docs.map((d) => ({ id: d.id, ...d.data() } as Client)));
+    const cs = await firestore.getDocs(firestore.collection(db, 'clients'));
+    const all = cs.docs.map((d) => ({ id: d.id, ...d.data() } as Client));
+    const byKey = new Map<string, Client[]>();
+    all.forEach((c) => { const k = normalizePhoneKey(c.phone); if (k) (byKey.get(k) || byKey.set(k, []).get(k)!).push(c); });
+    const dupIds = [...byKey.values()].filter((g) => g.length > 1).flat().map((c) => c.id);
     const counts: Record<string, number> = {};
-    fs.docs.forEach((d) => { const id = (d.data() as any).clientId; counts[id] = (counts[id] || 0) + 1; });
+    for (let i = 0; i < dupIds.length; i += 20) {
+      await Promise.all(dupIds.slice(i, i + 20).map(async (id) => {
+        const r = await firestore.getCountFromServer(firestore.query(firestore.collection(db, 'followups'), firestore.where('clientId', '==', id)));
+        counts[id] = r.data().count;
+      }));
+    }
+    scanCache.clients = all; scanCache.followupCounts = counts; scanCache.at = Date.now();
+    setClients(all);
     setFollowupCounts(counts);
+    setScanned(true);
     setLoading(false);
   };
-  useEffect(() => { if (isAdmin) load().catch((e) => { console.error(e); setLoading(false); }); }, [isAdmin]);
+
+  // After a merge, drop the removed records locally instead of scanning everything again.
+  const forget = (ids: string[]) => {
+    const gone = new Set(ids);
+    scanCache.clients = (scanCache.clients || []).filter((c) => !gone.has(c.id));
+    setClients(scanCache.clients);
+  };
 
   const poolAgentIds = useMemo(() => new Set(clients
     .filter((c) => /^(Saber Group|saber\.gd\.fl|مستخدم \(محدود\))$/.test(c.salesAgentName || ''))
@@ -56,6 +80,7 @@ const DuplicatesManager: React.FC = () => {
 
   const safe = rows.filter((r) => r.sameName && r.plan.ok);
   const review = rows.filter((r) => !(r.sameName && r.plan.ok));
+  const reviewPage = usePagedList<typeof review[number]>(review, 10);
 
   const mergeGroup = async (g: Group, forcedPrimary?: string) => {
     let group = g.clients as any[];
@@ -80,12 +105,13 @@ const DuplicatesManager: React.FC = () => {
     fsSnap.docs.forEach((d) => batch.update(d.ref, { clientId: plan.primaryId, clientName: primary.name }));
     batch.set(firestore.doc(firestore.collection(db, 'client_merges')), { primaryId: plan.primaryId, duplicateIds: plan.duplicateIds, at: Date.now(), by: user?.uid || '' });
     await batch.commit();
+    forget(plan.duplicateIds);
     return true;
   };
 
   const run = async (fn: () => Promise<number>, okText: (n: number) => string) => {
     setBusy(true); setMessage('');
-    try { const n = await fn(); setMessage(okText(n)); await load(); }
+    try { const n = await fn(); setMessage(okText(n)); }
     catch (e: any) { console.error(e); setMessage(`حصل خطأ: ${e?.message || e}`); }
     finally { setBusy(false); }
   };
@@ -104,7 +130,13 @@ const DuplicatesManager: React.FC = () => {
         <p className="text-sm text-slate-500 mt-1">عملاء بنفس رقم التليفون. الدمج بيحافظ على المتابعات والحجز، والسجل المحذوف بيتأرشف.</p>
       </header>
       {message && <div className="rounded-2xl bg-emerald-50 text-emerald-700 font-bold p-4 text-sm">{message}</div>}
-      {loading ? <p className="text-slate-500 font-bold">جاري التحميل…</p> : (
+      {!scanned && !loading && (
+        <div className="sgui-panel p-5 flex flex-wrap items-center justify-between gap-4">
+          <p className="text-sm text-slate-500 m-0">الفحص بيقرا كل العملاء مرة واحدة (حوالي {(3400).toLocaleString('ar-EG')} قراءة)، والنتيجة بتفضل محفوظة لحد ما تقفل الصفحة.</p>
+          <button type="button" className="sgui-button is-primary" onClick={() => load().catch((e) => { console.error(e); setLoading(false); })}>ابدأ الفحص</button>
+        </div>
+      )}
+      {loading ? <LoadingState label="جاري فحص العملاء..." /> : scanned && (
         <>
           <div className="grid gap-4 sm:grid-cols-3">
             <Stat label="مجموعات مكررة" value={groups.length} />
@@ -117,7 +149,7 @@ const DuplicatesManager: React.FC = () => {
           <section className="space-y-4">
             <h2 className="font-black text-lg">للمراجعة اليدوية</h2>
             {review.length === 0 && <p className="text-slate-500 font-bold flex items-center gap-2"><CheckCircle2 className="text-emerald-500" size={18} /> مفيش حاجة للمراجعة.</p>}
-            {review.map(({ g, plan }) => {
+            {reviewPage.rows.map(({ g, plan }) => {
               const picked = primaryPick[g.phoneKey] || (plan.ok ? plan.primaryId : g.clients[0].id);
               return (
                 <div key={g.phoneKey} className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-5">
@@ -133,10 +165,11 @@ const DuplicatesManager: React.FC = () => {
                       </label>
                     ))}
                   </div>
-                  <button disabled={busy} onClick={() => confirm('دمج المجموعة دي في السجل المختار؟') && run(async () => ((await mergeGroup(g, picked)) ? 1 : 0), () => 'تم الدمج.')} className="mt-3 bg-slate-900 text-white px-5 py-2 rounded-xl text-xs font-black disabled:opacity-50">دمج في السجل المختار</button>
+                  <button disabled={busy} onClick={() => confirm('دمج المجموعة دي في السجل المختار؟') && run(async () => ((await mergeGroup(g, picked)) ? 1 : 0), () => 'تم الدمج.')} className="mt-3 sgui-button is-primary disabled:opacity-50">دمج في السجل المختار</button>
                 </div>
               );
             })}
+            <Pager page={reviewPage.page} pageCount={reviewPage.pageCount} reachablePage={reviewPage.reachablePage} total={reviewPage.total} pageSize={reviewPage.pageSize} onPage={reviewPage.goToPage} noun="مجموعة" />
           </section>
         </>
       )}

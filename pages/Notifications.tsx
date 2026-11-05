@@ -1,114 +1,95 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, onSnapshot, getDocs, orderBy, limit, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getCountFromServer, doc, updateDoc, QueryConstraint } from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
-import { Client, User, UserRole, Service } from '../types';
-import { Calendar, CheckCircle, Clock, BellRing, Filter, BookOpen, User as UserIcon, PhoneCall, CalendarPlus, AlertCircle, X, Search, Clock4, Timer, Hash, UserCheck } from 'lucide-react';
-import { PageHeader, SectionTitle, Badge, EmptyState as SharedEmpty } from '../components/ui';
+import { Client, UserRole } from '../types';
+import { Calendar, CheckCircle, Clock, BookOpen, PhoneCall, CalendarPlus, AlertCircle, Clock4, Hash, UserCheck } from 'lucide-react';
+import { PageHeader, SectionTitle, Badge, Tabs, LoadingState, EmptyState as SharedEmpty } from '../components/ui';
+import FilterPanel, { Field } from '../components/FilterPanel';
+import Pager from '../components/Pager';
+import { usePagedQuery } from '../utils/usePagedQuery';
+import { useServices, useAgentOptions } from '../utils/refData';
 import FloatingPanel from '../components/FloatingPanel';
 import AcceptFlowModal from '../components/AcceptFlowModal';
 import { useNavigate } from 'react-router-dom';
 
+type Tab = 'overdue' | 'today' | 'upcoming';
+
+const DAY_MS = 86400000;
+const endOfToday = () => new Date().setHours(23, 59, 59, 999);
+
+// Follow-up tasks: one tab at a time, 10 per page, read page by page from the server
+// (it used to keep a live listener on up to 300 clients and filter them in the browser).
 const Notifications: React.FC = () => {
   const { user, effectiveRole, effectiveUser } = useAuth();
   const navigate = useNavigate();
 
   const [acceptFlowClient, setAcceptFlowClient] = useState<Client | null>(null);
+  const services = useServices(true);
+  const salesAgents = useAgentOptions([UserRole.SALES_AGENT, UserRole.TEAM_LEADER, UserRole.SUPERVISOR]);
 
-  // Data States
-  const [tasks, setTasks] = useState<Client[]>([]);
-  const [services, setServices] = useState<Service[]>([]);
-  const [salesAgents, setSalesAgents] = useState<{id: string, name: string}[]>([]);
-  
-  // Filter States
+  const [tab, setTab] = useState<Tab>('overdue');
   const [filterServiceId, setFilterServiceId] = useState<string>('all');
   const [filterAgentId, setFilterAgentId] = useState<string>('all');
   const [filterDate, setFilterDate] = useState<string>('');
-  const [showOnlyOverdue, setShowOnlyOverdue] = useState(false);
-  
-  // UI States
-  const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refresh = () => setRefreshKey(k => k + 1);
+
+  const [loading, setLoading] = useState(false);
   const [rescheduleClient, setRescheduleClient] = useState<Client | null>(null);
   const [newDate, setNewDate] = useState('');
   const [newTime, setNewTime] = useState('10:00');
   const [newPeriod, setNewPeriod] = useState<'AM' | 'PM'>('AM');
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const scopeId = effectiveUser?.uid || user?.uid || '';
 
-  useEffect(() => {
-    const unsubServices = onSnapshot(query(collection(db, 'services'), where('isActive', '==', true)), snap => {
-      setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
-    }, (err) => {
-      console.error("Notifications Services Snapshot Error:", err);
-    });
+  // Who and which service (shared by the list and the tab counts).
+  const scope = useMemo(() => {
+    const c: QueryConstraint[] = [];
+    if (!isHighRole) c.push(where('salesAgentId', '==', scopeId));
+    else if (filterAgentId !== 'all') c.push(where('salesAgentId', '==', filterAgentId));
+    if (filterServiceId !== 'all') c.push(where('serviceId', '==', filterServiceId));
+    return c;
+  }, [isHighRole, scopeId, filterAgentId, filterServiceId]);
 
-    if (isHighRole) {
-      getDocs(query(collection(db, 'users'), where('role', 'in', [UserRole.SALES_AGENT, UserRole.TEAM_LEADER, UserRole.SUPERVISOR]))).then(snap => {
-        const activeAgents = snap.docs
-          .map(d => ({ uid: d.id, id: d.id, ...d.data() } as any))
-          .filter(u => !u.isDeactivated)
-          .map(u => ({ id: u.uid || u.id, name: u.name || u.email || 'بدون اسم' }));
-        setSalesAgents(activeAgents);
-      });
+  // The time window: a chosen day, or the tab.
+  const rangeFor = (t: Tab | 'day'): QueryConstraint[] => {
+    const now = Date.now();
+    if (t === 'day') {
+      const d = new Date(filterDate); d.setHours(0, 0, 0, 0);
+      return [where('nextFollowUpDate', '>=', d.getTime()), where('nextFollowUpDate', '<=', d.getTime() + DAY_MS - 1)];
     }
+    if (t === 'overdue') return [where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now)];
+    if (t === 'today') return [where('nextFollowUpDate', '>=', now), where('nextFollowUpDate', '<=', endOfToday())];
+    return [where('nextFollowUpDate', '>', endOfToday())];
+  };
+  const activeRange: Tab | 'day' = filterDate ? 'day' : tab;
 
-    return () => unsubServices();
-  }, [isHighRole]);
-
+  const [counts, setCounts] = useState<Record<Tab, number | undefined>>({ overdue: undefined, today: undefined, upcoming: undefined });
   useEffect(() => {
     if (!user) return;
-    setLoading(true);
-    
-    const clientsRef = collection(db, 'clients');
-    let q;
-
-    if (isHighRole) {
-      // Capped and ordered by date: the nearest/most overdue tasks come first.
-      q = query(clientsRef, where('nextFollowUpDate', '>', 0), orderBy('nextFollowUpDate', 'asc'), limit(300));
-    } else {
-      // Viewing as a specific agent (effectiveUser) scopes to their data,
-      // not the real admin's -- see setViewingAsUser in App.tsx.
-      q = query(clientsRef, where('salesAgentId', '==', effectiveUser?.uid || user.uid), where('nextFollowUpDate', '>', 0), orderBy('nextFollowUpDate', 'asc'), limit(300));
-    }
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setTasks(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-      setLoading(false);
-    }, (error) => {
-      console.error("Firestore Error:", error);
-      setLoading(false);
+    let cancelled = false;
+    const ref = collection(db, 'clients');
+    (['overdue', 'today', 'upcoming'] as Tab[]).forEach((t) => {
+      getCountFromServer(query(ref, ...scope, ...rangeFor(t)))
+        .then((r) => { if (!cancelled) setCounts((prev) => ({ ...prev, [t]: r.data().count })); })
+        .catch((err) => console.error('Task count failed:', err));
     });
+    return () => { cancelled = true; };
+  }, [user?.uid, scope, refreshKey]);
 
-    return () => unsubscribe();
-  }, [user, effectiveRole, effectiveUser]);
-
-  const { urgentTasks, upcomingTasks } = useMemo(() => {
-    const now = Date.now();
-    const endOfToday = new Date().setHours(23, 59, 59, 999);
-
-    const filtered = tasks.filter(task => {
-      const matchesService = filterServiceId === 'all' || task.serviceId === filterServiceId;
-      const matchesAgent = filterAgentId === 'all' || task.salesAgentId === filterAgentId;
-      
-      let matchesDate = true;
-      if (filterDate) {
-        const d = new Date(task.nextFollowUpDate!);
-        const filterD = new Date(filterDate);
-        matchesDate = d.toDateString() === filterD.toDateString();
-      }
-
-      const isOverdue = task.nextFollowUpDate! < now;
-      const matchesOverdue = !showOnlyOverdue || isOverdue;
-
-      return matchesService && matchesAgent && matchesDate && matchesOverdue;
-    });
-
-    return {
-      urgentTasks: filtered.filter(t => t.nextFollowUpDate! <= endOfToday),
-      upcomingTasks: filtered.filter(t => t.nextFollowUpDate! > endOfToday)
-    };
-  }, [tasks, filterServiceId, filterAgentId, filterDate, showOnlyOverdue]);
+  const paged = usePagedQuery<Client>({
+    collectionName: 'clients',
+    constraints: user ? [...scope, ...rangeFor(activeRange)] : null,
+    queryKey: JSON.stringify([scopeId, isHighRole, filterAgentId, filterServiceId, activeRange, filterDate, refreshKey]),
+    orderField: 'nextFollowUpDate',
+    orderDirection: 'asc',
+    withTotal: activeRange === 'day',
+  });
+  const total = activeRange === 'day' ? paged.total : counts[activeRange as Tab] ?? null;
+  const pageCount = total === null || total === undefined ? paged.pageCount : Math.max(1, Math.ceil(total / paged.pageSize));
 
   const handleReschedule = async () => {
     if (!rescheduleClient || !newDate || !user) return;
@@ -124,6 +105,7 @@ const Notifications: React.FC = () => {
       await updateDoc(doc(db, 'clients', rescheduleClient.id), { nextFollowUpDate: nextTs });
       await logActivity(user.uid, user.name, "إعادة جدولة سريعة", rescheduleClient.id, rescheduleClient.name);
       setRescheduleClient(null);
+      refresh();
     } catch (err) {
       console.error(err);
     } finally {
@@ -131,85 +113,70 @@ const Notifications: React.FC = () => {
     }
   };
 
+  const activeFilters = [filterServiceId, filterAgentId].filter(v => v !== 'all').length + (filterDate ? 1 : 0);
+
   return (
     <div className="sg-page animate-fade-in">
-      <PageHeader title="المهام والمتابعات" subtitle="كل مواعيد المتابعة: العاجل الأول وبعده الجاي" />
+      <PageHeader title="المهام والمتابعات" subtitle="مواعيد المتابعة: المتأخر الأول، وبعده النهارده، وبعده الجاي" />
 
-      {/* Filters Panel */}
-      <div className="sgui-filter-panel grid grid-cols-2 lg:grid-cols-5 gap-3 items-end">
-        <div className="space-y-1">
-          <label className="text-[10px] font-black text-slate-400 uppercase mr-2 flex items-center gap-1"><Calendar size={12}/> التاريخ</label>
-          <input type="date" className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-xs outline-none text-slate-900 dark:text-white" value={filterDate} onChange={e => setFilterDate(e.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-black text-slate-400 uppercase mr-2 flex items-center gap-1"><BookOpen size={12}/> الخدمة</label>
-          <select className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-xs outline-none text-slate-900 dark:text-white" value={filterServiceId} onChange={e => setFilterServiceId(e.target.value)}>
-            <option value="all">كل الخدمات</option>
-            {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </div>
-        {isHighRole && (
-          <div className="space-y-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase mr-2 flex items-center gap-1"><UserIcon size={12}/> الموظف</label>
-            <select className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-xs outline-none text-slate-900 dark:text-white" value={filterAgentId} onChange={e => setFilterAgentId(e.target.value)}>
-              <option value="all">كل الموظفين</option>
-              {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+      <FilterPanel
+        activeCount={activeFilters}
+        advancedCount={filterDate ? 1 : 0}
+        onReset={() => { setFilterDate(''); setFilterServiceId('all'); setFilterAgentId('all'); }}
+        main={<>
+          {isHighRole && (
+            <Field label="السيلز">
+              <select value={filterAgentId} onChange={e => setFilterAgentId(e.target.value)}>
+                <option value="all">كل الموظفين</option>
+                {salesAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </Field>
+          )}
+          <Field label="الخدمة">
+            <select value={filterServiceId} onChange={e => setFilterServiceId(e.target.value)}>
+              <option value="all">كل الخدمات</option>
+              {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
+          </Field>
+        </>}
+        advanced={
+          <Field label="مواعيد يوم معيّن">
+            <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} />
+          </Field>
+        }
+      />
+
+      <section className="sgui-panel p-4 md:p-5">
+        {filterDate ? (
+          <SectionTitle icon={<Calendar size={18} />} title={`مواعيد يوم ${new Date(filterDate).toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long' })}`} count={paged.total ?? undefined}
+            action={<button type="button" onClick={() => setFilterDate('')}>رجوع للتبويبات</button>} />
+        ) : (
+          <Tabs label="المتابعات" value={tab} onChange={setTab} items={[
+            { value: 'overdue', label: 'متأخرة', count: counts.overdue, icon: AlertCircle, danger: (counts.overdue || 0) > 0 },
+            { value: 'today', label: 'باقي النهارده', count: counts.today, icon: Clock },
+            { value: 'upcoming', label: 'الجاية', count: counts.upcoming, icon: Calendar },
+          ]} />
+        )}
+
+        {paged.loading && paged.rows.length === 0 ? (
+          <LoadingState />
+        ) : paged.rows.length === 0 ? (
+          <EmptyState message={activeRange === 'overdue' ? 'مفيش متابعات متأخرة' : 'مفيش مواعيد هنا'} icon={activeRange === 'overdue' ? CheckCircle : Calendar} />
+        ) : (
+          <div className="sgui-list">
+            {paged.rows.map(task => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                onContact={() => navigate(`/clients/${task.id}`)}
+                onReschedule={() => { setRescheduleClient(task); setNewDate(new Date(task.nextFollowUpDate!).toISOString().split('T')[0]); }}
+                onAccept={() => setAcceptFlowClient(task)}
+              />
+            ))}
           </div>
         )}
-        <div className="lg:col-span-1 flex items-end">
-          <button 
-            onClick={() => setShowOnlyOverdue(!showOnlyOverdue)}
-            aria-pressed={showOnlyOverdue}
-            className={`sgui-button w-full ${showOnlyOverdue ? 'is-danger' : ''}`}
-          >
-            {showOnlyOverdue ? 'عرض المتأخر فقط' : 'كل المواعيد'}
-          </button>
-        </div>
-        <div className="flex items-end">
-          <button onClick={() => {setFilterDate(''); setFilterServiceId('all'); setFilterAgentId('all'); setShowOnlyOverdue(false);}} className="sgui-button w-full">تصفير الفلاتر</button>
-        </div>
-      </div>
-
-      <div>
-        <section>
-          <SectionTitle icon={<AlertCircle size={18} className="text-rose-500" />} title="متابعات عاجلة النهارده" count={urgentTasks.length} />
-          <div className="sgui-list">
-            {urgentTasks.length === 0 ? (
-              <EmptyState message="لا يوجد متابعات عاجلة حالياً" icon={CheckCircle} color="text-emerald-500" />
-            ) : (
-              urgentTasks.map(task => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  onContact={() => navigate(`/clients/${task.id}`)}
-                  onReschedule={() => { setRescheduleClient(task); setNewDate(new Date(task.nextFollowUpDate!).toISOString().split('T')[0]); }}
-                  onAccept={() => setAcceptFlowClient(task)}
-                />
-              ))
-            )}
-          </div>
-        </section>
-
-        <section>
-          <SectionTitle icon={<Clock size={18} className="text-primary-500" />} title="المتابعات الجاية" count={upcomingTasks.length} />
-          <div className="sgui-list">
-            {upcomingTasks.length === 0 ? (
-              <EmptyState message="لا توجد متابعات قادمة مجدولة" icon={Calendar} color="text-slate-300" />
-            ) : (
-              upcomingTasks.map(task => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  onContact={() => navigate(`/clients/${task.id}`)}
-                  onReschedule={() => { setRescheduleClient(task); setNewDate(new Date(task.nextFollowUpDate!).toISOString().split('T')[0]); }}
-                  onAccept={() => setAcceptFlowClient(task)}
-                />
-              ))
-            )}
-          </div>
-        </section>
-      </div>
+        <Pager page={paged.page} pageCount={pageCount} reachablePage={paged.reachablePage} total={total ?? null} pageSize={paged.pageSize} loading={paged.loading} onPage={paged.goToPage} noun="متابعة" />
+      </section>
 
       <FloatingPanel 
         isOpen={!!rescheduleClient} 

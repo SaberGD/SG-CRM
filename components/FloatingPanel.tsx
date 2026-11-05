@@ -1,5 +1,4 @@
 
-import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import React from 'react';
 
@@ -21,28 +20,13 @@ const FloatingPanel: React.FC<FloatingPanelProps> = ({
   width = 'max-w-2xl'
 }) => {
   return (
-    <AnimatePresence>
+    <>
       {isOpen && (
         <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="sgui-panel-backdrop"
-          />
+          <div onClick={onClose} className="sgui-panel-backdrop" />
 
           {/* Side panel (same dialog look as the accounting system) */}
-          <motion.div
-            role="dialog"
-            aria-modal="true"
-            aria-label={title}
-            initial={{ x: '100%', opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: '100%', opacity: 0 }}
-            transition={{ type: 'spring', damping: 32, stiffness: 320 }}
-            className={`sgui-side-panel ${width}`}
-          >
+          <div role="dialog" aria-modal="true" aria-label={title} className={`sgui-side-panel ${width}`}>
             <div className="sgui-side-panel-head">
               <div>
                 {icon && <span className="sgui-side-panel-icon">{icon}</span>}
@@ -57,10 +41,10 @@ const FloatingPanel: React.FC<FloatingPanelProps> = ({
                 {children}
               </div>
             </div>
-          </motion.div>
+          </div>
         </>
       )}
-    </AnimatePresence>
+    </>
   );
 };
 

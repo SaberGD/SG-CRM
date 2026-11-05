@@ -1415,6 +1415,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         .filter(Boolean)
         .join("\n"),
     };
+    newClientData.nextFollowUpDate = 0; // "no date yet" (queryable; a missing field is not)
     if (nextFollowUpTs) {
       newClientData.nextFollowUpDate = nextFollowUpTs;
       newClientData.nextFollowUpMethod = mappedMethod;

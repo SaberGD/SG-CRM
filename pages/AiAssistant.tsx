@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
@@ -10,6 +10,10 @@ import {
   MessageSquare, TrendingUp, Shield, Zap, BookOpen, Clock, Gift, Award, HelpCircle, ChevronDown, ChevronUp, X, Layers, Tag, RotateCcw,
   Eye, CheckSquare, Square, Edit3, MessageCircle, CheckCheck, ArrowUpDown, SlidersHorizontal, ShieldAlert, FileText, CornerDownLeft
 } from 'lucide-react';
+import { useAllClientsLive } from '../utils/allClientsStore';
+import { useStaff } from '../utils/refData';
+import { usePagedList } from '../utils/usePagedQuery';
+import Pager from '../components/Pager';
 import { useNavigate } from 'react-router-dom';
 
 interface BatchBackup {
@@ -27,9 +31,6 @@ export const AiAssistant: React.FC = () => {
   const { user, effectiveRole } = useAuth();
   const navigate = useNavigate();
 
-  const [clients, setClients] = useState<Client[]>([]);
-  const [salesAgents, setSalesAgents] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
 
   // Main View Tabs: Sales Queue vs Supervisor Audit
   const [activeTab, setActiveTab] = useState<'sales_queue' | 'supervisor_audit'>('sales_queue');
@@ -39,6 +40,13 @@ export const AiAssistant: React.FC = () => {
 
   // Filters
   const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
+  // Clients: one shared live listener kept for 10 minutes after leaving the page (see
+  // allClientsStore); staff from the session store. The agent picker filters in memory.
+  const staff = useStaff();
+  const salesAgents = useMemo(() => staff.filter(u => !u.isDeactivated), [staff]);
+  const live = useAllClientsLive(!!user && user.role === UserRole.ADMIN);
+  const loading = user?.role === UserRole.ADMIN ? live.loading : false;
+  const clients = useMemo<Client[]>(() => (selectedAgentId === 'all' ? live.clients : live.clients.filter(c => c.salesAgentId === selectedAgentId)), [live.clients, selectedAgentId]);
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('pending'); // 'pending' | 'accepted' | 'skipped' | 'outdated' | 'all'
   const [searchQuery, setSearchQuery] = useState('');
@@ -153,51 +161,6 @@ export const AiAssistant: React.FC = () => {
     return true;
   };
 
-  // Fetch Clients and Sales Agents
-  useEffect(() => {
-    if (!user) return;
-    if (!isAdmin) {
-      setClients([]);
-      setSalesAgents([]);
-      setLoading(false);
-      return;
-    }
-
-    const fetchAgents = async () => {
-      try {
-        const usersSnap = await firestore.getDocs(firestore.collection(db, 'users'));
-        const agentsList = usersSnap.docs
-          .map(doc => ({ uid: doc.id, ...doc.data() } as User))
-          .filter(u => !u.isDeactivated);
-        setSalesAgents(agentsList);
-      } catch (err) {
-        console.error("Error fetching sales agents:", err);
-      }
-    };
-    fetchAgents();
-
-    const clientsRef = firestore.collection(db, 'clients');
-    let q;
-
-    if (isHighRole && selectedAgentId === 'all') {
-      q = firestore.query(clientsRef);
-    } else if (isHighRole && selectedAgentId !== 'all') {
-      q = firestore.query(clientsRef, firestore.where('salesAgentId', '==', selectedAgentId));
-    } else {
-      q = firestore.query(clientsRef, firestore.where('salesAgentId', '==', user.uid));
-    }
-
-    const unsubscribe = firestore.onSnapshot(q, (snapshot) => {
-      const allClients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
-      setClients(allClients);
-      setLoading(false);
-    }, (err) => {
-      console.error("Error subscribing to clients:", err);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [user, effectiveRole, selectedAgentId, isHighRole, isAdmin]);
 
   if (!isAdmin) {
     return (
@@ -676,6 +639,9 @@ export const AiAssistant: React.FC = () => {
     const bTime = b.aiRecommendation?.salesCheckAt || b.aiRecommendation?.acceptedAt || b.aiRecommendation?.generatedAt || 0;
     return bTime - aTime; // Newest sales action at top
   });
+
+  const queuePage = usePagedList<Client>(filteredClients, 10, `${searchQuery}|${selectedAgentId}|${statusFilter}|${priorityFilter}|${sortOption}`);
+  const auditPage = usePagedList<Client>(supervisorClients, 10, `${searchQuery}|${selectedAgentId}|${supervisorAuditFilter}`);
 
   // Calculate Classification Metrics
   const totalClientsCount = clients.length;
@@ -1218,7 +1184,7 @@ export const AiAssistant: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {filteredClients.map(client => {
+              {queuePage.rows.map(client => {
                 const rec = client.aiRecommendation;
                 const isAnalyzingThis = analyzingClientId === client.id;
 
@@ -1476,6 +1442,7 @@ export const AiAssistant: React.FC = () => {
                   </div>
                 );
               })}
+              <div className="lg:col-span-2"><Pager page={queuePage.page} pageCount={queuePage.pageCount} reachablePage={queuePage.reachablePage} total={queuePage.total} pageSize={queuePage.pageSize} onPage={queuePage.goToPage} noun="عميل" /></div>
             </div>
           )}
 
@@ -1541,7 +1508,7 @@ export const AiAssistant: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {supervisorClients.map(client => {
+              {auditPage.rows.map(client => {
                 const rec = client.aiRecommendation!;
 
                 return (
@@ -1683,6 +1650,7 @@ export const AiAssistant: React.FC = () => {
                   </div>
                 );
               })}
+              <div className="lg:col-span-2"><Pager page={auditPage.page} pageCount={auditPage.pageCount} reachablePage={auditPage.reachablePage} total={auditPage.total} pageSize={auditPage.pageSize} onPage={auditPage.goToPage} noun="عميل" /></div>
             </div>
           )}
 

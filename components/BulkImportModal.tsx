@@ -340,6 +340,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             // CREATE NEW CLIENT WITH BOOKED STATUS
             const newDocRef = firestore.doc(firestore.collection(db, 'clients'));
             const clientData: Partial<Client> = {
+              nextFollowUpDate: 0, // "no date yet" (queryable; a missing field is not)
               name: row.name,
               phone: row.phone,
               gender: row.gender || Gender.MALE,

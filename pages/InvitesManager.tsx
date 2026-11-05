@@ -5,6 +5,8 @@ import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { Invitation, UserRole } from '../types';
 import { UserPlus, Mail, Shield, Trash2, Clock, UserCheck, X } from 'lucide-react';
+import { usePagedList } from '../utils/usePagedQuery';
+import Pager from '../components/Pager';
 import FloatingPanel from '../components/FloatingPanel';
 
 const InvitesManager: React.FC = () => {
@@ -36,6 +38,8 @@ const InvitesManager: React.FC = () => {
     });
     return unsub;
   }, [user, effectiveRole]);
+
+  const invitesPage = usePagedList<Invitation>(invites, 10);
 
   const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,7 +108,7 @@ const InvitesManager: React.FC = () => {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {invites.length === 0 ? (
                 <tr><td colSpan={5} className="px-8 py-20 text-center text-slate-400 font-bold italic">لا توجد إيميلات مسجلة حالياً</td></tr>
-              ) : invites.map((invite) => (
+              ) : invitesPage.rows.map((invite) => (
                 <tr key={invite.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-all">
                   <td className="px-8 py-6">
                     <p className="font-black text-sm text-slate-900 dark:text-white">{invite.email}</p>
@@ -140,6 +144,7 @@ const InvitesManager: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <Pager page={invitesPage.page} pageCount={invitesPage.pageCount} reachablePage={invitesPage.reachablePage} total={invitesPage.total} pageSize={invitesPage.pageSize} onPage={invitesPage.goToPage} noun="إيميل" />
       </div>
 
       <FloatingPanel 

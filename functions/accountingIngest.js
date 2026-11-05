@@ -87,6 +87,7 @@ function newClientFromBooking(customer, summary, agent, now = Date.now()) {
     salesAgentId: agent?.id || "", salesAgentName: agent?.name || "",
     createdAt: now, country: "مصر", countryCode: customer.countryCode || "+20",
     source: "other", createdVia: "accounting_sync",
+    nextFollowUpDate: 0, // "no date yet": a missing field cannot be queried
     notes: `تم إنشاء العميل تلقائياً من حجز في نظام الحسابات (${summary.accountingSalesName || "—"})`,
   };
   return { ...base, ...planClientAccounting({}, summary, now).patch };

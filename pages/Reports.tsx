@@ -17,6 +17,11 @@ import {
   TrendingUp, Clock, Search, Filter, ChevronDown,
   ChevronUp, Edit3, Save, X, LayoutDashboard, ListChecks, Download, Coffee
 } from 'lucide-react';
+import { usePagedQuery } from '../utils/usePagedQuery';
+import { useLabels, useStaff } from '../utils/refData';
+import Pager from '../components/Pager';
+import FilterPanel, { Field } from '../components/FilterPanel';
+import { EmptyState, LoadingState } from '../components/ui';
 import { analyzeDailyReport } from '../geminiService';
 import { normalizeLabelColor } from '../utils/labelColors';
 
@@ -37,15 +42,15 @@ const Reports: React.FC = () => {
   });
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [myReports, setMyReports] = useState<DailyReport[]>([]);
-  const [allLabels, setAllLabels] = useState<Label[]>([]);
+  const allLabels = useLabels();
   const [labelStats, setLabelStats] = useState<Record<string, number>>({});
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [existingReport, setExistingReport] = useState<DailyReport | null>(null);
 
   // Manager State
   const [allReports, setAllReports] = useState<DailyReport[]>([]);
-  const [salesAgents, setSalesAgents] = useState<User[]>([]);
+  const staff = useStaff();
+  const salesAgents = useMemo(() => staff.filter(u => !u.isDeactivated && [UserRole.SALES_AGENT, UserRole.TEAM_LEADER, UserRole.SUPERVISOR].includes(u.role)), [staff]);
   const [defaultTargets, setDefaultTargets] = useState<Record<string, DefaultTarget>>({});
   const [managerTab, setManagerTab] = useState<'reports' | 'ranking' | 'targets'>('reports');
   
@@ -53,14 +58,15 @@ const Reports: React.FC = () => {
   const [filterAgent, setFilterAgent] = useState('all');
   const [filterDateStart, setFilterDateStart] = useState('');
   const [filterDateEnd, setFilterDateEnd] = useState('');
-  const [searchName, setSearchName] = useState('');
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   // Target Management
   const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
   const [targetForm, setTargetForm] = useState({ newClients: 0, bookings: 0, followUps: 0, income: 0 });
 
-  const exportToCSV = () => {
+  const exportToCSV = async () => {
+    // Reads the matching reports once, on demand (the screen only holds the page shown).
+    const snap = await getDocs(query(collection(db, 'reports'), ...reportConstraints, orderBy('submittedAt', 'desc')));
+    const filteredReports = snap.docs.map(d => ({ id: d.id, ...d.data() } as DailyReport));
     if (filteredReports.length === 0) return;
     
     const headers = [
@@ -162,15 +168,8 @@ const Reports: React.FC = () => {
       console.error("Reports Followups Snapshot Error:", err);
     });
 
-    const unsubLabels = onSnapshot(collection(db, 'labels'), (snap) => {
-      setAllLabels(snap.docs.map(d => ({ id: d.id, ...d.data() } as Label)));
-    }, (err) => {
-      console.error("Reports Labels Snapshot Error:", err);
-    });
-
     return () => {
       unsubFollowupsSnap();
-      unsubLabels();
     };
   }, [user, selectedDate]);
 
@@ -219,10 +218,7 @@ const Reports: React.FC = () => {
       try {
         await Promise.all([
           fetchTodayTarget(),
-          fetchMyReports(),
           checkExistingReport(),
-          isHighRole ? fetchAllReports() : Promise.resolve(),
-          isHighRole ? fetchAgents() : Promise.resolve(),
           isHighRole ? fetchDefaultTargets() : Promise.resolve()
         ]);
       } catch (err) {
@@ -269,27 +265,35 @@ const Reports: React.FC = () => {
     setTodayTarget(target);
   };
 
-  const fetchMyReports = async () => {
-    if (!user) return;
-    const q = query(collection(db, 'reports'), where('userId', '==', user.uid), orderBy('submittedAt', 'desc'), limit(10));
-    const snap = await getDocs(q);
-    setMyReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as DailyReport)));
-  };
+  // My previous reports and the manager's report list: 10 per page from the server.
+  const myReportsPaged = usePagedQuery<DailyReport>({
+    collectionName: 'reports', constraints: user ? [where('userId', '==', user.uid)] : null,
+    queryKey: user?.uid || '', orderField: 'submittedAt', orderDirection: 'desc',
+  });
+  const myReports = myReportsPaged.rows;
+  const fetchMyReports = () => myReportsPaged.reload();
 
+  const reportConstraints = useMemo(() => {
+    const c: any[] = [];
+    if (filterAgent !== 'all') c.push(where('userId', '==', filterAgent));
+    if (filterDateStart) c.push(where('submittedAt', '>=', new Date(`${filterDateStart}T00:00:00`).getTime()));
+    if (filterDateEnd) c.push(where('submittedAt', '<=', new Date(`${filterDateEnd}T23:59:59`).getTime()));
+    return c;
+  }, [filterAgent, filterDateStart, filterDateEnd]);
+  const reportsPaged = usePagedQuery<DailyReport>({
+    collectionName: 'reports', constraints: isHighRole ? reportConstraints : null,
+    queryKey: JSON.stringify([filterAgent, filterDateStart, filterDateEnd]), orderField: 'submittedAt', orderDirection: 'desc',
+  });
+
+  // The ranking needs the recent reports of everyone; read them only when that tab is opened.
   const fetchAllReports = async () => {
     const q = query(collection(db, 'reports'), orderBy('submittedAt', 'desc'), limit(100));
     const snap = await getDocs(q);
     setAllReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as DailyReport)));
   };
-
-  const fetchAgents = async () => {
-    const q = query(collection(db, 'users'), where('role', 'in', [UserRole.SALES_AGENT, UserRole.TEAM_LEADER, UserRole.SUPERVISOR]));
-    const snap = await getDocs(q);
-    const activeAgents = snap.docs
-      .map(d => ({ uid: d.id, ...d.data() } as User))
-      .filter(u => !u.isDeactivated);
-    setSalesAgents(activeAgents);
-  };
+  useEffect(() => {
+    if (isHighRole && managerTab === 'ranking' && allReports.length === 0) fetchAllReports().catch(err => console.error('Ranking load failed:', err));
+  }, [isHighRole, managerTab]);
 
   const fetchDefaultTargets = async () => {
     const snap = await getDocs(collection(db, 'defaultTargets'));
@@ -418,7 +422,7 @@ const Reports: React.FC = () => {
       });
       await logActivity(user.uid, user.name, "تعديل تقرير يومي", report.id, report.date);
       fetchMyReports();
-      if (isHighRole) fetchAllReports();
+      if (isHighRole) { reportsPaged.reload(); if (allReports.length) fetchAllReports(); }
     } catch (err) {
       console.error(err);
     }
@@ -449,15 +453,7 @@ const Reports: React.FC = () => {
     }
   };
 
-  const filteredReports = useMemo(() => {
-    return allReports.filter(r => {
-      const matchesAgent = filterAgent === 'all' || r.userId === filterAgent;
-      const matchesDateStart = !filterDateStart || r.date >= filterDateStart;
-      const matchesDateEnd = !filterDateEnd || r.date <= filterDateEnd;
-      const matchesSearch = !searchName || r.userName.toLowerCase().includes(searchName.toLowerCase());
-      return matchesAgent && matchesDateStart && matchesDateEnd && matchesSearch;
-    });
-  }, [allReports, filterAgent, filterDateStart, filterDateEnd, searchName]);
+  const filteredReports = reportsPaged.rows;
 
   const rankingData = useMemo(() => {
     const agentStats: Record<string, any> = {};
@@ -705,7 +701,9 @@ const Reports: React.FC = () => {
                     onDelete={() => handleDeleteReport(report.id)}
                   />
                 ))}
+                {!myReportsPaged.loading && myReports.length === 0 && <EmptyState icon={FileText}>لسه مفيش تقارير</EmptyState>}
               </div>
+              <Pager page={myReportsPaged.page} pageCount={myReportsPaged.pageCount} reachablePage={myReportsPaged.reachablePage} total={myReportsPaged.total} pageSize={myReportsPaged.pageSize} loading={myReportsPaged.loading} onPage={myReportsPaged.goToPage} noun="تقرير" />
             </div>
         </div>
       ) : (
@@ -729,47 +727,34 @@ const Reports: React.FC = () => {
 
           {managerTab === 'reports' && (
             <div className="space-y-6">
-              {/* Filters */}
-              <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="font-black text-sm flex items-center gap-2"><Filter size={16} /> فلاتر البحث</h3>
-                  <button onClick={() => setIsFilterOpen(!isFilterOpen)} className="text-primary-500 text-[10px] font-black uppercase">
-                    {isFilterOpen ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
-                  </button>
-                </div>
-                {isFilterOpen && (
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-fade-in">
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-black text-slate-400 uppercase">الموظف</label>
-                      <select className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs font-bold" value={filterAgent} onChange={e => setFilterAgent(e.target.value)}>
-                        <option value="all">الكل</option>
-                        {salesAgents.map(a => <option key={a.uid} value={a.uid}>{a.name}</option>)}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-black text-slate-400 uppercase">من تاريخ</label>
-                      <input type="date" className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs font-bold" value={filterDateStart} onChange={e => setFilterDateStart(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-black text-slate-400 uppercase">إلى تاريخ</label>
-                      <input type="date" className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs font-bold" value={filterDateEnd} onChange={e => setFilterDateEnd(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-black text-slate-400 uppercase">بحث بالاسم</label>
-                      <div className="relative">
-                        <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input type="text" className="w-full p-3 pr-10 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs font-bold" placeholder="اسم الموظف..." value={searchName} onChange={e => setSearchName(e.target.value)} />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <FilterPanel
+                activeCount={(filterAgent !== 'all' ? 1 : 0) + (filterDateStart ? 1 : 0) + (filterDateEnd ? 1 : 0)}
+                advancedCount={(filterDateStart ? 1 : 0) + (filterDateEnd ? 1 : 0)}
+                onReset={() => { setFilterAgent('all'); setFilterDateStart(''); setFilterDateEnd(''); }}
+                main={
+                  <Field label="الموظف">
+                    <select value={filterAgent} onChange={e => setFilterAgent(e.target.value)}>
+                      <option value="all">كل الموظفين</option>
+                      {salesAgents.map(a => <option key={a.uid} value={a.uid}>{a.name}</option>)}
+                    </select>
+                  </Field>
+                }
+                advanced={<>
+                  <Field label="من تاريخ"><input type="date" value={filterDateStart} onChange={e => setFilterDateStart(e.target.value)} /></Field>
+                  <Field label="إلى تاريخ"><input type="date" value={filterDateEnd} onChange={e => setFilterDateEnd(e.target.value)} /></Field>
+                </>}
+              />
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredReports.map(report => (
-                  <ReportCard key={report.id} report={report} onEdit={() => handleEditReport(report)} isManager />
-                ))}
-              </div>
+              {reportsPaged.loading && filteredReports.length === 0 ? <LoadingState /> : filteredReports.length === 0 ? (
+                <EmptyState icon={FileText}>مفيش تقارير بالفلاتر دي</EmptyState>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {filteredReports.map(report => (
+                    <ReportCard key={report.id} report={report} onEdit={() => handleEditReport(report)} isManager />
+                  ))}
+                </div>
+              )}
+              <Pager page={reportsPaged.page} pageCount={reportsPaged.pageCount} reachablePage={reportsPaged.reachablePage} total={reportsPaged.total} pageSize={reportsPaged.pageSize} loading={reportsPaged.loading} onPage={reportsPaged.goToPage} noun="تقرير" />
             </div>
           )}
 

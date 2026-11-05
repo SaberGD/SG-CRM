@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import MaroAssistant from './MaroAssistant';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
@@ -13,6 +13,8 @@ import ShiftGate from './ShiftGate';
 import ShiftWidget from './ShiftWidget';
 import EndShiftModal from './EndShiftModal';
 import ErrorBoundary from './ErrorBoundary';
+import { useStaff } from '../utils/refData';
+import { LoadingState } from './ui';
 
 const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.ADMIN]: 'أدمن',
@@ -142,18 +144,11 @@ const Layout: React.FC = () => {
   }, [user?.uid]);
   const [isDark, setIsDark] = useState(true);
   const [liveNotification, setLiveNotification] = useState<string | null>(null);
-  const [viewableAgents, setViewableAgents] = useState<User[]>([]);
-
-  useEffect(() => {
-    if (user?.role !== UserRole.ADMIN) return;
-    getDocs(query(collection(db, 'users'), where('role', '==', UserRole.SALES_AGENT))).then(snap => {
-      const agents = snap.docs
-        .map(d => ({ uid: d.id, ...d.data() } as User))
-        .filter(a => !a.isDeactivated)
-        .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-      setViewableAgents(agents);
-    }).catch(err => console.error('Failed to load agents for view-as:', err));
-  }, [user?.role]);
+  // Sales agents for the admin "view as" menu, from the shared staff store (no extra read).
+  const staff = useStaff();
+  const viewableAgents = useMemo(() => (user?.role === UserRole.ADMIN
+    ? staff.filter(a => a.role === UserRole.SALES_AGENT && !a.isDeactivated).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'))
+    : []), [staff, user?.role]);
 
   useEffect(() => {
     if (effectiveRole === UserRole.TEAM_LEADER || effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER) {
@@ -347,7 +342,7 @@ const Layout: React.FC = () => {
         <main className="sg-crm-content">
           <div>
             <ErrorBoundary name="ShiftWidget" silent><ShiftWidget /></ErrorBoundary>
-            <ErrorBoundary name={location.pathname} key={location.pathname}><Outlet /></ErrorBoundary>
+            <ErrorBoundary name={location.pathname} key={location.pathname}><Suspense fallback={<LoadingState />}><Outlet /></Suspense></ErrorBoundary>
           </div>
         </main>
       </div>

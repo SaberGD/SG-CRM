@@ -13,6 +13,8 @@ import {
   FileText, Activity, AlertCircle, UserX, UserCheck, ArrowRightLeft,
   PauseCircle, CheckCircle2, RefreshCw, Sparkles, UserMinus, Coffee, Clock
 } from 'lucide-react';
+import { usePagedList } from '../utils/usePagedQuery';
+import Pager from '../components/Pager';
 import FloatingPanel from '../components/FloatingPanel';
 import { BREAK_DAILY_BUDGET_MS, BREAK_GRACE_MS, MAX_BREAK_SEGMENTS, getUsedBreakMs } from '../ShiftContext';
 import { formatDuration } from '../utils/time';
@@ -22,6 +24,24 @@ function todayDateStr(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+const filteredUsersFor = (users: User[], searchTerm: string, status: string) => users.filter(u => {
+  const term = searchTerm.toLowerCase();
+  if (!((u.name || '').toLowerCase().includes(term) || (u.email || '').toLowerCase().includes(term))) return false;
+  if (status === 'active') return !u.isDeactivated;
+  if (status === 'deactivated') return u.isDeactivated === true;
+  return true;
+});
+
+// Live shift cards tick every second on their own.
+const LiveTeamBoard: React.FC<{ agents: User[]; shifts: Record<string, Shift> }> = ({ agents, shifts }) => {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return <>{agents.map(u => <TeamStatusCard key={u.uid} agent={u} shift={shifts[u.uid]} now={now} />)}</>;
+};
 
 const AdminPanel: React.FC = () => {
   const { user } = useAuth();
@@ -59,6 +79,8 @@ const AdminPanel: React.FC = () => {
 
   // Live team status (today's shifts, refreshed live)
   const [todayShifts, setTodayShifts] = useState<Shift[]>([]);
+  // The date only needs to change once a minute; the per-second clock lives in LiveTeamBoard
+  // so the whole admin page no longer re-renders every second.
   const [liveNow, setLiveNow] = useState(Date.now());
   const liveDate = useMemo(() => {
     const d = new Date(liveNow);
@@ -75,7 +97,7 @@ const AdminPanel: React.FC = () => {
   }, [liveDate]);
 
   useEffect(() => {
-    const interval = setInterval(() => setLiveNow(Date.now()), 1000);
+    const interval = setInterval(() => setLiveNow(Date.now()), 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -121,20 +143,23 @@ const AdminPanel: React.FC = () => {
   // Per-agent numbers come from server-side counts (2 tiny reads per agent) instead of a live
   // listener on every client in the system; an agent's clients are read only when a transfer needs them.
   const [userStats, setUserStats] = useState<Record<string, { totalClients: number, pendingFollowups: number }>>({});
+  const usersPage = usePagedList<User>(filteredUsersFor(users, searchTerm, userStatusFilter), 10, `${searchTerm}|${userStatusFilter}`);
   useEffect(() => {
-    if (!users.length) return;
+    // Counts only for the people on the page shown (and only once each).
+    const missing = usersPage.rows.filter(u => !userStats[u.uid]);
+    if (!missing.length) return;
     let cancelled = false;
     const ref = collection(db, 'clients');
-    Promise.all(users.map(async (u) => {
+    Promise.all(missing.map(async (u) => {
       const [total, pending] = await Promise.all([
         getCountFromServer(query(ref, where('salesAgentId', '==', u.uid))),
         getCountFromServer(query(ref, where('salesAgentId', '==', u.uid), where('nextFollowUpDate', '>', 0))),
       ]);
       return [u.uid, { totalClients: total.data().count, pendingFollowups: pending.data().count }] as const;
-    })).then((rows) => { if (!cancelled) setUserStats(Object.fromEntries(rows)); })
+    })).then((rows) => { if (!cancelled) setUserStats(prev => ({ ...prev, ...Object.fromEntries(rows) })); })
       .catch((err) => console.error('AdminPanel counts failed:', err));
     return () => { cancelled = true; };
-  }, [users.map(u => u.uid).join(',')]);
+  }, [usersPage.rows.map(u => u.uid).join(',')]);
 
   const fetchClientsOf = async (uid: string) =>
     (await getDocs(query(collection(db, 'clients'), where('salesAgentId', '==', uid)))).docs.map(d => ({ id: d.id, ...d.data() } as Client));
@@ -447,15 +472,7 @@ const AdminPanel: React.FC = () => {
   const activeCount = users.filter(u => !u.isDeactivated).length;
   const deactivatedCount = users.filter(u => u.isDeactivated).length;
 
-  const filteredUsers = users.filter(u => {
-    const matchesSearch = (u.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          (u.email || '').toLowerCase().includes(searchTerm.toLowerCase());
-    if (!matchesSearch) return false;
-
-    if (userStatusFilter === 'active') return !u.isDeactivated;
-    if (userStatusFilter === 'deactivated') return u.isDeactivated === true;
-    return true;
-  });
+  const filteredUsers = usersPage.rows;
 
   if (user?.role !== UserRole.ADMIN) {
     return (
@@ -501,9 +518,7 @@ const AdminPanel: React.FC = () => {
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] shadow-xl border border-slate-100 dark:border-slate-800 p-6 space-y-4">
         <h2 className="text-lg font-black flex items-center gap-2"><Clock size={20} className="text-primary-500" /> حالة الفريق الآن</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {users.filter(u => isShiftTrackedRole(u.role) && !u.isDeactivated).map(u => (
-            <TeamStatusCard key={u.uid} agent={u} shift={latestShiftByUser[u.uid]} now={liveNow} />
-          ))}
+          <LiveTeamBoard agents={users.filter(u => isShiftTrackedRole(u.role) && !u.isDeactivated)} shifts={latestShiftByUser} />
           {users.filter(u => isShiftTrackedRole(u.role) && !u.isDeactivated).length === 0 && (
             <p className="text-xs font-bold text-slate-400 italic py-4">مفيش سيلز أو مشرفين مفعّلين حاليًا</p>
           )}
@@ -694,6 +709,7 @@ const AdminPanel: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <Pager page={usersPage.page} pageCount={usersPage.pageCount} reachablePage={usersPage.reachablePage} total={usersPage.total} pageSize={usersPage.pageSize} onPage={usersPage.goToPage} noun="موظف" />
       </div>
 
       {/* SHIFT RESET MODAL */}

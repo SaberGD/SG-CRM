@@ -5,12 +5,13 @@ import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { Label } from '../types';
 import { Plus, Trash2, Tag, ShieldAlert, Palette, Check } from 'lucide-react';
+import { useLabels } from '../utils/refData';
 import FloatingPanel from '../components/FloatingPanel';
 import { LABEL_COLOR_OPTIONS, getLabelColorStyle, normalizeLabelColor } from '../utils/labelColors';
 
 const LabelsManager: React.FC = () => {
   const { user } = useAuth();
-  const [labels, setLabels] = useState<Label[]>([]);
+  const labels = useLabels();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ text: '', color: LABEL_COLOR_OPTIONS[0].value });
   
@@ -19,14 +20,6 @@ const LabelsManager: React.FC = () => {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
 
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'labels'), snap => {
-      setLabels(snap.docs.map(d => ({ id: d.id, ...d.data() } as Label)));
-    }, (err) => {
-      console.error("LabelsManager Snapshot Error:", err);
-    });
-    return unsub;
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* Saber Group shared visual system for the CRM.
    Same tokens, shell and helpers as the accounting system (styles/ui-refinement.css there),
    so the three systems look like one product. Presentation only, no behavior. */
@@ -115,6 +119,10 @@ html[data-color-theme] .sg-crm-shell .sg-crm-search input { width: 100%; min-hei
 /* Pages use space-y-*; a margin on these fixed layers would shift them down. */
 .sgui-panel-backdrop, .sgui-side-panel, .sg-crm-shell .fixed.inset-0 { margin: 0 !important; }
 .sgui-side-panel { position: fixed; top: 14px; bottom: 14px; right: 14px; z-index: 101; width: calc(100% - 28px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--sg-line); border-radius: 12px; background: var(--sg-panel); color: var(--sg-text); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25); }
+@keyframes sg-panel-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes sg-fade { from { opacity: 0; } to { opacity: 1; } }
+.sgui-side-panel { animation: sg-panel-in 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+.sgui-panel-backdrop { animation: sg-fade 0.2s ease; }
 .sgui-side-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--sg-line); }
 .sgui-side-panel-head > div { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .sgui-side-panel-head h2 { font-size: 18px; font-weight: 700; margin: 0; }
@@ -151,6 +159,40 @@ html.dark .sg-crm-login-card img { filter: none; }
 .sgui-button:disabled { opacity: 0.5; }
 .sgui-count { font-size: 12px; color: var(--sg-muted); padding: 2px 7px; background: var(--sg-soft); border-radius: 5px; font-weight: 600; }
 .sgui-panel { border: 1px solid var(--sg-line); border-radius: 12px; background: var(--sg-panel); }
+/* Inline notice with an action. */
+.sgui-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; margin-bottom: 14px; border: 1px solid var(--sg-line); border-radius: 10px; background: var(--sg-warning-bg); color: var(--sg-warning); font-size: 13px; }
+/* Small helper line under a panel. */
+.sgui-hint { margin: -8px 0 16px; color: var(--sg-muted); font-size: 12px; }
+/* Pager (10 per page everywhere). */
+.sgui-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--sg-line); }
+.sgui-pager p { margin: 0; color: var(--sg-muted); font-size: 13px; }
+.sgui-pager > div { display: flex; align-items: center; gap: 6px; }
+.sgui-pager button { min-width: 36px; height: 36px; padding: 0 10px; display: inline-grid; place-items: center; border: 1px solid var(--sg-line); border-radius: 8px; background: var(--sg-field); color: var(--sg-text); font: inherit; font-size: 13px; font-weight: 600; }
+.sgui-pager button:hover:not(:disabled) { background: var(--sg-soft); }
+.sgui-pager button.is-active { background: var(--sg-red); border-color: var(--sg-red); color: #fff; }
+.sgui-pager button:disabled:not(.is-active) { opacity: 0.4; }
+.sgui-pager span { color: var(--sg-muted); padding: 0 2px; }
+.sgui-list + .sgui-pager, .sgui-pager.is-loose { border-top: 0; padding-inline: 0; }
+/* Filter panel: main row always visible, advanced behind a toggle. */
+.sgui-filter-main { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.sgui-field { display: grid; gap: 5px; flex: 1 1 170px; min-width: 0; }
+.sgui-field.is-wide { flex: 2 1 240px; }
+.sgui-field > span { font-size: 12px; font-weight: 600; color: var(--sg-muted); }
+.sgui-field :is(input, select) { width: 100%; }
+.sgui-field-search { position: relative; }
+.sgui-field-search svg { position: absolute; inset-inline-start: 12px; top: 50%; transform: translateY(-50%); color: var(--sg-muted); pointer-events: none; }
+html[data-color-theme] .sg-crm-shell .sgui-field-search input { padding-inline-start: 36px; }
+.sgui-filter-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.sgui-filter-tools .sgui-button.is-open { background: var(--sg-soft); border-color: var(--sg-control); }
+.sgui-filter-advanced { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--sg-line); }
+@media (max-width: 767px) {
+  .sgui-filter-main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .sgui-field.is-wide, .sgui-filter-tools { grid-column: 1 / -1; }
+  .sgui-filter-tools .sgui-button { flex: 1; }
+  .sgui-filter-advanced { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .sgui-pager { justify-content: center; }
+  .sgui-pager p { width: 100%; text-align: center; }
+}
 .sgui-section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 26px 0 12px; }
 .sgui-section-title h2 { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; margin: 0; }
 .sgui-section-title a, .sgui-section-title button { font-size: 13px; color: var(--sg-accent); font-weight: 600; background: none; border: 0; text-decoration: none; }
@@ -188,10 +230,18 @@ html.dark .sg-crm-login-card img { filter: none; }
 .sgui-empty svg { color: var(--sg-control); }
 .sgui-loading { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 80px 16px; color: var(--sg-muted); font-size: 14px; }
 .sgui-loading span { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--sg-line); border-top-color: var(--sg-red); animation: spin 0.9s linear infinite; }
-.sgui-list { display: grid; gap: 8px; }
+.sgui-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.sgui-list > * { min-width: 0; }
 .sgui-row { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--sg-line); border-radius: 10px; background: var(--sg-panel); color: inherit; text-align: start; width: 100%; font: inherit; cursor: pointer; }
 .sgui-row:hover { background: var(--sg-soft); }
 .sgui-row.is-overdue { border-inline-start: 3px solid var(--sg-danger); }
+.sgui-row.is-static { cursor: default; flex-wrap: wrap; }
+.sgui-row-icon.is-good { background: var(--sg-good-bg); color: var(--sg-good); }
+.sgui-row-icon.is-warning { background: var(--sg-warning-bg); color: var(--sg-warning); }
+.sgui-row-text { margin: 0; font-size: 14px; }
+.sgui-row-text b { font-weight: 700; }
+.sgui-row-title { display: block; font-size: 14px; font-weight: 700; color: var(--sg-text); text-decoration: none; }
+.sgui-row-title:hover { color: var(--sg-accent); }
 .sgui-row-icon { width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center; flex-shrink: 0; background: var(--sg-soft); color: var(--sg-accent); }
 .sgui-row.is-overdue .sgui-row-icon { background: var(--sg-danger-bg); color: var(--sg-danger); }
 .sgui-row-main { flex: 1; min-width: 0; }

@@ -4,22 +4,15 @@ import { collection, query, onSnapshot, addDoc, updateDoc, doc, deleteDoc } from
 import { db } from '../firebase';
 import { Service } from '../types';
 import { Plus, Edit3, Trash2, CheckCircle2, XCircle } from 'lucide-react';
+import { useServices } from '../utils/refData';
 import FloatingPanel from '../components/FloatingPanel';
 
 const ServicesManager: React.FC = () => {
-  const [services, setServices] = useState<Service[]>([]);
+  const services = useServices();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [formData, setFormData] = useState({ name: '', description: '', category: '', isActive: true });
 
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'services'), snap => {
-      setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
-    }, (err) => {
-      console.error("ServicesManager Snapshot Error:", err);
-    });
-    return unsub;
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

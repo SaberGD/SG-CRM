@@ -1,6 +1,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, getDocs, orderBy, limit, getCountFromServer, QueryConstraint } from 'firebase/firestore';
+import { usePagedQuery } from '../utils/usePagedQuery';
+import { useAgentOptions } from '../utils/refData';
+import Pager from '../components/Pager';
 import { db } from '../firebase';
 import { useAuth } from '../App';
 import { Client, User, UserRole, ClientStatus } from '../types';
@@ -17,8 +20,9 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { shift, isShiftApplicable, openGate, openEndModal, startBreak, endBreak, startNewShift } = useShift();
   const [stats, setStats] = useState({ total: 0, today: 0, upcoming: 0, overdue: 0, transfersToday: 0, booked: 0 });
-  const [clients, setClients] = useState<Client[]>([]);
-  const [salesAgents, setSalesAgents] = useState<User[]>([]);
+  const [emergencyTasks, setEmergencyTasks] = useState<Client[]>([]);
+  const [todayTasks, setTodayTasks] = useState<Client[]>([]);
+  const salesAgents = useAgentOptions([UserRole.SALES_AGENT, UserRole.TEAM_LEADER, UserRole.SUPERVISOR]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'today' | '3days' | 'upcoming' | 'overdue'>('today');
   const [loading, setLoading] = useState(true);
@@ -27,23 +31,16 @@ const Dashboard: React.FC = () => {
 
   const isAdminOrManager = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
   const isHighRole = isAdminOrManager || effectiveRole === UserRole.TEAM_LEADER;
+  const agentId = isHighRole && selectedAgentId !== 'all' ? selectedAgentId : (effectiveUser?.uid || user?.uid || '');
+  const scope = useMemo<QueryConstraint[]>(() => (isHighRole && selectedAgentId === 'all' ? [] : [where('salesAgentId', '==', agentId)]), [isHighRole, selectedAgentId, agentId]);
 
-  useEffect(() => {
-    if (isHighRole) fetchAgents();
-  }, [effectiveRole]);
-
+  // Numbers come from server-side counts (1 read per 1,000 clients); the cards read 3 clients
+  // each, and the table below reads 10 per page. (It used to read up to 250 clients per open.)
   useEffect(() => {
     if (!user) return;
     setLoading(true);
     setError(null);
-    
     const clientsRef = collection(db, 'clients');
-    // Reads are kept low (same rule as the accounting system): the numbers come from
-    // server-side counts (1 read per 1,000 clients) and the task lists read only the
-    // clients that actually have a follow-up date in range, capped and sorted.
-    // Before this, every open of the dashboard read ALL clients through a live listener.
-    const agentId = isHighRole && selectedAgentId !== 'all' ? selectedAgentId : (effectiveUser?.uid || user.uid);
-    const scope: QueryConstraint[] = isHighRole && selectedAgentId === 'all' ? [] : [where('salesAgentId', '==', agentId)];
     let cancelled = false;
     (async () => {
       try {
@@ -51,20 +48,19 @@ const Dashboard: React.FC = () => {
         const todayStart = new Date().setHours(0, 0, 0, 0);
         const todayEnd = new Date().setHours(23, 59, 59, 999);
         const count = (extra: QueryConstraint[]) => getCountFromServer(query(clientsRef, ...scope, ...extra)).then((r) => r.data().count);
-        const [total, today, upcoming, overdue, booked] = await Promise.all([
+        const [total, today, upcoming, overdue, booked, overdueSnap, todaySnap] = await Promise.all([
           count([]),
           count([where('nextFollowUpDate', '>=', todayStart), where('nextFollowUpDate', '<=', todayEnd)]),
           count([where('nextFollowUpDate', '>', todayEnd)]),
           count([where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now)]),
           count([where('status', '==', ClientStatus.BOOKED)]),
-        ]);
-        const [overdueSnap, futureSnap] = await Promise.all([
-          getDocs(query(clientsRef, ...scope, where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now), orderBy('nextFollowUpDate', 'asc'), limit(100))),
-          getDocs(query(clientsRef, ...scope, where('nextFollowUpDate', '>=', now), orderBy('nextFollowUpDate', 'asc'), limit(150))),
+          getDocs(query(clientsRef, ...scope, where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now), orderBy('nextFollowUpDate', 'asc'), limit(3))),
+          getDocs(query(clientsRef, ...scope, where('nextFollowUpDate', '>=', now), where('nextFollowUpDate', '<=', todayEnd), orderBy('nextFollowUpDate', 'asc'), limit(3))),
         ]);
         if (cancelled) return;
         setStats(prev => ({ ...prev, total, today, upcoming, overdue, booked }));
-        setClients([...overdueSnap.docs, ...futureSnap.docs].map(d => ({ id: d.id, ...d.data() } as Client)));
+        setEmergencyTasks(overdueSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+        setTodayTasks(todaySnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
         setLoading(false);
       } catch (err) {
         if (cancelled) return;
@@ -75,61 +71,35 @@ const Dashboard: React.FC = () => {
     })();
 
     if (isHighRole) {
-      const todayStart = new Date().setHours(0,0,0,0);
-      getDocs(query(collection(db, 'transfers'), where('timestamp', '>=', todayStart)))
-        .then(tSnap => {
-          setStats(prev => ({ ...prev, transfersToday: tSnap.size }));
-        })
+      const todayStart = new Date().setHours(0, 0, 0, 0);
+      getCountFromServer(query(collection(db, 'transfers'), where('timestamp', '>=', todayStart)))
+        .then(r => { if (!cancelled) setStats(prev => ({ ...prev, transfersToday: r.data().count })); })
         .catch(() => console.warn("Could not fetch transfers stats."));
     }
 
     return () => { cancelled = true; };
-  }, [user, effectiveRole, effectiveUser, selectedAgentId]);
+  }, [user?.uid, effectiveRole, scope]);
 
-  const fetchAgents = async () => {
-    try {
-      const q = query(collection(db, 'users'));
-      const snap = await getDocs(q);
-      const activeAgents = snap.docs
-        .map(d => ({ uid: d.id, ...d.data() } as User))
-        .filter(u => !u.isDeactivated && (u.role === UserRole.SALES_AGENT || u.role === UserRole.TEAM_LEADER || u.role === UserRole.SUPERVISOR));
-      setSalesAgents(activeAgents);
-    } catch (e) {
-      console.warn("Permission denied for agents list.");
-    }
+  // The tasks table: one tab, 10 per page.
+  const tabRange = (): QueryConstraint[] => {
+    const now = Date.now();
+    const todayStart = new Date().setHours(0, 0, 0, 0);
+    const todayEnd = new Date().setHours(23, 59, 59, 999);
+    if (activeTab === 'today') return [where('nextFollowUpDate', '>=', todayStart), where('nextFollowUpDate', '<=', todayEnd)];
+    if (activeTab === 'overdue') return [where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now)];
+    if (activeTab === '3days') return [where('nextFollowUpDate', '>', now), where('nextFollowUpDate', '<=', now + 3 * 86400000)];
+    return [where('nextFollowUpDate', '>', todayEnd)];
   };
-
-  const emergencyTasks = useMemo(() => {
-    const now = Date.now();
-    return clients
-      .filter(c => c.nextFollowUpDate && c.nextFollowUpDate < now)
-      .sort((a,b) => (a.nextFollowUpDate || 0) - (b.nextFollowUpDate || 0))
-      .slice(0, 3);
-  }, [clients]);
-
-  const todayTasks = useMemo(() => {
-    const todayStart = new Date().setHours(0,0,0,0);
-    const todayEnd = new Date().setHours(23,59,59,999);
-    const now = Date.now();
-    return clients
-      .filter(c => c.nextFollowUpDate && c.nextFollowUpDate >= todayStart && c.nextFollowUpDate <= todayEnd && c.nextFollowUpDate >= now)
-      .sort((a,b) => (a.nextFollowUpDate || 0) - (b.nextFollowUpDate || 0))
-      .slice(0, 3);
-  }, [clients]);
-
-  const filteredTasks = useMemo(() => {
-    return clients.filter(c => {
-      if (!c.nextFollowUpDate) return false;
-      const now = Date.now();
-      const todayStart = new Date().setHours(0,0,0,0);
-      const todayEnd = new Date().setHours(23,59,59,999);
-      
-      if (activeTab === 'today') return c.nextFollowUpDate >= todayStart && c.nextFollowUpDate <= todayEnd;
-      if (activeTab === 'overdue') return c.nextFollowUpDate < now;
-      if (activeTab === '3days') return c.nextFollowUpDate > now && c.nextFollowUpDate <= (now + 3 * 24 * 60 * 60 * 1000);
-      return c.nextFollowUpDate > todayEnd;
-    }).sort((a,b) => (a.nextFollowUpDate || 0) - (b.nextFollowUpDate || 0));
-  }, [clients, activeTab]);
+  const tasks = usePagedQuery<Client>({
+    collectionName: 'clients',
+    constraints: user ? [...scope, ...tabRange()] : null,
+    queryKey: JSON.stringify([agentId, selectedAgentId, isHighRole, activeTab]),
+    orderField: 'nextFollowUpDate',
+    orderDirection: 'asc',
+    withTotal: activeTab === '3days',
+  });
+  const tabTotal = activeTab === 'today' ? stats.today : activeTab === 'overdue' ? stats.overdue : activeTab === 'upcoming' ? stats.upcoming : tasks.total;
+  const filteredTasks = tasks.rows;
 
   if (loading) return <LoadingState label="جاري تحميل لوحة التحكم..." />;
 
@@ -155,7 +125,7 @@ const Dashboard: React.FC = () => {
             <span className="sr-only">فريق المبيعات</span>
             <select value={selectedAgentId} onChange={(e) => setSelectedAgentId(e.target.value)}>
               <option value="all">كل فريق المبيعات</option>
-              {salesAgents.map(agent => <option key={agent.uid} value={agent.uid}>{agent.name}</option>)}
+              {salesAgents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
             </select>
           </label>
         )}
@@ -243,6 +213,7 @@ const Dashboard: React.FC = () => {
             })}
           </div>
         )}
+        <Pager page={tasks.page} pageCount={tabTotal === null || loading ? tasks.pageCount : Math.max(1, Math.ceil(tabTotal / tasks.pageSize))} reachablePage={tasks.reachablePage} total={loading ? null : tabTotal} pageSize={tasks.pageSize} loading={tasks.loading} onPage={tasks.goToPage} noun="متابعة" />
       </section>
 
       {selectedClientForManual && user && (

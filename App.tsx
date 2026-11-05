@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, createContext, useContext } from 'react';
+import React, { useState, useEffect, createContext, useContext, lazy } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
 // Namespaced import to fix "no exported member" errors.
@@ -11,19 +11,23 @@ import Layout from './components/Layout';
 import { ShiftProvider } from './ShiftContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import ClientsList from './pages/ClientsList';
-import ClientDetails from './pages/ClientDetails';
-import Notifications from './pages/Notifications';
-import Reports from './pages/Reports';
-import ActivityLogs from './pages/ActivityLogs';
-import BackupManager from './pages/BackupManager';
-import ServicesManager from './pages/ServicesManager';
-import LabelsManager from './pages/LabelsManager';
-import InvitesManager from './pages/InvitesManager';
-import DuplicatesManager from './pages/DuplicatesManager';
-import TodayWork from './pages/TodayWork';
-import AdminPanel from './pages/AdminPanel';
-import { AiAssistant } from './pages/AiAssistant';
+import { LoadingState } from './components/ui';
+
+// Every other page is its own file, downloaded the first time it is opened, so the first
+// screen loads only what it needs (the app used to be one 1.8 MB file).
+const ClientsList = lazy(() => import('./pages/ClientsList'));
+const ClientDetails = lazy(() => import('./pages/ClientDetails'));
+const Notifications = lazy(() => import('./pages/Notifications'));
+const Reports = lazy(() => import('./pages/Reports'));
+const ActivityLogs = lazy(() => import('./pages/ActivityLogs'));
+const BackupManager = lazy(() => import('./pages/BackupManager'));
+const ServicesManager = lazy(() => import('./pages/ServicesManager'));
+const LabelsManager = lazy(() => import('./pages/LabelsManager'));
+const InvitesManager = lazy(() => import('./pages/InvitesManager'));
+const DuplicatesManager = lazy(() => import('./pages/DuplicatesManager'));
+const TodayWork = lazy(() => import('./pages/TodayWork'));
+const AdminPanel = lazy(() => import('./pages/AdminPanel'));
+const AiAssistant = lazy(() => import('./pages/AiAssistant').then((m) => ({ default: m.AiAssistant })));
 
 interface AuthContextType {
   user: User | null;

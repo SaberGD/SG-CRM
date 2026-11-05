@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { X, Clock, Calendar, LayoutList, Timer, Save } from 'lucide-react';
+import { useServices } from '../utils/refData';
 import { Client, ClientStatus, CommMethod, StatusLabels, CommMethodLabels } from '../types';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
@@ -35,7 +36,7 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
   const [remainingAmount, setRemainingAmount] = useState(0);
   
   // Services for booking
-  const [services, setServices] = useState<any[]>([]);
+  const services = useServices();
   
   const [scheduleNext, setScheduleNext] = useState(false);
   const [nextDate, setNextDate] = useState('');
@@ -44,15 +45,6 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
 
   const [loading, setLoading] = useState(false);
 
-  React.useEffect(() => {
-    if (!isOpen) return;
-    const unsub = firestore.onSnapshot(firestore.collection(db, 'services'), (snap) => {
-      setServices(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (err) => {
-      console.error("ManualFollowUpModal Services Snapshot Error:", err);
-    });
-    return unsub;
-  }, [isOpen]);
 
   const calculateTimestamp = (d: string, t: string, p?: string) => {
     if (!d) return 0;

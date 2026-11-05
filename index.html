@@ -24,57 +24,9 @@
       try { document.documentElement.classList.toggle('dark', localStorage.getItem('theme') !== 'light'); } catch (e) {}
     })();
   </script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            // Same brand palette as the accounting and training systems (CSS variables below).
-            primary: {
-              50: 'rgb(var(--primary-50) / <alpha-value>)',
-              100: 'rgb(var(--primary-100) / <alpha-value>)',
-              200: 'rgb(var(--primary-200) / <alpha-value>)',
-              300: 'rgb(var(--primary-300) / <alpha-value>)',
-              400: 'rgb(var(--primary-400) / <alpha-value>)',
-              500: 'rgb(var(--primary-500) / <alpha-value>)',
-              600: 'rgb(var(--primary-600) / <alpha-value>)',
-              700: 'rgb(var(--primary-700) / <alpha-value>)',
-              800: 'rgb(var(--primary-800) / <alpha-value>)',
-              900: 'rgb(var(--primary-900) / <alpha-value>)',
-            },
-            // The CRM used "indigo" for its brand accents; point them at the brand palette too.
-            indigo: {
-              50: 'rgb(var(--primary-50) / <alpha-value>)',
-              100: 'rgb(var(--primary-100) / <alpha-value>)',
-              200: 'rgb(var(--primary-200) / <alpha-value>)',
-              300: 'rgb(var(--primary-300) / <alpha-value>)',
-              400: 'rgb(var(--primary-400) / <alpha-value>)',
-              500: 'rgb(var(--primary-500) / <alpha-value>)',
-              600: 'rgb(var(--primary-600) / <alpha-value>)',
-              700: 'rgb(var(--primary-700) / <alpha-value>)',
-              800: 'rgb(var(--primary-800) / <alpha-value>)',
-              900: 'rgb(var(--primary-900) / <alpha-value>)',
-            },
-            slate: {
-              900: '#0f172a',
-              950: '#020617',
-            }
-          },
-          borderRadius: {
-            '3xl': '1.5rem',
-            '4xl': '2rem',
-            '5xl': '3rem',
-          },
-          fontFamily: {
-            sans: ['Cairo', 'sans-serif'],
-          }
-        }
-      }
-    }
-  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
   <style id="theme-variables">
     :root {
       --primary-50: 252 245 244; --primary-100: 248 230 228; --primary-200: 240 204 199; --primary-300: 230 169 161;

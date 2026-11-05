@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, setDoc, doc, updateDoc, deleteDoc, where } from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { Invitation, UserRole } from '../types';
@@ -48,14 +48,20 @@ const InvitesManager: React.FC = () => {
 
     setIsSubmitting(true);
     try {
+      const cleanEmail = email.toLowerCase().trim();
       await addDoc(collection(db, 'invitations'), {
-        email: email.toLowerCase().trim(),
+        email: cleanEmail,
         role,
         token: '', // لم نعد بحاجة للتوكن
         status: 'pending',
         invitedBy: user.uid,
         invitedByName: user.name,
         timestamp: Date.now()
+      });
+      // Mirror keyed by email: the Firestore rules use it to let ONLY invited people
+      // create their profile, with exactly this role.
+      await setDoc(doc(db, 'allowed_users', cleanEmail), {
+        email: cleanEmail, role, isActive: true, invitedBy: user.uid, timestamp: Date.now()
       });
       await logActivity(user.uid, user.name, `إضافة بريد موثوق للتسجيل (${role})`, "invitation", email);
       setIsModalOpen(false);
@@ -120,6 +126,7 @@ const InvitesManager: React.FC = () => {
                       if(confirm(`هل أنت متأكد من حذف البريد [${invite.email}] من قائمة الوصول؟`)) {
                         try {
                           await deleteDoc(doc(db, 'invitations', invite.id));
+                          await deleteDoc(doc(db, 'allowed_users', String(invite.email || '').toLowerCase().trim())).catch(() => {});
                           alert("تم الحذف بنجاح");
                         } catch (error) {
                           console.error("Error deleting invite:", error);

@@ -1,52 +1,55 @@
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: users
-    // Fields: name (string), email (string), role (string), createdAt (number)
-    //
-    // Collection: clients
-    // Fields: name (string), phone (string), status (string), salesAgentId (string), salesAgentName (string)
-    //
-    // Collection: reports
-    // Fields: userId (string), userName (string), date (string), submittedAt (number)
-    //
-    // ===============================================================
 
     // ===============================================================
-    // Helper Functions
+    // Access model
+    // ---------------------------------------------------------------
+    // Being signed in with Google is NOT enough. Every read and write needs a
+    // users/{uid} profile that is not deactivated. A profile can only be created
+    // by an admin, or by the person themself when an active invitation
+    // (allowed_users/{email}, written by the invitations page) grants that exact role.
+    // Roles can never be changed by their owner.
     // ===============================================================
-    
+
     function isAuthenticated() {
       return request.auth != null;
     }
-    
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-    }
-    
+
     function userExists() {
       return exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
-    
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isOwnerAccount() {
+      return isAuthenticated() &&
+        request.auth.token.email == "saber.gd.fl@gmail.com" &&
+        request.auth.token.email_verified == true;
+    }
+
+    // A real, active staff member: signed in + has a profile + not deactivated.
+    function isStaff() {
+      return isOwnerAccount() ||
+        (isAuthenticated() && userExists() && getUserData().get('isDeactivated', false) != true);
+    }
+
+    function roleIn(roles) {
+      return isStaff() && userExists() && getUserData().get('role', '') in roles;
+    }
+
     function isAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.email == "saber.gd.fl@gmail.com" ||
-        (userExists() && getUserData().get('role', '') in ['admin', 'administrator'])
-      );
+      return isOwnerAccount() || roleIn(['admin', 'administrator']);
     }
-    
+
     function isManager() {
-      return isAdmin() || (userExists() && getUserData().get('role', '') in ['manager', 'supervisor']);
+      return isAdmin() || roleIn(['manager', 'supervisor']);
     }
-    
+
     function isTeamLeader() {
-      return isManager() || (userExists() && getUserData().get('role', '') in ['team_leader', 'leader']);
+      return isManager() || roleIn(['team_leader', 'leader']);
     }
 
     function isOwner(userId) {
@@ -57,9 +60,20 @@ service cloud.firestore {
       return request.resource.data.keys().hasAll(fields);
     }
 
-    // ===============================================================
-    // Domain Validators
-    // ===============================================================
+    function changed(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(keys);
+    }
+
+    // The invitation mirror written when a leader invites someone.
+    function invitationFor(email) {
+      return get(/databases/$(database)/documents/allowed_users/$(email)).data;
+    }
+
+    function hasActiveInvitation(email, role) {
+      return exists(/databases/$(database)/documents/allowed_users/$(email)) &&
+        invitationFor(email).get('isActive', true) == true &&
+        invitationFor(email).get('role', '') == role;
+    }
 
     function isValidReport(data) {
       return hasRequiredFields(['userId', 'userName', 'date', 'submittedAt']) &&
@@ -71,75 +85,96 @@ service cloud.firestore {
     // Rules
     // ===============================================================
 
-    // قواعد مجموعة المستخدمين
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && (isOwner(userId) || isAdmin());
-      allow delete: if isAdmin();
-    }
-    
-    // قواعد العملاء
-    match /clients/{clientId} {
-      allow read: if isAuthenticated(); 
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (
-        isAdmin() ||
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['aiRecommendation'])
+      allow read: if isOwner(userId) || isStaff();
+      // Admin creates anyone. A person may create ONLY their own profile, only
+      // with the role an active invitation gave them (or the owner account).
+      allow create: if isAdmin() || (
+        isOwner(userId) &&
+        request.resource.data.email == request.auth.token.email &&
+        (isOwnerAccount() || hasActiveInvitation(request.auth.token.email, request.resource.data.role))
+      );
+      // An owner may only touch harmless fields; role/deactivation are admin-only.
+      allow update: if isAdmin() || (
+        isOwner(userId) && isStaff() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'photoURL', 'lastSeenAt'])
       );
       allow delete: if isAdmin();
     }
-    
-    // قواعد المتابعات
+
+    match /clients/{clientId} {
+      allow read: if isStaff();
+      // A sales agent creates clients for themself; leaders can create for anyone.
+      allow create: if isStaff() && (request.resource.data.get('salesAgentId', '') == request.auth.uid || isTeamLeader());
+      allow update: if isAdmin() || (
+        isStaff() &&
+        (isTeamLeader() || resource.data.get('salesAgentId', '') == request.auth.uid) &&
+        // AI recommendations and accounting-synced fields are written by the server only.
+        !changed(['aiRecommendation', 'accountingBookingIds', 'accountingLastSyncedAt', 'accounting']) &&
+        // Handing a client to someone else is a transfer: leaders only.
+        (isTeamLeader() || !changed(['salesAgentId', 'salesAgentName']))
+      );
+      allow delete: if isAdmin();
+    }
+
     match /followups/{id} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
+      allow read: if isStaff();
+      allow create: if isStaff() && (request.resource.data.get('agentId', '') == request.auth.uid || isTeamLeader());
       allow update, delete: if isManager();
     }
-    
-    // قواعد الدعوات
+
+    // Invitations are private: leaders manage them; an invited person can read and
+    // mark only their own (needed by the sign-in flow).
     match /invitations/{id} {
-      allow read: if true; 
+      allow read: if isTeamLeader() ||
+        (isAuthenticated() && resource.data.get('email', '') == request.auth.token.email);
       allow create, delete: if isTeamLeader();
-      allow update: if isTeamLeader() || (isAuthenticated() && request.auth.token.email == resource.data.email);
+      allow update: if isTeamLeader() ||
+        (isAuthenticated() && resource.data.get('email', '') == request.auth.token.email &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
     }
-    
-    // قواعد السجلات
+
+    // Mirror used by the rules above (docId = lower-case email). Leaders write it
+    // together with the invitation.
+    match /allowed_users/{email} {
+      allow read: if isTeamLeader() || (isAuthenticated() && request.auth.token.email == email);
+      allow write: if isTeamLeader();
+    }
+
     match /logs/{id} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
+      allow read: if isStaff();
+      allow create: if isStaff();
     }
-    
-    // قواعد الخدمات والتصنيفات
+
     match /services/{id} {
-      allow read: if isAuthenticated();
+      allow read: if isStaff();
       allow write: if isManager();
     }
-    
+
     match /labels/{id} {
-      allow read: if isAuthenticated();
+      allow read: if isStaff();
       allow write: if isManager();
     }
-    
-    // قواعد التقارير والتحويلات
+
     match /reports/{id} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidReport(request.resource.data);
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isManager());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isManager());
+      allow read: if isStaff();
+      allow create: if isStaff() && isValidReport(request.resource.data);
+      allow update: if isStaff() && (resource.data.userId == request.auth.uid || isManager());
+      allow delete: if isStaff() && (resource.data.userId == request.auth.uid || isManager());
     }
-    
+
     match /targets/{id} {
-      allow read: if isAuthenticated();
+      allow read: if isStaff();
       allow write: if isTeamLeader();
     }
-    
+
     match /defaultTargets/{id} {
-      allow read: if isAuthenticated();
+      allow read: if isStaff();
       allow write: if isTeamLeader();
     }
-    
+
     match /transfers/{id} {
-      allow read: if isTeamLeader() || resource.data.oldAgentId == request.auth.uid || resource.data.newAgentId == request.auth.uid;
+      allow read: if isTeamLeader() || (isStaff() && (resource.data.oldAgentId == request.auth.uid || resource.data.newAgentId == request.auth.uid));
       allow create: if isTeamLeader();
     }
 
@@ -148,11 +183,10 @@ service cloud.firestore {
       allow create, update: if isTeamLeader();
     }
 
-    // قواعد الشيفتات (بدء/إنهاء يوم العمل)
     match /shifts/{id} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && (request.resource.data.userId == request.auth.uid || isAdmin());
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isManager());
+      allow read: if isStaff();
+      allow create: if isStaff() && (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isStaff() && (resource.data.userId == request.auth.uid || isManager());
     }
   }
 }

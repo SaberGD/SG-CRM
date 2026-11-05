@@ -52,6 +52,8 @@ const cases = [
   T('sales cannot write accounting-synced fields', 'DENY', 'update', 'clients/c1', sales, salesP, { existing: { salesAgentId: 's1' }, incoming: { salesAgentId: 's1', accountingBookingIds: ['b1'] } }),
   T('sales cannot edit money of an accounting-linked client', 'DENY', 'update', 'clients/c1', sales, salesP, { existing: { salesAgentId: 's1', accountingBookingIds: ['b1'], paidAmount: 800 }, incoming: { salesAgentId: 's1', accountingBookingIds: ['b1'], paidAmount: 5000 } }),
   T('sales can still edit other fields of an accounting-linked client', 'ALLOW', 'update', 'clients/c1', sales, salesP, { existing: { salesAgentId: 's1', accountingBookingIds: ['b1'], notes: 'a', paidAmount: 800 }, incoming: { salesAgentId: 's1', accountingBookingIds: ['b1'], notes: 'b', paidAmount: 800 } }),
+  T('staff can read feature switches', 'ALLOW', 'get', 'app_settings/assistant', sales, salesP, { existing: { enabled: true } }),
+  T('sales cannot change feature switches', 'DENY', 'update', 'app_settings/assistant', sales, salesP, { existing: { enabled: false }, incoming: { enabled: true } }),
   T('sync_review is manager-only', 'DENY', 'get', 'sync_review/x', sales, salesP, { existing: { reason: 'x' } }),
   T('sales cannot write aiRecommendation', 'DENY', 'update', 'clients/c1', sales, salesP, { existing: { salesAgentId: 's1' }, incoming: { salesAgentId: 's1', aiRecommendation: { status: 'ACCEPTED' } } }),
   T('sales creates a client for self', 'ALLOW', 'create', 'clients/new', sales, salesP, { incoming: { salesAgentId: 's1', name: 'n' } }),

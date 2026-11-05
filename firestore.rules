@@ -158,6 +158,12 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Feature switches (e.g. app_settings/assistant { enabled: true }).
+    match /app_settings/{id} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+
     match /logs/{id} {
       allow read: if isStaff();
       allow create: if isStaff();

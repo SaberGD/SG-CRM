@@ -3,6 +3,11 @@ const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const accountingIngest = require("./accountingIngest");
 const crmExport = require("./crmExport");
+const crmAssistant = require("./crmAssistant");
+const { defineSecret } = require("firebase-functions/params");
+
+// Claude key for the CRM assistant (Firebase secret in this project).
+const ANTHROPIC_API_KEY_CRM = defineSecret("ANTHROPIC_API_KEY_CRM");
 const { GoogleGenAI, Type } = require("@google/genai");
 
 function hashForMeta(value) {
@@ -614,10 +619,72 @@ async function handleCrmExport(req, res) {
   return res.json({ docs, next: snap.size === limit ? snap.docs[snap.size - 1].id : null });
 }
 
-exports.accountingCrmBridge = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+// ---------------------------------------------------------------------------
+// "مارو": the CRM assistant (read-only). Signed-in staff only; a sales agent only sees their own clients.
+// ---------------------------------------------------------------------------
+const assistantCache = new Map(); // scope -> { at, rows } (per warm instance, 3 minutes)
+
+async function assistantStaff(req) {
+  const match = /^Bearer (.+)$/i.exec(req.get("authorization") || "");
+  if (!match) return null;
+  const token = await admin.auth().verifyIdToken(match[1]);
+  const email = String(token.email || "").toLowerCase();
+  if (email === "saber.gd.fl@gmail.com" && token.email_verified === true) return { uid: token.uid, role: "admin", name: token.name || "الأدمن" };
+  const snap = await db.collection("users").doc(token.uid).get();
+  if (!snap.exists || snap.data().isDeactivated === true) return null;
+  return { uid: token.uid, role: snap.data().role || "sales_agent", name: snap.data().name || "" };
+}
+
+async function assistantClients(user) {
+  const leader = crmAssistant.isLeader(user.role);
+  const key = leader ? "all" : `agent:${user.uid}`;
+  const hit = assistantCache.get(key);
+  if (hit && Date.now() - hit.at < 3 * 60 * 1000) return hit.rows;
+  const base = db.collection("clients");
+  const snap = await (leader ? base : base.where("salesAgentId", "==", user.uid)).get();
+  const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  assistantCache.set(key, { at: Date.now(), rows });
+  return rows;
+}
+
+async function handleAssistant(req, res) {
+  let user;
+  try { user = await assistantStaff(req); } catch (e) { user = null; }
+  if (!user) return res.status(401).json({ error: "سجّل دخولك الأول." });
+  const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+  if (!messages.length) return res.status(400).json({ error: "اكتب سؤالك." });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const usageRef = db.doc(`assistant_usage/${user.uid}_${today}`);
+  const allowed = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(usageRef);
+    const count = snap.exists ? snap.data().count || 0 : 0;
+    if (count >= crmAssistant.DAILY_LIMIT) return false;
+    tx.set(usageRef, { uid: user.uid, date: today, count: count + 1 }, { merge: true });
+    return true;
+  });
+  if (!allowed) return res.status(429).json({ error: `وصلت للحد اليومي (${crmAssistant.DAILY_LIMIT} رسالة).` });
+
+  try {
+    const result = await crmAssistant.runAssistant({
+      messages, apiKey: ANTHROPIC_API_KEY_CRM.value(), user,
+      data: {
+        clients: await assistantClients(user),
+        followupsFor: async (id) => (await db.collection("followups").where("clientId", "==", id).limit(40).get()).docs.map((d) => d.data()),
+      },
+    });
+    return res.json(result);
+  } catch (error) {
+    console.error("assistant failed:", error?.message || error);
+    return res.status(500).json({ error: "المساعد مش متاح دلوقتي. جرّب بعد شوية." });
+  }
+}
+
+exports.accountingCrmBridge = onRequest({ region: "us-central1", cors: true, secrets: [ANTHROPIC_API_KEY_CRM], timeoutSeconds: 120 }, async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   const action = req.body?.action;
-  if (!["lookup", "syncBooking", "ingest", "export"].includes(action)) return res.status(400).json({ error: "Invalid action" });
+  if (!["lookup", "syncBooking", "ingest", "export", "assistant"].includes(action)) return res.status(400).json({ error: "Invalid action" });
+  if (action === "assistant") return handleAssistant(req, res);
   if (action === "export") {
     try { return await handleCrmExport(req, res); }
     catch (error) { console.error("crm export failed:", error); return res.status(500).json({ error: "Export failed" }); }

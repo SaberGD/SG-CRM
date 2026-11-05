@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import MaroAssistant from './MaroAssistant';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
 import { auth, db, logActivity } from '../firebase';
 import { signOut } from 'firebase/auth';
-import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs, getDoc, doc } from 'firebase/firestore';
 import {
   LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog, Database, Sparkles, Copy, CalendarCheck } from 'lucide-react';
 import { UserRole, Client, User } from '../types';
@@ -130,6 +131,12 @@ const Layout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  // The assistant stays hidden until an admin turns it on (app_settings/assistant.enabled).
+  const [assistantEnabled, setAssistantEnabled] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    getDoc(doc(db, 'app_settings', 'assistant')).then((s) => setAssistantEnabled(s.exists() && s.data()?.enabled === true)).catch(() => setAssistantEnabled(false));
+  }, [user?.uid]);
   const [isDark, setIsDark] = useState(true);
   const [liveNotification, setLiveNotification] = useState<string | null>(null);
   const [viewableAgents, setViewableAgents] = useState<User[]>([]);
@@ -354,6 +361,7 @@ const Layout: React.FC = () => {
           <ErrorBoundary name={location.pathname} key={location.pathname}><Outlet /></ErrorBoundary>
         </div>
       </main>
+      {user && assistantEnabled && <MaroAssistant />}
     </div>
   );
 };

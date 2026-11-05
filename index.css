@@ -1,26 +1,26 @@
 /* SG CRM visual polish layer. Pure presentation, no behavior changes. */
 :root {
   color-scheme: light dark;
-  --sg-bg: #f8fafc;
-  --sg-bg-dark: #020617;
+  --sg-bg: #f4f1ee;
+  --sg-bg-dark: #10100f;
   --sg-surface: #ffffff;
-  --sg-surface-dark: #0f172a;
-  --sg-surface-soft: #f1f5f9;
-  --sg-surface-soft-dark: #111c2f;
-  --sg-border: #e2e8f0;
-  --sg-border-dark: #1e293b;
-  --sg-text: #0f172a;
+  --sg-surface-dark: #191716;
+  --sg-surface-soft: #f7f3ee;
+  --sg-surface-soft-dark: #24201d;
+  --sg-border: #ddcfc3;
+  --sg-border-dark: #2c2724;
+  --sg-text: #201c1b;
   --sg-text-dark: #f8fafc;
   --sg-muted: #64748b;
   --sg-muted-dark: #94a3b8;
-  --sg-primary: #0ea5e9;
-  --sg-primary-strong: #0284c7;
+  --sg-primary: rgb(var(--primary-600));
+  --sg-primary-strong: rgb(var(--primary-700));
   --sg-danger: #e11d48;
   --sg-success: #059669;
   --sg-warning: #d97706;
-  --sg-radius-sm: 10px;
-  --sg-radius-md: 14px;
-  --sg-radius-lg: 18px;
+  --sg-radius-sm: 5px;
+  --sg-radius-md: 8px;
+  --sg-radius-lg: 12px;
   --sg-radius-xl: 24px;
   --sg-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
   --sg-shadow-dark: 0 18px 45px rgba(0, 0, 0, 0.22);
@@ -84,8 +84,8 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: rgba(14, 165, 233, 0.55);
-  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.12);
+  border-color: rgba(var(--primary-500), 0.55);
+  box-shadow: 0 0 0 4px rgba(var(--primary-500), 0.12);
 }
 
 table {

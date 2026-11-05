@@ -572,9 +572,11 @@ async function handleAccountingIngest(req, res) {
   }
   if (found.size > 1) return review("ambiguous_phone", [...found.keys()]);
 
-  const audit = (extra) => db.collection("integrationEvents").doc(`accounting_booking_${bookingId}_${now}`).set({
+  // One audit document per booking (overwritten on each sync, with a counter) so the collection
+  // never grows with repeated syncs.
+  const audit = (extra) => db.collection("integrationEvents").doc(`accounting_sync_${bookingId}`).set({
     correlationId: `accounting_booking_${bookingId}`, sourceSystem: "accounting", targetSystem: "crm", eventType: "booking_synced",
-    sourceRef: bookingId, processedAt: now, bookingStatus: summary.status, ...extra });
+    sourceRef: bookingId, processedAt: now, bookingStatus: summary.status, syncCount: admin.firestore.FieldValue.increment(1), ...extra }, { merge: true });
 
   if (found.size === 0) {
     if (summary.status !== "ACTIVE") return res.json({ success: true, action: "ignored_inactive_no_client" });

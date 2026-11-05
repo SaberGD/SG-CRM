@@ -21,6 +21,7 @@ import ServicesManager from './pages/ServicesManager';
 import LabelsManager from './pages/LabelsManager';
 import InvitesManager from './pages/InvitesManager';
 import DuplicatesManager from './pages/DuplicatesManager';
+import TodayWork from './pages/TodayWork';
 import AdminPanel from './pages/AdminPanel';
 import { AiAssistant } from './pages/AiAssistant';
 
@@ -233,6 +234,7 @@ const App: React.FC = () => {
           <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
           <Route element={user ? <ShiftProvider><Layout /></ShiftProvider> : <Navigate to="/login" />}>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/today" element={<TodayWork />} />
             <Route path="/clients" element={<ClientsList />} />
             <Route path="/clients/:id" element={<ClientDetails />} />
             <Route path="/notifications" element={<Notifications />} />

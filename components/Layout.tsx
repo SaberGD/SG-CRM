@@ -6,7 +6,7 @@ import { auth, db, logActivity } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import {
-  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog, Database, Sparkles, Copy } from 'lucide-react';
+  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog, Database, Sparkles, Copy, CalendarCheck } from 'lucide-react';
 import { UserRole, Client, User } from '../types';
 import ShiftGate from './ShiftGate';
 import ShiftWidget from './ShiftWidget';
@@ -189,28 +189,27 @@ const Layout: React.FC = () => {
     setIsDark(!isDark);
   };
 
-  const navItems = [
-    { name: 'لوحة التحكم', path: '/', icon: LayoutDashboard },
-    { name: 'العملاء', path: '/clients', icon: Users },
-    { name: 'المتابعات والمهام', path: '/notifications', icon: Bell },
-    ...(user?.role === UserRole.ADMIN ? [{ name: 'المساعد الذكي (مارو) AI', path: '/ai-assistant', icon: Sparkles }] : []),
-    { name: 'التقارير', path: '/reports', icon: BarChart3 },
+  // Sidebar grouped into sections (same idea as the accounting and training systems).
+  type NavItem = { name: string; path: string; icon: any; group: string };
+  const navItems: NavItem[] = [
+    { name: 'لوحة التحكم', path: '/', icon: LayoutDashboard, group: 'العمل اليومي' },
+    { name: 'شغل النهارده', path: '/today', icon: CalendarCheck, group: 'العمل اليومي' },
+    { name: 'العملاء', path: '/clients', icon: Users, group: 'العمل اليومي' },
+    { name: 'المتابعات والمهام', path: '/notifications', icon: Bell, group: 'العمل اليومي' },
+    { name: 'التقارير', path: '/reports', icon: BarChart3, group: 'التقارير والذكاء' },
+    ...(user?.role === UserRole.ADMIN ? [{ name: 'المساعد الذكي (مارو) AI', path: '/ai-assistant', icon: Sparkles, group: 'التقارير والذكاء' }] : []),
   ];
 
   if (effectiveRole !== UserRole.SALES_AGENT) {
-    navItems.push({ name: 'خدماتنا', path: '/services', icon: BookOpen });
-    navItems.push({ name: 'التصنيفات (Labels)', path: '/labels', icon: Tag });
-    navItems.push({ name: 'سجل النشاطات', path: '/activity', icon: ClipboardList });
-  }
-
-  // الترتيب المطلوب: الدعوات ثم الإدارة
-  if (effectiveRole !== UserRole.SALES_AGENT) {
-    navItems.push({ name: 'نظام الدعوات', path: '/invites', icon: UserPlus });
-    if (effectiveRole === UserRole.ADMIN) navItems.push({ name: 'العملاء المكررين', path: '/duplicates', icon: Copy });
-    navItems.push({ name: 'النسخ الاحتياطي', path: '/backup', icon: Database });
+    navItems.push({ name: 'خدماتنا', path: '/services', icon: BookOpen, group: 'الإعدادات' });
+    navItems.push({ name: 'التصنيفات (Labels)', path: '/labels', icon: Tag, group: 'الإعدادات' });
+    navItems.push({ name: 'سجل النشاطات', path: '/activity', icon: ClipboardList, group: 'الإدارة' });
+    navItems.push({ name: 'نظام الدعوات', path: '/invites', icon: UserPlus, group: 'الإدارة' });
+    if (effectiveRole === UserRole.ADMIN) navItems.push({ name: 'العملاء المكررين', path: '/duplicates', icon: Copy, group: 'الإدارة' });
+    navItems.push({ name: 'النسخ الاحتياطي', path: '/backup', icon: Database, group: 'الإدارة' });
   }
   if (user?.role === UserRole.ADMIN) {
-    navItems.push({ name: 'إدارة الفريق', path: '/admin', icon: UserCog });
+    navItems.push({ name: 'إدارة الفريق', path: '/admin', icon: UserCog, group: 'الإدارة' });
   }
 
   useEffect(() => {
@@ -218,7 +217,7 @@ const Layout: React.FC = () => {
   }, [location.pathname]);
 
   return (
-    <div className={`min-h-screen flex flex-col lg:flex-row bg-slate-50 dark:bg-slate-950 transition-colors duration-300 ${viewingAsUser ? 'pt-9' : ''}`}>
+    <div className={`min-h-screen flex flex-col lg:flex-row bg-[#f4f1ee] dark:bg-[#10100f] transition-colors duration-300 ${viewingAsUser ? 'pt-9' : ''}`}>
       {viewingAsUser && (
         <div className="fixed top-0 inset-x-0 z-[100] bg-amber-500 text-white py-2 px-4 flex items-center justify-center gap-3 shadow-lg">
           <Eye size={14} className="shrink-0" />
@@ -279,11 +278,16 @@ const Layout: React.FC = () => {
             </button>
           </div>
 
-          <nav className="flex-1 space-y-2">
-            {navItems.map((item) => (
-              <Link key={item.path} to={item.path} className={`flex items-center px-4 py-3 text-sm font-black rounded-xl transition-all ${location.pathname === item.path ? 'bg-primary-500 text-white shadow-xl shadow-primary-500/20' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                <item.icon className="ml-3" size={20} /> {item.name}
-              </Link>
+          <nav className="flex-1 space-y-1">
+            {navItems.map((item, i) => (
+              <React.Fragment key={item.path}>
+                {(i === 0 || navItems[i - 1].group !== item.group) && (
+                  <div className="px-4 pt-4 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">{item.group}</div>
+                )}
+                <Link to={item.path} className={`flex items-center px-4 py-2.5 text-sm font-black rounded-xl transition-all ${location.pathname === item.path ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/20' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                  <item.icon className="ml-3" size={20} /> {item.name}
+                </Link>
+              </React.Fragment>
             ))}
           </nav>
 

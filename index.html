@@ -26,9 +26,31 @@
       theme: {
         extend: {
           colors: {
+            // Same brand palette as the accounting and training systems (CSS variables below).
             primary: {
-              500: '#0ea5e9',
-              600: '#0284c7',
+              50: 'rgb(var(--primary-50) / <alpha-value>)',
+              100: 'rgb(var(--primary-100) / <alpha-value>)',
+              200: 'rgb(var(--primary-200) / <alpha-value>)',
+              300: 'rgb(var(--primary-300) / <alpha-value>)',
+              400: 'rgb(var(--primary-400) / <alpha-value>)',
+              500: 'rgb(var(--primary-500) / <alpha-value>)',
+              600: 'rgb(var(--primary-600) / <alpha-value>)',
+              700: 'rgb(var(--primary-700) / <alpha-value>)',
+              800: 'rgb(var(--primary-800) / <alpha-value>)',
+              900: 'rgb(var(--primary-900) / <alpha-value>)',
+            },
+            // The CRM used "indigo" for its brand accents; point them at the brand palette too.
+            indigo: {
+              50: 'rgb(var(--primary-50) / <alpha-value>)',
+              100: 'rgb(var(--primary-100) / <alpha-value>)',
+              200: 'rgb(var(--primary-200) / <alpha-value>)',
+              300: 'rgb(var(--primary-300) / <alpha-value>)',
+              400: 'rgb(var(--primary-400) / <alpha-value>)',
+              500: 'rgb(var(--primary-500) / <alpha-value>)',
+              600: 'rgb(var(--primary-600) / <alpha-value>)',
+              700: 'rgb(var(--primary-700) / <alpha-value>)',
+              800: 'rgb(var(--primary-800) / <alpha-value>)',
+              900: 'rgb(var(--primary-900) / <alpha-value>)',
             },
             slate: {
               900: '#0f172a',
@@ -47,6 +69,13 @@
       }
     }
   </script>
+  <style id="theme-variables">
+    :root {
+      --primary-50: 252 245 244; --primary-100: 248 230 228; --primary-200: 240 204 199; --primary-300: 230 169 161;
+      --primary-400: 218 128 116; --primary-500: 207 87 71; --primary-600: 196 50 31; --primary-700: 161 41 25;
+      --primary-800: 129 33 20; --primary-900: 102 26 16;
+    }
+  </style>
   <style>
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(20px); }

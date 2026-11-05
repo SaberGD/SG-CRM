@@ -1,4 +1,6 @@
 
+import { buildSearchKeys } from '../utils/searchKeys.mjs';
+import { normalizePhoneKey } from '../utils/clientMerge.mjs';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
@@ -529,7 +531,14 @@ const ClientDetails: React.FC = () => {
         if (service) finalData.serviceName = service.name;
       }
 
-      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), finalData);
+      // Keep the search index fields in step with the edited name/phone.
+      const phoneKey = normalizePhoneKey(finalData.phone);
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+        ...finalData,
+        searchKeys: buildSearchKeys(finalData.name, finalData.phone),
+        phoneKey,
+        ...(phoneKey && !((client as any).phoneKeys || []).includes(phoneKey) ? { phoneKeys: [phoneKey, ...(((client as any).phoneKeys) || [])] } : {}),
+      });
       await logActivity(user.uid, user.name, `تحديث بيانات العميل`, client.id, client.name);
       setIsEditModalOpen(false);
     } catch (err) { console.error(err); }

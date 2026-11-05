@@ -588,7 +588,9 @@ async function handleAccountingIngest(req, res) {
     if (summary.status !== "ACTIVE") return res.json({ success: true, action: "ignored_inactive_no_client" });
     const agent = (await findAgentByName(booking.salesName)) || (await getDefaultAutomationAgent());
     const ref = db.collection("clients").doc();
-    await ref.set({ ...accountingIngest.newClientFromBooking(customer, summary, agent, now), accountingBookingIds: [bookingId] });
+    const created = accountingIngest.newClientFromBooking(customer, summary, agent, now);
+    created.searchKeys = (await import("./searchKeys.mjs")).buildSearchKeys(created.name, created.phone);
+    await ref.set({ ...created, accountingBookingIds: [bookingId] });
     await audit({ targetRef: ref.id, result: "created_client" });
     return res.json({ success: true, action: "created_client", clientId: ref.id });
   }
@@ -1310,6 +1312,10 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         updateData.automationSalesRepNameRaw = automationSalesRepNameRaw;
       }
 
+      if (updateData.name || updateData.phone) {
+        const { buildSearchKeys } = await import("./searchKeys.mjs");
+        updateData.searchKeys = buildSearchKeys(updateData.name || existingClient.name, updateData.phone || existingClient.phone);
+      }
       batch.update(existingDoc.ref, updateData);
 
       const followUpRef = db.collection("followups").doc();
@@ -1418,6 +1424,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     }
 
     const batch = db.batch();
+    newClientData.searchKeys = (await import("./searchKeys.mjs")).buildSearchKeys(newClientData.name, newClientData.phone);
     batch.set(newClientRef, newClientData);
 
     const followUpRef = db.collection("followups").doc();

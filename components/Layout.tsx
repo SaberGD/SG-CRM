@@ -5,7 +5,7 @@ import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
 import { auth, db, logActivity } from '../firebase';
 import { signOut } from 'firebase/auth';
-import { collection, query, where, onSnapshot, getDocs, getDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs, getDoc, doc, getCountFromServer } from 'firebase/firestore';
 import {
   LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog, Database, Sparkles, Copy, CalendarCheck } from 'lucide-react';
 import { UserRole, Client, User } from '../types';
@@ -24,34 +24,35 @@ const AlarmManager: React.FC<{ user: any }> = ({ user }) => {
   const dangerToneRef = useRef<HTMLAudioElement | null>(null);
   const navigate = useNavigate();
 
+  // Follow-up alarm. Reads stay small: a live listener on TODAY's follow-ups only (instead of
+  // every scheduled client, re-subscribed on each alarm change), a clock that checks them
+  // every 20 seconds, and a server-side count for "is anything overdue".
+  const todayDueRef = useRef<Client[]>([]);
   useEffect(() => {
     if (!user) return;
-    const clientsRef = collection(db, 'clients');
-    // Only listen for clients that have a follow-up scheduled and belong to the user
-    const q = query(
-      clientsRef, 
-      where('salesAgentId', '==', user.uid),
-      where('nextFollowUpDate', '>', 0)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const end = new Date(); end.setHours(23, 59, 59, 999);
+    const q = query(collection(db, 'clients'), where('salesAgentId', '==', user.uid),
+      where('nextFollowUpDate', '>=', start.getTime()), where('nextFollowUpDate', '<=', end.getTime()));
+    const check = () => {
       const now = Date.now();
-      const clients = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Client));
-      
-      const dueClient = clients.find(c => c.nextFollowUpDate && Math.abs(c.nextFollowUpDate - now) < 60000);
-      if (dueClient && (!activeAlarm || activeAlarm.id !== dueClient.id)) {
-        setActiveAlarm(dueClient);
-      } else if (!dueClient) {
-        setActiveAlarm(null);
-      }
-
-      const overdue = clients.some(c => c.nextFollowUpDate && c.nextFollowUpDate < (now - 60000));
-      setHasOverdueTasks(overdue);
+      const due = todayDueRef.current.find(c => c.nextFollowUpDate && Math.abs(c.nextFollowUpDate - now) < 60000);
+      setActiveAlarm(prev => (due ? (prev?.id === due.id ? prev : due) : null));
+    };
+    const refreshOverdue = () => getCountFromServer(query(collection(db, 'clients'), where('salesAgentId', '==', user.uid),
+      where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', Date.now() - 60000)))
+      .then(r => setHasOverdueTasks(r.data().count > 0)).catch(() => {});
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      todayDueRef.current = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+      check();
+      refreshOverdue();
     }, (err) => {
       console.error("AlarmManager Clients Snapshot Error:", err);
     });
-    return () => unsubscribe();
-  }, [user, activeAlarm]);
+    const tick = window.setInterval(check, 20000);
+    const overdueTick = window.setInterval(refreshOverdue, 5 * 60000);
+    return () => { unsubscribe(); window.clearInterval(tick); window.clearInterval(overdueTick); };
+  }, [user?.uid]);
 
   useEffect(() => {
     if (!ringtoneRef.current) {
@@ -154,7 +155,8 @@ const Layout: React.FC = () => {
 
   useEffect(() => {
     if (effectiveRole === UserRole.TEAM_LEADER || effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER) {
-      const q = query(collection(db, 'logs'), where('action', '==', 'بدء مكالمة'));
+      // Only calls started from now on (it used to read every "call started" log ever).
+      const q = query(collection(db, 'logs'), where('action', '==', 'بدء مكالمة'), where('timestamp', '>=', Date.now() - 10000));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         snapshot.docChanges().forEach((change) => {
           if (change.type === "added") {

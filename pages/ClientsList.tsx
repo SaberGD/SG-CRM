@@ -22,6 +22,8 @@ import {
   SlidersHorizontal, ChevronDown, Facebook, Instagram, Music2, Globe2, UserPlus
 } from 'lucide-react';
 import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
+import { searchTerm, matchesSearch, buildSearchKeys } from '../utils/searchKeys.mjs';
+import { normalizePhoneKey } from '../utils/clientMerge.mjs';
 import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
@@ -299,37 +301,10 @@ const ClientsList: React.FC = () => {
       const isSearchActive = activeSearch.trim().length > 0;
       
       if (isSearchActive) {
-        // If it's a numeric search (likely phone), try variations
-        const cleanSearch = activeSearch.trim();
-        const isNumeric = /^[0-9+]+$/.test(cleanSearch);
-        
-        if (isNumeric && cleanSearch.length > 5) {
-          const variations = [cleanSearch];
-          if (cleanSearch.startsWith('0') && cleanSearch.length >= 10) {
-             const core = cleanSearch.replace(/^0+/, '');
-             variations.push('+20' + core);
-             variations.push('20' + core);
-             variations.push(core);
-          } else if (!cleanSearch.startsWith('+') && !cleanSearch.startsWith('0') && cleanSearch.length >= 10) {
-             variations.push('+20' + cleanSearch);
-             variations.push('0' + cleanSearch);
-             variations.push('20' + cleanSearch);
-          } else if (cleanSearch.startsWith('+20')) {
-             const core = cleanSearch.substring(3);
-             variations.push('0' + core);
-             variations.push('20' + core);
-             variations.push(core);
-          }
-          
-          const uniqueSearchVariations = Array.from(new Set(variations)).slice(0, 10);
-          constraints.push(firestore.where('phone', 'in', uniqueSearchVariations));
-        } else {
-          // Name prefix search
-          // Note: Prefix search requires multiple constraints and doesn't play well with multiple 'where' filters easily without indexes
-          constraints.push(firestore.where('name', '>=', activeSearch));
-          constraints.push(firestore.where('name', '<=', activeSearch + '\uf8ff'));
-          constraints.push(firestore.orderBy('name'));
-        }
+        // Indexed search: searchKeys (kept up to date by the clientSearchIndex Cloud Function)
+        // holds the start of every word of the name and the last 4-10 digits of the phone,
+        // so one array-contains query finds "حسن" inside "أسماء حسن" or a number by its tail.
+        constraints.push(firestore.where('searchKeys', 'array-contains', searchTerm(activeSearch) || '\u0000'));
       } else if (sortBy === 'lastChatwootContactAsc') {
         constraints.push(firestore.orderBy('lastChatwootContactAt', 'asc'));
       } else {
@@ -401,7 +376,7 @@ const ClientsList: React.FC = () => {
     let result = clients;
     if (debouncedSearch) {
       const term = debouncedSearch.toLowerCase();
-      result = result.filter(c => c.name.toLowerCase().includes(term) || c.phone.includes(term));
+      result = result.filter(c => matchesSearch(c, term));
     }
     if (filterTransferType === 'external') {
       result = result.filter(c => c.isExternalTransfer === true);
@@ -487,9 +462,12 @@ const ClientsList: React.FC = () => {
       // إزالة التكرار من المصفوفة
       const uniqueVariations = Array.from(new Set(phoneVariations)).slice(0, 10);
 
+      // One indexed lookup on the normalized phone (same key the accounting sync uses).
+      const phoneKey = normalizePhoneKey(phoneFull);
       const phoneCheck = await firestore.getDocs(firestore.query(
-        firestore.collection(db, 'clients'), 
-        firestore.where('phone', 'in', uniqueVariations)
+        firestore.collection(db, 'clients'),
+        phoneKey ? firestore.where('phoneKey', '==', phoneKey) : firestore.where('phone', 'in', uniqueVariations),
+        firestore.limit(1)
       ));
 
       if (!phoneCheck.empty) {
@@ -591,6 +569,10 @@ const ClientsList: React.FC = () => {
         }
       }
 
+      // Search index fields (see utils/searchKeys): word starts of the name + phone tail.
+      dataToSave.searchKeys = buildSearchKeys(dataToSave.name, dataToSave.phone);
+      dataToSave.phoneKey = normalizePhoneKey(dataToSave.phone);
+      dataToSave.phoneKeys = dataToSave.phoneKey ? [dataToSave.phoneKey] : [];
       await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
       console.log("Client added successfully");
       await logActivity(user.uid, user.name, `إضافة عميل جديد (${newClient.source}): ${newClient.name}`, 'new', newClient.name);

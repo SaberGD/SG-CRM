@@ -2,6 +2,7 @@ const { onRequest } = require("firebase-functions/v2/https");
 const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const accountingIngest = require("./accountingIngest");
+const crmExport = require("./crmExport");
 const { GoogleGenAI, Type } = require("@google/genai");
 
 function hashForMeta(value) {
@@ -600,10 +601,27 @@ async function handleAccountingIngest(req, res) {
   return res.json({ success: true, action: "updated_client", clientId: clientRef.id, changedFields: result.changedFields });
 }
 
+// Paged, sanitized read of a CRM collection for the accounting data analyst (same service-to-service auth).
+async function handleCrmExport(req, res) {
+  if (!(await verifyAccountingService(req))) return res.status(403).json({ error: "Not allowed" });
+  const collection = String(req.body?.collection || "");
+  if (!crmExport.isExportable(collection)) return res.status(400).json({ error: "Collection not exportable" });
+  const limit = crmExport.pageSize(req.body?.limit);
+  let q = db.collection(collection).orderBy(admin.firestore.FieldPath.documentId()).limit(limit);
+  if (req.body?.after) q = q.startAfter(String(req.body.after));
+  const snap = await q.get();
+  const docs = snap.docs.map((d) => crmExport.sanitizeDoc(collection, d.id, d.data()));
+  return res.json({ docs, next: snap.size === limit ? snap.docs[snap.size - 1].id : null });
+}
+
 exports.accountingCrmBridge = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   const action = req.body?.action;
-  if (!["lookup", "syncBooking", "ingest"].includes(action)) return res.status(400).json({ error: "Invalid action" });
+  if (!["lookup", "syncBooking", "ingest", "export"].includes(action)) return res.status(400).json({ error: "Invalid action" });
+  if (action === "export") {
+    try { return await handleCrmExport(req, res); }
+    catch (error) { console.error("crm export failed:", error); return res.status(500).json({ error: "Export failed" }); }
+  }
   if (action === "ingest") {
     try { return await handleAccountingIngest(req, res); }
     catch (error) { console.error("accounting ingest failed:", error); return res.status(500).json({ error: "Ingest failed" }); }

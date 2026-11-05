@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { normalizePhoneKey } from '../utils/clientMerge.mjs';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 import { Client, ClientStatus, ClientSource, Gender } from '../types';
@@ -139,22 +140,24 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
         return;
       }
 
-      // Fetch existing clients from Firestore to perform matching by phone
-      const clientsSnap = await firestore.getDocs(firestore.collection(db, 'clients'));
-      const existingClientsMap = new Map<string, string>(); // phone -> docId
-      clientsSnap.docs.forEach(doc => {
-        const c = doc.data();
-        const p = normalizePhone(c.phone);
-        if (p) {
-          existingClientsMap.set(p, doc.id);
-          // Also map without country code if Egyptian (01xxx)
-          if (p.startsWith('+20') && p.length === 13) {
-            existingClientsMap.set('0' + p.slice(3), doc.id);
-          } else if (p.startsWith('01') && p.length === 11) {
-            existingClientsMap.set('+20' + p.slice(1), doc.id);
+      // Match existing clients by looking up ONLY the phones in the file through the indexed
+      // phoneKey (30 per query) instead of reading every client in the system.
+      const phoneCols = ['phone', 'الهاتف', 'رقم الهاتف', 'رقم الموبايل', 'phone number'];
+      const fileKeys = new Set<string>();
+      jsonRows.forEach((row: any) => {
+        Object.keys(row).forEach((k) => {
+          if (phoneCols.includes(k.trim().toLowerCase())) {
+            const key = normalizePhoneKey(normalizePhone(row[k]));
+            if (key) fileKeys.add(key);
           }
-        }
+        });
       });
+      const existingClientsMap = new Map<string, string>(); // phoneKey -> docId
+      const keyList = [...fileKeys];
+      for (let i = 0; i < keyList.length; i += 30) {
+        const snap = await firestore.getDocs(firestore.query(firestore.collection(db, 'clients'), firestore.where('phoneKey', 'in', keyList.slice(i, i + 30))));
+        snap.docs.forEach((d) => existingClientsMap.set(String(d.data().phoneKey), d.id));
+      }
 
       const parsed: ParsedRow[] = [];
 
@@ -191,7 +194,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
         const rawRate = parseFloat(getKey(['exchangeRateUsed', 'سعر الصرف', 'exchangeRate'])) || 48.5;
 
         const normalizedP = normalizePhone(rawPhone);
-        const existingDocId = normalizedP ? existingClientsMap.get(normalizedP) : undefined;
+        const existingDocId = normalizedP ? existingClientsMap.get(normalizePhoneKey(normalizedP)) : undefined;
 
         // Validation checks
         let isValid = true;

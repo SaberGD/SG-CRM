@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 // Added missing import for useNavigate
 import { useNavigate } from 'react-router-dom';
 // Added limit to firebase/firestore imports
-import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy, getDocs, addDoc, setDoc, where, limit } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy, getDocs, addDoc, setDoc, where, limit, getCountFromServer } from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { User, UserRole, Client, FollowUp, ActivityLog, Shift } from '../types';
@@ -28,7 +28,6 @@ const AdminPanel: React.FC = () => {
   // Initialized navigate function using useNavigate hook
   const navigate = useNavigate();
   const [users, setUsers] = useState<User[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [userStatusFilter, setUserStatusFilter] = useState<'active' | 'deactivated' | 'all'>('active');
@@ -110,15 +109,8 @@ const AdminPanel: React.FC = () => {
       setLoading(false);
     });
 
-    const unsubClients = onSnapshot(collection(db, 'clients'), (snap) => {
-      setClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-    }, (err) => {
-      console.error("AdminPanel Clients Snapshot Error:", err);
-    });
-
     return () => {
       unsubUsers();
-      unsubClients();
     };
   }, [user?.uid]);
 
@@ -126,17 +118,26 @@ const AdminPanel: React.FC = () => {
     return users.filter(u => !u.isDeactivated && u.uid !== deactivatingUser?.uid && u.uid !== transferSourceUser?.uid);
   }, [users, deactivatingUser, transferSourceUser]);
 
-  const userStats = useMemo(() => {
-    const stats: Record<string, { totalClients: number, pendingFollowups: number }> = {};
-    users.forEach(u => {
-      const userClients = clients.filter(c => c.salesAgentId === u.uid);
-      stats[u.uid] = {
-        totalClients: userClients.length,
-        pendingFollowups: userClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate > 0).length
-      };
-    });
-    return stats;
-  }, [users, clients]);
+  // Per-agent numbers come from server-side counts (2 tiny reads per agent) instead of a live
+  // listener on every client in the system; an agent's clients are read only when a transfer needs them.
+  const [userStats, setUserStats] = useState<Record<string, { totalClients: number, pendingFollowups: number }>>({});
+  useEffect(() => {
+    if (!users.length) return;
+    let cancelled = false;
+    const ref = collection(db, 'clients');
+    Promise.all(users.map(async (u) => {
+      const [total, pending] = await Promise.all([
+        getCountFromServer(query(ref, where('salesAgentId', '==', u.uid))),
+        getCountFromServer(query(ref, where('salesAgentId', '==', u.uid), where('nextFollowUpDate', '>', 0))),
+      ]);
+      return [u.uid, { totalClients: total.data().count, pendingFollowups: pending.data().count }] as const;
+    })).then((rows) => { if (!cancelled) setUserStats(Object.fromEntries(rows)); })
+      .catch((err) => console.error('AdminPanel counts failed:', err));
+    return () => { cancelled = true; };
+  }, [users.map(u => u.uid).join(',')]);
+
+  const fetchClientsOf = async (uid: string) =>
+    (await getDocs(query(collection(db, 'clients'), where('salesAgentId', '==', uid)))).docs.map(d => ({ id: d.id, ...d.data() } as Client));
 
   const handleEditClick = (u: User) => {
     setSelectedUser(u);
@@ -262,7 +263,7 @@ const AdminPanel: React.FC = () => {
     setIsProcessingTransfer(true);
 
     try {
-      const userClients = clients.filter(c => c.salesAgentId === deactivatingUser.uid);
+      const userClients = await fetchClientsOf(deactivatingUser.uid);
       const availableAgents = activeSalesAgents.filter(a => a.uid !== deactivatingUser.uid);
 
       if (userClients.length > 0 && transferMode !== 'keep') {
@@ -365,7 +366,7 @@ const AdminPanel: React.FC = () => {
     setIsProcessingTransfer(true);
 
     try {
-      const userClients = clients.filter(c => c.salesAgentId === transferSourceUser.uid);
+      const userClients = await fetchClientsOf(transferSourceUser.uid);
       const availableAgents = activeSalesAgents.filter(a => a.uid !== transferSourceUser.uid);
 
       if (userClients.length === 0) {

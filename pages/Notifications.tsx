@@ -63,11 +63,12 @@ const Notifications: React.FC = () => {
     let q;
 
     if (isHighRole) {
-      q = query(clientsRef, where('nextFollowUpDate', '>', 0), orderBy('nextFollowUpDate', 'asc'), limit(500));
+      // Capped and ordered by date: the nearest/most overdue tasks come first.
+      q = query(clientsRef, where('nextFollowUpDate', '>', 0), orderBy('nextFollowUpDate', 'asc'), limit(300));
     } else {
       // Viewing as a specific agent (effectiveUser) scopes to their data,
       // not the real admin's -- see setViewingAsUser in App.tsx.
-      q = query(clientsRef, where('salesAgentId', '==', effectiveUser?.uid || user.uid), where('nextFollowUpDate', '>', 0), orderBy('nextFollowUpDate', 'asc'));
+      q = query(clientsRef, where('salesAgentId', '==', effectiveUser?.uid || user.uid), where('nextFollowUpDate', '>', 0), orderBy('nextFollowUpDate', 'asc'), limit(300));
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {

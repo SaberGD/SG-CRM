@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   collection, query, where, getDocs, addDoc, limit, orderBy, 
-  doc, updateDoc, setDoc, getDoc, onSnapshot, deleteDoc 
+  doc, updateDoc, setDoc, getDoc, onSnapshot, deleteDoc, getCountFromServer
 } from 'firebase/firestore';
 import { db, logActivity, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../App';
@@ -105,7 +105,40 @@ const Reports: React.FC = () => {
     }
   }, [effectiveRole, user]);
 
-  const [allMyClients, setAllMyClients] = useState<Client[]>([]);
+  // Figures for the selected day, read with server-side counts and day-bounded queries
+  // instead of a live listener on every one of the agent's clients.
+  const [dayData, setDayData] = useState<{ created: Client[]; booked: Client[]; interested: number; notInterested: number; potential: number; remainingScheduled: number; overdue: number }>({ created: [], booked: [], interested: 0, notInterested: 0, potential: 0, remainingScheduled: 0, overdue: 0 });
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const date = new Date(selectedDate); date.setHours(0, 0, 0, 0);
+        const startTs = date.getTime(); const endTs = startTs + 86400000 - 1;
+        const ref = collection(db, 'clients');
+        const mine = where('salesAgentId', '==', user.uid);
+        const count = (...extra: any[]) => getCountFromServer(query(ref, mine, ...extra)).then(r => r.data().count);
+        const [createdSnap, bookedSnap, interested, notInterested, potential, remainingScheduled, overdue] = await Promise.all([
+          getDocs(query(ref, mine, where('createdAt', '>=', startTs), where('createdAt', '<=', endTs))),
+          getDocs(query(ref, mine, where('bookingDate', '>=', startTs), where('bookingDate', '<=', endTs))),
+          count(where('status', '==', ClientStatus.INTERESTED)),
+          count(where('status', '==', ClientStatus.NOT_INTERESTED)),
+          count(where('status', '==', ClientStatus.POTENTIAL)),
+          count(where('nextFollowUpDate', '>=', startTs), where('nextFollowUpDate', '<=', endTs)),
+          count(where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', endTs)),
+        ]);
+        if (cancelled) return;
+        setDayData({
+          created: createdSnap.docs.map(d => d.data() as Client),
+          booked: bookedSnap.docs.map(d => d.data() as Client).filter(c => c.isBooked),
+          interested, notInterested, potential, remainingScheduled, overdue,
+        });
+      } catch (err) {
+        console.error('Reports day figures failed:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid, selectedDate]);
   const [todayFollowUps, setTodayFollowUps] = useState<FollowUp[]>([]);
 
   useEffect(() => {
@@ -116,12 +149,6 @@ const Reports: React.FC = () => {
     const startTs = date.getTime();
     const endTs = startTs + 86400000 - 1;
 
-    const qClients = query(collection(db, 'clients'), where('salesAgentId', '==', user.uid));
-    const unsubClients = onSnapshot(qClients, (snap) => {
-      setAllMyClients(snap.docs.map(d => d.data() as Client));
-    }, (err) => {
-      console.error("Reports Clients Snapshot Error:", err);
-    });
 
     const unsubFollowups = query(
       collection(db, 'followups'), 
@@ -142,7 +169,6 @@ const Reports: React.FC = () => {
     });
 
     return () => {
-      unsubClients();
       unsubFollowupsSnap();
       unsubLabels();
     };
@@ -155,19 +181,19 @@ const Reports: React.FC = () => {
     const endTs = startTs + 86400000 - 1;
     const now = Date.now();
 
-    const bookedToday = allMyClients.filter(c => c.isBooked && c.bookingDate && c.bookingDate >= startTs && c.bookingDate <= endTs);
+    const bookedToday = dayData.booked;
     const completedTodayScheduledForToday = todayFollowUps.filter(f => f.scheduledTime >= startTs && f.scheduledTime <= endTs).length;
-    const remainingScheduledToday = allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate >= startTs && c.nextFollowUpDate <= endTs).length;
+    const remainingScheduledToday = dayData.remainingScheduled;
 
     setTodayStats({
-      newClients: allMyClients.filter(c => c.createdAt >= startTs && c.createdAt <= endTs).length,
-      interested: allMyClients.filter(c => c.status === ClientStatus.INTERESTED).length,
-      notInterested: allMyClients.filter(c => c.status === ClientStatus.NOT_INTERESTED).length,
-      potential: allMyClients.filter(c => c.status === ClientStatus.POTENTIAL).length,
+      newClients: dayData.created.length,
+      interested: dayData.interested,
+      notInterested: dayData.notInterested,
+      potential: dayData.potential,
       booked: bookedToday.length,
       scheduledToday: completedTodayScheduledForToday + remainingScheduledToday,
       completedToday: todayFollowUps.length,
-      overdueToday: allMyClients.filter(c => c.nextFollowUpDate && c.nextFollowUpDate < endTs).length,
+      overdueToday: dayData.overdue,
       largeDelays: todayFollowUps.filter(f => f.delayStatus === 'large_delay').length,
       punctualityRatio: todayFollowUps.length > 0 
         ? Math.round((todayFollowUps.filter(f => f.delayStatus !== 'large_delay').length / todayFollowUps.length) * 100) 
@@ -177,7 +203,7 @@ const Reports: React.FC = () => {
     });
 
     // Calculate Label Stats for selected date's new clients
-    const selectedDayClients = allMyClients.filter(c => c.createdAt >= startTs && c.createdAt <= endTs);
+    const selectedDayClients = dayData.created;
     const lStats: Record<string, number> = {};
     selectedDayClients.forEach(c => {
       c.labels?.forEach(labelId => {
@@ -185,7 +211,7 @@ const Reports: React.FC = () => {
       });
     });
     setLabelStats(lStats);
-  }, [allMyClients, todayFollowUps, selectedDate]);
+  }, [dayData, todayFollowUps, selectedDate]);
 
   useEffect(() => {
     const init = async () => {

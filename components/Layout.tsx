@@ -6,8 +6,7 @@ import { auth, db, logActivity } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import {
-  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog, Database, Sparkles
-} from 'lucide-react';
+  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, ShieldCheck, UserCog, Database, Sparkles, Copy } from 'lucide-react';
 import { UserRole, Client, User } from '../types';
 import ShiftGate from './ShiftGate';
 import ShiftWidget from './ShiftWidget';
@@ -207,6 +206,7 @@ const Layout: React.FC = () => {
   // الترتيب المطلوب: الدعوات ثم الإدارة
   if (effectiveRole !== UserRole.SALES_AGENT) {
     navItems.push({ name: 'نظام الدعوات', path: '/invites', icon: UserPlus });
+    if (effectiveRole === UserRole.ADMIN) navItems.push({ name: 'العملاء المكررين', path: '/duplicates', icon: Copy });
     navItems.push({ name: 'النسخ الاحتياطي', path: '/backup', icon: Database });
   }
   if (user?.role === UserRole.ADMIN) {

@@ -141,6 +141,15 @@ service cloud.firestore {
       allow write: if isTeamLeader();
     }
 
+    // Merge audit trail for the Duplicates page (admin only).
+    match /merged_clients/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /client_merges/{id} {
+      allow read, write: if isAdmin();
+    }
+
     match /logs/{id} {
       allow read: if isStaff();
       allow create: if isStaff();

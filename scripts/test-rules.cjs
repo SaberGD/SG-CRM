@@ -59,6 +59,8 @@ const cases = [
   T('sales cannot log a follow-up as someone else', 'DENY', 'create', 'followups/f1', sales, salesP, { incoming: { agentId: 'other' } }),
   T('sales cannot edit services', 'DENY', 'create', 'services/sv1', sales, salesP, { incoming: { name: 'x' } }),
   T('supervisor can edit services', 'ALLOW', 'create', 'services/sv1', sup, supP, { incoming: { name: 'x' } }),
+  T('admin can archive merged clients', 'ALLOW', 'create', 'merged_clients/m1', owner, noProfile('o1'), { incoming: { mergedInto: 'x' } }),
+  T('sales cannot touch merge archive', 'DENY', 'get', 'merged_clients/m1', sales, salesP, { existing: { mergedInto: 'x' } }),
   T('stranger cannot read shifts or logs', 'DENY', 'get', 'logs/l1', stranger, strangerP, { existing: { userId: 'a' } }),
 ];
 

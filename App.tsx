@@ -20,6 +20,7 @@ import BackupManager from './pages/BackupManager';
 import ServicesManager from './pages/ServicesManager';
 import LabelsManager from './pages/LabelsManager';
 import InvitesManager from './pages/InvitesManager';
+import DuplicatesManager from './pages/DuplicatesManager';
 import AdminPanel from './pages/AdminPanel';
 import { AiAssistant } from './pages/AiAssistant';
 
@@ -242,6 +243,7 @@ const App: React.FC = () => {
             <Route path="/activity" element={<ActivityLogs />} />
             <Route path="/backup" element={<BackupManager />} />
             <Route path="/invites" element={<InvitesManager />} />
+            <Route path="/duplicates" element={<DuplicatesManager />} />
             <Route path="/admin" element={<AdminPanel />} />
           </Route>
         </Routes>

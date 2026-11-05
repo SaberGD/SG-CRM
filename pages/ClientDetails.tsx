@@ -54,6 +54,8 @@ const ClientDetails: React.FC = () => {
   const isAdmin = user?.role === UserRole.ADMIN;
   
   const [client, setClient] = useState<Client | null>(null);
+  // Money of clients linked to accounting bookings comes from the accounting system (read-only here).
+  const accountingOwned = ((client as any)?.accountingBookingIds || []).length > 0;
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -426,12 +428,14 @@ const ClientDetails: React.FC = () => {
 
       if (isBooked) {
         updateData.isBooked = true;
-        updateData.bookedCourseId = bookedCourseId;
-        updateData.bookedCourseName = bookedCourseName;
-        updateData.totalPrice = totalPrice;
-        updateData.paidAmount = paidAmount;
-        updateData.remainingAmount = remainingAmount;
-        updateData.bookingDate = Date.now();
+        if (!accountingOwned) {
+          updateData.bookedCourseId = bookedCourseId;
+          updateData.bookedCourseName = bookedCourseName;
+          updateData.totalPrice = totalPrice;
+          updateData.paidAmount = paidAmount;
+          updateData.remainingAmount = remainingAmount;
+          updateData.bookingDate = Date.now();
+        }
 
         if (isExternalTransfer) {
           updateData.isExternalTransfer = true;
@@ -956,6 +960,17 @@ const ClientDetails: React.FC = () => {
                   <span className="font-bold text-slate-500">الكورس:</span>
                   <span className="font-black text-slate-900 dark:text-white">{client.bookedCourseName}</span>
                 </div>
+                {accountingOwned && (client as any).accounting?.bookings && (
+                  <div className="my-2 rounded-2xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/60 dark:bg-emerald-900/10 p-3 space-y-1.5">
+                    <div className="text-[10px] font-black text-emerald-700 dark:text-emerald-400">من نظام الحسابات (محدّث تلقائياً)</div>
+                    {Object.values((client as any).accounting.bookings as Record<string, any>).map((b: any) => (
+                      <div key={b.id} className="flex flex-wrap justify-between gap-2 text-[11px]">
+                        <span className="font-bold">{b.courseName || 'حجز'}{b.status !== 'ACTIVE' ? ` (${b.status === 'REFUNDED' ? 'مسترد' : 'ملغي'})` : ''}</span>
+                        <span className="font-black">{b.paid} / {b.total} ج.م{b.status === 'ACTIVE' && b.nextDueDate ? ` · القسط الجاي ${b.nextDueDate}` : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 
                 {client.isExternalTransfer ? (
                   <>
@@ -1227,7 +1242,8 @@ const ClientDetails: React.FC = () => {
                             <input 
                               type="number" 
                               required 
-                              className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
+                              disabled={accountingOwned}
+                              className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white disabled:opacity-60" 
                               value={totalPrice || ''} 
                               onChange={e => {
                                 const val = parseFloat(e.target.value) || 0;
@@ -1241,7 +1257,8 @@ const ClientDetails: React.FC = () => {
                             <input 
                               type="number" 
                               required 
-                              className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white" 
+                              disabled={accountingOwned}
+                              className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl font-bold text-xs text-slate-900 dark:text-white disabled:opacity-60" 
                               value={paidAmount || ''} 
                               onChange={e => {
                                 const val = parseFloat(e.target.value) || 0;

@@ -1,5 +1,7 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const crypto = require("crypto");
+const { OAuth2Client } = require("google-auth-library");
+const accountingIngest = require("./accountingIngest");
 const { GoogleGenAI, Type } = require("@google/genai");
 
 function hashForMeta(value) {
@@ -527,10 +529,83 @@ async function findClientForAccounting(phone, countryCode) {
   return { id: doc.id, data: doc.data() };
 }
 
+// ---------------------------------------------------------------------------
+// Accounting -> CRM automatic sync. The accounting project's Cloud Function calls this with a
+// Google-signed ID token; only its own runtime service account is accepted.
+// ---------------------------------------------------------------------------
+const BRIDGE_URL = "https://us-central1-sg-crm-e3a38.cloudfunctions.net/accountingCrmBridge";
+const ACCOUNTING_RUNTIME_SA = "919641001193-compute@developer.gserviceaccount.com";
+const oidcClient = new OAuth2Client();
+
+async function verifyAccountingService(req) {
+  const match = /^Bearer (.+)$/i.exec(req.get("authorization") || "");
+  if (!match) return false;
+  try {
+    const ticket = await oidcClient.verifyIdToken({ idToken: match[1], audience: BRIDGE_URL });
+    const payload = ticket.getPayload();
+    return payload.email_verified === true && payload.email === ACCOUNTING_RUNTIME_SA;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function handleAccountingIngest(req, res) {
+  if (!(await verifyAccountingService(req))) return res.status(403).json({ error: "Not allowed" });
+  const bookingId = String(req.body?.bookingId || "");
+  const booking = req.body?.booking;
+  const customer = req.body?.customer || {};
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(bookingId) || !booking || typeof booking !== "object") return res.status(400).json({ error: "Invalid payload" });
+
+  const now = Date.now();
+  const summary = accountingIngest.summarizeBooking(bookingId, booking, req.body?.productName, now);
+  const keys = accountingIngest.customerPhoneKeys(customer);
+  const review = async (reason, candidates = []) => {
+    await db.collection("sync_review").doc(bookingId).set({ bookingId, reason, candidates, keys, summary, customerName: customer.name || "", createdAt: now, resolved: false }, { merge: true });
+    return res.json({ success: true, action: "queued_for_review", reason });
+  };
+  if (!keys.length) return review("no_phone");
+
+  const found = new Map();
+  for (let i = 0; i < keys.length; i += 10) {
+    const snap = await db.collection("clients").where("phoneKey", "in", keys.slice(i, i + 10)).get();
+    snap.forEach((d) => found.set(d.id, d));
+  }
+  if (found.size > 1) return review("ambiguous_phone", [...found.keys()]);
+
+  const audit = (extra) => db.collection("integrationEvents").doc(`accounting_booking_${bookingId}_${now}`).set({
+    correlationId: `accounting_booking_${bookingId}`, sourceSystem: "accounting", targetSystem: "crm", eventType: "booking_synced",
+    sourceRef: bookingId, processedAt: now, bookingStatus: summary.status, ...extra });
+
+  if (found.size === 0) {
+    if (summary.status !== "ACTIVE") return res.json({ success: true, action: "ignored_inactive_no_client" });
+    const agent = (await findAgentByName(booking.salesName)) || (await getDefaultAutomationAgent());
+    const ref = db.collection("clients").doc();
+    await ref.set({ ...accountingIngest.newClientFromBooking(customer, summary, agent, now), accountingBookingIds: [bookingId] });
+    await audit({ targetRef: ref.id, result: "created_client" });
+    return res.json({ success: true, action: "created_client", clientId: ref.id });
+  }
+
+  const clientRef = found.values().next().value.ref;
+  const result = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(clientRef);
+    const current = snap.data() || {};
+    const plan = accountingIngest.planClientAccounting(current, summary, now);
+    tx.update(clientRef, { ...plan.patch, accountingBookingIds: admin.firestore.FieldValue.arrayUnion(bookingId) });
+    return plan;
+  });
+  await audit({ targetRef: clientRef.id, result: "updated_client", changedFields: result.changedFields, overwroteFinancials: result.overwroteFinancials });
+  await db.collection("sync_review").doc(bookingId).delete().catch(() => {});
+  return res.json({ success: true, action: "updated_client", clientId: clientRef.id, changedFields: result.changedFields });
+}
+
 exports.accountingCrmBridge = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   const action = req.body?.action;
-  if (!["lookup", "syncBooking"].includes(action)) return res.status(400).json({ error: "Invalid action" });
+  if (!["lookup", "syncBooking", "ingest"].includes(action)) return res.status(400).json({ error: "Invalid action" });
+  if (action === "ingest") {
+    try { return await handleAccountingIngest(req, res); }
+    catch (error) { console.error("accounting ingest failed:", error); return res.status(500).json({ error: "Ingest failed" }); }
+  }
 
   try {
     const actor = await authorizedAccountingUser(req, action === "syncBooking");
@@ -1119,6 +1194,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       }
       if (phoneFull && !existingClient.phone) {
         updateData.phone = phoneFull;
+        updateData.phoneKey = accountingIngest.normalizePhoneKey(phoneFull);
+        updateData.phoneKeys = updateData.phoneKey ? [updateData.phoneKey] : [];
         updateData.countryCode = body.country_code || existingClient.countryCode || "+20";
       }
       if (hasChatwootContactId && !existingClient.chatwootContactId) {
@@ -1210,6 +1287,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       name: cleanName,
       position: body.position && String(body.position).trim() ? String(body.position).trim() : "",
       phone: phoneFull || "",
+      phoneKey: accountingIngest.normalizePhoneKey(phoneFull),
+      phoneKeys: accountingIngest.normalizePhoneKey(phoneFull) ? [accountingIngest.normalizePhoneKey(phoneFull)] : [],
       chatwootContactId: body.chatwoot_contact_id ? String(body.chatwoot_contact_id) : null,
       chatId: body.chatwoot_conversation_id ? String(body.chatwoot_conversation_id) : null,
       gender: ["male", "female", "unspecified"].includes(body.gender) ? body.gender : "unspecified",

@@ -111,6 +111,9 @@ service cloud.firestore {
         (isTeamLeader() || resource.data.get('salesAgentId', '') == request.auth.uid) &&
         // AI recommendations and accounting-synced fields are written by the server only.
         !changed(['aiRecommendation', 'accountingBookingIds', 'accountingLastSyncedAt', 'accounting']) &&
+        // Money of a client linked to accounting bookings comes from accounting only.
+        !(resource.data.get('accountingBookingIds', []).size() > 0 &&
+          changed(['totalPrice', 'paidAmount', 'remainingAmount', 'bookedCourseName', 'bookedCourseId', 'bookingDate'])) &&
         // Handing a client to someone else is a transfer: leaders only.
         (isTeamLeader() || !changed(['salesAgentId', 'salesAgentName']))
       );
@@ -144,6 +147,11 @@ service cloud.firestore {
     // Merge audit trail for the Duplicates page (admin only).
     match /merged_clients/{id} {
       allow read, write: if isAdmin();
+    }
+
+    // Bookings the accounting sync could not attach to exactly one client (managers resolve).
+    match /sync_review/{id} {
+      allow read, write: if isManager();
     }
 
     match /client_merges/{id} {

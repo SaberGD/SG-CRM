@@ -1,3 +1,5 @@
+import type { AutoFollowUpState } from './utils/autoFollowUp';
+
 
 export enum UserRole {
   ADMIN = 'admin',
@@ -150,7 +152,8 @@ export interface Client {
   lastFollowUpDate?: number;
   nextFollowUpDate?: number;
   nextFollowUpMethod?: CommMethod;
-  nextFollowUpSetVia?: 'ai_automation' | 'manual';
+  // 'auto_booked' = the automatic 2-week personal follow-up of a booked client (utils/autoFollowUp).
+  nextFollowUpSetVia?: 'ai_automation' | 'manual' | 'auto_booked';
   nextFollowUpReason?: string;
   nextFollowUpReviewedBySales?: boolean;
   nextFollowUpReviewedByName?: string;
@@ -187,6 +190,10 @@ export interface Client {
   reviewedBySales?: boolean;
   reviewedByName?: string;
   reviewedAt?: number;
+  // Automatic personal follow-up every 2 weeks (booked clients). See utils/autoFollowUp.ts.
+  autoFollowUp?: AutoFollowUpState;
+  // Written by the accounting sync (read-only in the CRM).
+  accountingLatestBookingDate?: number;
 }
 
 export interface FollowUp {
@@ -211,6 +218,8 @@ export interface FollowUp {
   reviewedBySales?: boolean;
   reviewedByName?: string;
   reviewedAt?: number;
+  // 'auto_booked' = logged with "تمت المتابعة" for the automatic 2-week follow-up.
+  kind?: 'auto_booked';
 }
 
 export interface ClientTransfer {

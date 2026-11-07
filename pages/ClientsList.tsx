@@ -23,6 +23,7 @@ import {
 import { PageHeader } from '../components/ui';
 import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
 import { searchTerm as toSearchKey, matchesSearch, buildSearchKeys } from '../utils/searchKeys.mjs';
+import { planEnableAutoFollowUp } from '../utils/autoFollowUp';
 import { usePagedQuery } from '../utils/usePagedQuery';
 import { useServices, useLabels, useAgentOptions, useStaff } from '../utils/refData';
 import Pager from '../components/Pager';
@@ -471,13 +472,20 @@ const ClientsList: React.FC = () => {
         }
       }
 
+      // Added as booked -> the automatic 2-week personal follow-up starts (a picked date is kept).
+      const autoOn = isBooked
+        ? planEnableAutoFollowUp({ ...dataToSave, nextFollowUpSetVia: nextTs ? 'manual' : undefined }, { now: Date.now(), by: user.uid, byName: user.name, via: 'booking' })
+        : null;
+      if (autoOn) Object.assign(dataToSave, autoOn);
+
       // Search index fields (see utils/searchKeys): word starts of the name + phone tail.
       dataToSave.searchKeys = buildSearchKeys(dataToSave.name, dataToSave.phone);
       dataToSave.phoneKey = normalizePhoneKey(dataToSave.phone);
       dataToSave.phoneKeys = dataToSave.phoneKey ? [dataToSave.phoneKey] : [];
-      await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
+      const createdRef = await firestore.addDoc(firestore.collection(db, 'clients'), dataToSave);
       console.log("Client added successfully");
       await logActivity(user.uid, user.name, `إضافة عميل جديد (${newClient.source}): ${newClient.name}`, 'new', newClient.name);
+      if (autoOn) await logActivity(user.uid, user.name, 'تشغيل المتابعة التلقائية كل أسبوعين (العميل حجز)', createdRef.id, newClient.name);
       sendMetaEvent({
         eventName: isBooked ? 'Purchase' : 'Lead',
         phone: phoneFull,

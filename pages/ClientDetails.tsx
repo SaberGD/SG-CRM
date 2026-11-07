@@ -18,7 +18,7 @@ import {
   MessageSquare, Edit2, X, Save, User, CalendarPlus, 
   Download, FileText, UserCheck, Settings, Timer, LayoutList, History as HistoryIcon,
   MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw,
-  Facebook, Instagram, Music2, Globe2, CalendarX, UserPlus
+  Facebook, Instagram, Music2, Globe2, CalendarX, UserPlus, HeartHandshake, PauseCircle, PlayCircle
 } from 'lucide-react';
 import { useServices, useLabels, useStaff } from '../utils/refData';
 import { usePagedList } from '../utils/usePagedQuery';
@@ -29,6 +29,10 @@ import ManualFollowUpModal from '../components/ManualFollowUpModal';
 import AcceptFlowModal from '../components/AcceptFlowModal';
 import { getLabelColorStyle } from '../utils/labelColors';
 import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
+import {
+  AUTO_KIND, STOP_REASONS, isAutoOn, isAutoScheduled, isBookedState, hasOtherSchedule,
+  planEnableAutoFollowUp, planDisableAutoFollowUp, planAutoAfterFollowUp, planOnBecameBooked, manualOverridePatch,
+} from '../utils/autoFollowUp';
 import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
@@ -77,6 +81,12 @@ const ClientDetails: React.FC = () => {
   const [copiedSearchPhrase, setCopiedSearchPhrase] = useState(false);
 
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
+  // 'auto_booked' while documenting the automatic 2-week follow-up ("تمت المتابعة", no timer).
+  const [followUpKind, setFollowUpKind] = useState<typeof AUTO_KIND | null>(null);
+  const [isAutoStopOpen, setIsAutoStopOpen] = useState(false);
+  const [autoStopCode, setAutoStopCode] = useState('');
+  const [autoStopText, setAutoStopText] = useState('');
+  const [autoSaving, setAutoSaving] = useState(false);
 
   // Form States
   const [note, setNote] = useState('');
@@ -168,6 +178,7 @@ const ClientDetails: React.FC = () => {
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
         nextFollowUpDate: rec.suggestedTimestamp,
         nextFollowUpMethod: method,
+        ...manualOverridePatch(client, firestore.deleteField()),
         notes: client.notes ? `${client.notes}\n[توصية AI]: ${rec.suggestedPitch}` : `[توصية AI]: ${rec.suggestedPitch}`,
         'aiRecommendation.status': 'ACCEPTED',
         'aiRecommendation.acceptedAt': Date.now(),
@@ -310,7 +321,53 @@ const ClientDetails: React.FC = () => {
     setShowForm(false);
     setStartTime(null);
     setActiveAppointmentId(null);
+    setFollowUpKind(null);
     await logActivity(user.uid, user.name, "تراجع عن متابعة بدأت بالخطأ", client.id, client.name);
+  };
+
+  // "تمت المتابعة" for the automatic 2-week follow-up: straight to the documentation form, no timer.
+  const handleAutoFollowUpDone = () => {
+    if (!user || !client) return;
+    setFollowUpKind(AUTO_KIND);
+    setStartTime(Date.now());
+    setActiveAppointmentId(isAutoScheduled(client) ? 'scheduled' : null);
+    setIsCommunicating(false);
+    setMethod(CommMethod.WHATSAPP);
+    setScheduleNext(false);
+    setShowForm(true);
+  };
+
+  const handleStopAutoFollowUp = async () => {
+    if (!user || !client) return;
+    const text = autoStopText.trim();
+    if (!autoStopCode || !text) return alert('اختار السبب واكتب تفاصيله.');
+    const patch = planDisableAutoFollowUp(client, {
+      now: Date.now(), by: user.uid, byName: user.name, reason: `${autoStopCode}: ${text}`, reasonCode: autoStopCode,
+    }, firestore.deleteField());
+    if (!patch) { setIsAutoStopOpen(false); return; }
+    setAutoSaving(true);
+    try {
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), patch);
+      await logActivity(user.uid, user.name, `إيقاف المتابعة التلقائية كل أسبوعين — السبب: ${autoStopCode}: ${text}`, client.id, client.name);
+      setIsAutoStopOpen(false); setAutoStopCode(''); setAutoStopText('');
+    } catch (err) {
+      console.error(err);
+      alert('ماقدرناش نوقف المتابعة التلقائية. اتأكد إن العميل ده بتاعك أو كلم الليدر.');
+    } finally { setAutoSaving(false); }
+  };
+
+  const handleStartAutoFollowUp = async () => {
+    if (!user || !client) return;
+    const patch = planEnableAutoFollowUp(client, { now: Date.now(), by: user.uid, byName: user.name, via: 'manual' }, firestore.deleteField());
+    if (!patch) return;
+    setAutoSaving(true);
+    try {
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), patch);
+      await logActivity(user.uid, user.name, 'تشغيل المتابعة التلقائية كل أسبوعين تاني', client.id, client.name);
+    } catch (err) {
+      console.error(err);
+      alert('ماقدرناش نشغّل المتابعة التلقائية. اتأكد إن العميل ده بتاعك أو كلم الليدر.');
+    } finally { setAutoSaving(false); }
   };
 
   const handleAssignToMe = async () => {
@@ -386,12 +443,16 @@ const ClientDetails: React.FC = () => {
       nextTs = calculateTimestamp(nextDate, nextTime, nextPeriod);
     }
 
+    const isAutoKind = followUpKind === AUTO_KIND;
     const scheduledTime = client.nextFollowUpDate || 0;
     let delayStatus: 'on_time' | 'acceptable' | 'large_delay' = 'on_time';
     
     if (scheduledTime > 0) {
       const delayMins = (startTime - scheduledTime) / (1000 * 60);
-      if (delayMins > 15) delayStatus = 'large_delay';
+      if (isAutoKind && isAutoScheduled(client)) {
+        // A day-level check-in: on time any time on its day.
+        if (delayMins > 24 * 60) delayStatus = 'large_delay';
+      } else if (delayMins > 15) delayStatus = 'large_delay';
       else if (delayMins > 5) delayStatus = 'acceptable';
     }
 
@@ -403,7 +464,8 @@ const ClientDetails: React.FC = () => {
         timestamp: Date.now(), startTime, endTime, duration,
         scheduledTime,
         delayStatus,
-        appointmentId: activeAppointmentId
+        appointmentId: activeAppointmentId,
+        ...(isAutoKind ? { kind: AUTO_KIND } : {}),
       });
 
       const updateData: any = {
@@ -440,11 +502,20 @@ const ClientDetails: React.FC = () => {
       if (nextTs) {
         updateData.nextFollowUpDate = nextTs;
         updateData.nextFollowUpMethod = nextFollowUpMethod;
+        Object.assign(updateData, manualOverridePatch(client, firestore.deleteField()));
       }
+
+      // Automatic 2-week follow-up: switch on when the client becomes booked here; when it is
+      // already on, the next one is in 2 weeks unless a specific date was picked above.
+      const del = firestore.deleteField();
+      const after = { ...client, ...updateData, nextFollowUpSetVia: nextTs ? 'manual' : undefined };
+      const enable = planOnBecameBooked(client, after, { now: endTime, anchor: endTime, by: user.uid, byName: user.name, via: 'booking' }, del);
+      Object.assign(updateData, enable || planAutoAfterFollowUp(client, { now: endTime, manualNextTs: nextTs }, del));
 
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), updateData);
       
-      await logActivity(user.uid, user.name, `إنهاء متابعة: ${salesBrief}`, client.id, client.name);
+      await logActivity(user.uid, user.name, `${isAutoKind ? 'تمت المتابعة الشخصية (كل أسبوعين)' : 'إنهاء متابعة'}: ${salesBrief}`, client.id, client.name);
+      if (enable) await logActivity(user.uid, user.name, 'تشغيل المتابعة التلقائية كل أسبوعين (العميل حجز)', client.id, client.name);
       
 
       if (isBooked) {
@@ -463,7 +534,8 @@ const ClientDetails: React.FC = () => {
       setIsCommunicating(false);
       setStartTime(null);
       setElapsedTime(0);
-    } catch (err) { console.error(err); }
+      setFollowUpKind(null);
+    } catch (err) { console.error(err); alert('حصل خطأ وماتسجلتش المتابعة. جرّب تاني.'); }
   };
 
   const handleScheduleFollowUp = async () => {
@@ -474,6 +546,7 @@ const ClientDetails: React.FC = () => {
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
         nextFollowUpDate: nextTs,
         nextFollowUpMethod: nextFollowUpMethod,
+        ...manualOverridePatch(client, firestore.deleteField()),
         ...(wasAiSet ? {
           nextFollowUpReviewedBySales: true,
           nextFollowUpReviewedByName: user.name,
@@ -518,13 +591,17 @@ const ClientDetails: React.FC = () => {
 
       // Keep the search index fields in step with the edited name/phone.
       const phoneKey = normalizePhoneKey(finalData.phone);
+      // Status changed to booked here -> the automatic 2-week follow-up starts.
+      const enable = planOnBecameBooked(client, { ...client, status: finalData.status }, { now: Date.now(), by: user.uid, byName: user.name, via: 'booking' }, firestore.deleteField());
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
         ...finalData,
         searchKeys: buildSearchKeys(finalData.name, finalData.phone),
         phoneKey,
         ...(phoneKey && !((client as any).phoneKeys || []).includes(phoneKey) ? { phoneKeys: [phoneKey, ...(((client as any).phoneKeys) || [])] } : {}),
+        ...(enable || {}),
       });
       await logActivity(user.uid, user.name, `تحديث بيانات العميل`, client.id, client.name);
+      if (enable) await logActivity(user.uid, user.name, 'تشغيل المتابعة التلقائية كل أسبوعين (العميل حجز)', client.id, client.name);
       setIsEditModalOpen(false);
     } catch (err) { console.error(err); }
   };
@@ -716,6 +793,73 @@ const ClientDetails: React.FC = () => {
         </div>
       </div>
 
+      {(isBookedState(client) || client.autoFollowUp) && (() => {
+        const af = client.autoFollowUp;
+        const on = isAutoOn(client);
+        const autoDate = isAutoScheduled(client) ? client.nextFollowUpDate! : 0;
+        const otherDate = hasOtherSchedule(client) ? client.nextFollowUpDate! : 0;
+        const lastDone = af?.lastDoneAt || client.lastFollowUpDate || 0;
+        const due = !!autoDate && autoDate <= new Date().setHours(23, 59, 59, 999);
+        const fmtDay = (ms: number) => new Date(ms).toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'short' });
+        return (
+          <div className={`sgui-panel p-5 md:p-6 space-y-4 ${on && due ? 'border-2 border-amber-300 dark:border-amber-500/40' : ''}`}>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div className="flex items-center gap-3">
+                <span className="sgui-row-icon"><HeartHandshake size={20} /></span>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    المتابعة التلقائية كل أسبوعين
+                    <Badge tone={on ? 'good' : 'neutral'}>{on ? 'شغالة' : 'متوقفة'}</Badge>
+                  </h3>
+                  <p className="text-[11px] font-bold text-slate-500 mt-0.5">متابعة شخصية للعميل الحاجز: نتطمن عليه وإن الكورس ماشي تمام.</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {on ? (
+                  <>
+                    {!isCommunicating && !showForm && (
+                      <button onClick={handleAutoFollowUpDone} className="sgui-button is-primary"><CheckCircle2 size={16} /> تمت المتابعة</button>
+                    )}
+                    <button onClick={() => setIsAutoStopOpen(true)} disabled={autoSaving} className="sgui-button"><PauseCircle size={16} /> إيقاف المتابعة التلقائية</button>
+                  </>
+                ) : (
+                  <button onClick={handleStartAutoFollowUp} disabled={autoSaving} className="sgui-button is-primary"><PlayCircle size={16} /> {af ? 'تشغيل تاني' : 'تشغيل'}</button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl">
+                <p className="text-[10px] font-black text-slate-400 mb-1">المتابعة الجاية</p>
+                <p className="font-black text-slate-900 dark:text-white">
+                  {!on ? '—' : autoDate ? fmtDay(autoDate) : otherDate ? `فيه موعد متحدد ${fmtDay(otherDate)} — وبعده بأسبوعين` : 'هتتحدد بعد أول متابعة'}
+                </p>
+                {on && due && <p className="text-[10px] font-bold text-amber-600 mt-1">{autoDate < Date.now() - 86400000 ? 'فات ميعادها — تابع العميل لما تقدر' : 'ميعادها النهارده'}</p>}
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl">
+                <p className="text-[10px] font-black text-slate-400 mb-1">آخر متابعة</p>
+                <p className="font-black text-slate-900 dark:text-white">{lastDone ? fmtDay(lastDone) : 'لسه مفيش'}</p>
+              </div>
+            </div>
+
+            {on ? (
+              <div className="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-500/5 border border-emerald-100 dark:border-emerald-500/10 space-y-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 leading-relaxed">
+                <p className="text-[10px] font-black text-emerald-700 dark:text-emerald-400">تقول إيه؟</p>
+                <p>• لو الكورس لسه مابدأش: حمّسه للكورس وقوله "بنتطمن عليك بشكل شخصي، بدأت تستعد للكورس؟"</p>
+                <p>• لو الكورس بدأ: "الكورس ماشي تمام؟ محتاج أي مساعدة؟"</p>
+              </div>
+            ) : af?.stoppedAt ? (
+              <p className="text-[11px] font-bold text-slate-500">
+                اتوقفت {new Date(af.stoppedAt).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' })}
+                {af.stoppedByName ? ` بواسطة ${af.stoppedByName}` : ''}{af.stoppedReason ? ` — السبب: ${af.stoppedReason}` : ''}
+              </p>
+            ) : (
+              <p className="text-[11px] font-bold text-slate-500">مش شغالة للعميل ده (الحجز أقدم من 3 شهور أو اتسجل قبل الميزة دي). لو عايز تتابعه كل أسبوعين دوس "تشغيل".</p>
+            )}
+          </div>
+        );
+      })()}
+
       {client.notes && (
         <div className="sgui-info-card items-start">
           <span className="sgui-row-icon"><FileText size={18} /></span>
@@ -854,7 +998,7 @@ const ClientDetails: React.FC = () => {
                     <span className="text-[10px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-full">{new Date(item.timestamp).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
                     <span className={`text-[9px] font-black uppercase flex items-center gap-1 ${isUnreviewedAiFollowUp ? 'text-orange-600 dark:text-orange-400' : 'text-primary-500'}`}>
                       {isUnreviewedAiFollowUp && <Sparkles size={10} />}
-                      {item.type === 'followup' ? (item.isAutomated ? 'متابعة أتمتة' : 'متابعة سيلز') : 'تحديث نظام'}
+                      {item.type === 'followup' ? (item.isAutomated ? 'متابعة أتمتة' : item.kind === 'auto_booked' ? 'متابعة شخصية (كل أسبوعين)' : 'متابعة سيلز') : 'تحديث نظام'}
                     </span>
                   </div>
                   {item.type === 'followup' ? (
@@ -990,10 +1134,13 @@ const ClientDetails: React.FC = () => {
 
           {showForm ? (
             <div className="sg-surface p-6 border-2 border-primary-500/30 sticky top-6 animate-fade-in">
-              <h3 className="text-xl font-black mb-6 flex items-center gap-2"><LayoutList className="text-primary-500"/> توثيق المتابعة</h3>
+              <h3 className="text-xl font-black mb-6 flex items-center gap-2"><LayoutList className="text-primary-500"/> {followUpKind === AUTO_KIND ? 'تمت المتابعة الشخصية' : 'توثيق المتابعة'}</h3>
+              {followUpKind === AUTO_KIND && (
+                <p className="-mt-3 mb-5 text-[11px] font-bold text-slate-500 leading-relaxed">سجّل المتابعة اللي عملتها. لو ماحددتش موعد جديد، المتابعة الجاية هتتحط لوحدها بعد أسبوعين.</p>
+              )}
               <form onSubmit={submitFollowUp} className="space-y-5">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">نوع التواصل الحالي</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">{followUpKind === AUTO_KIND ? 'اتعملت فين؟' : 'نوع التواصل الحالي'}</label>
                   <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm text-slate-900 dark:text-white" value={method} onChange={e => setMethod(e.target.value as CommMethod)}>
                     {(Object.entries(CommMethodLabels) as [string, {ar: string}][]).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
                   </select>
@@ -1003,8 +1150,8 @@ const ClientDetails: React.FC = () => {
                   <input required placeholder="مثال: مهتم بالعرض ويريد تفاصيل الحجز" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm text-slate-900 dark:text-white outline-none border border-transparent focus:border-primary-500" value={salesBrief} onChange={e => setSalesBrief(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">النتيجة التفصيلية</label>
-                  <input required placeholder="سجل الرد النهائي للعميل..." className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm text-slate-900 dark:text-white outline-none focus:border-primary-500 border border-transparent" value={result} onChange={e => setResult(e.target.value)} />
+                  <label className="text-[10px] font-black text-slate-400 uppercase mr-2">{followUpKind === AUTO_KIND ? 'النتيجة (العميل عامل إيه؟ الكورس ماشي إزاي؟)' : 'النتيجة التفصيلية'}</label>
+                  <input required placeholder={followUpKind === AUTO_KIND ? 'مثال: بدأ الكورس ومبسوط، محتاج ملزمة المحاضرة 3' : 'سجل الرد النهائي للعميل...'} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm text-slate-900 dark:text-white outline-none focus:border-primary-500 border border-transparent" value={result} onChange={e => setResult(e.target.value)} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">ملاحظات داخلية</label>
@@ -1427,6 +1574,31 @@ const ClientDetails: React.FC = () => {
                </div>
                <button onClick={handleUpdateClient} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all active:scale-[0.98]">حفظ التغييرات</button>
              </div>
+      </FloatingPanel>
+
+      <FloatingPanel
+        isOpen={isAutoStopOpen}
+        onClose={() => setIsAutoStopOpen(false)}
+        title="إيقاف المتابعة التلقائية"
+        icon={<PauseCircle className="text-amber-500" />}
+      >
+        <div className="space-y-4">
+          <p className="text-xs font-bold text-slate-500 leading-relaxed">المتابعة الشخصية كل أسبوعين هتقف للعميل ده. لازم تكتب السبب.</p>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-400 uppercase mr-2">السبب</label>
+            <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white outline-none" value={autoStopCode} onChange={e => setAutoStopCode(e.target.value)}>
+              <option value="">اختار السبب...</option>
+              {STOP_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-400 uppercase mr-2">التفاصيل</label>
+            <textarea className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white outline-none h-24" placeholder="مثال: خلص الكورس يوم 1/11 ومش محتاج متابعة" value={autoStopText} onChange={e => setAutoStopText(e.target.value)} />
+          </div>
+          <button onClick={handleStopAutoFollowUp} disabled={autoSaving || !autoStopCode || !autoStopText.trim()} className="w-full py-5 bg-amber-500 text-white rounded-3xl font-black shadow-xl hover:bg-amber-600 transition-all active:scale-[0.98] disabled:opacity-50">
+            {autoSaving ? 'جاري الحفظ...' : 'إيقاف المتابعة التلقائية'}
+          </button>
+        </div>
       </FloatingPanel>
 
       {client && user && (

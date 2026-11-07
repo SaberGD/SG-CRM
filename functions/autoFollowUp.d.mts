@@ -1,0 +1,37 @@
+export interface AutoFollowUpState {
+  enabled: boolean;
+  everyDays: number;
+  startedAt?: number;
+  startedBy?: string;
+  startedByName?: string;
+  startedVia?: string;
+  lastDoneAt?: number;
+  stoppedAt?: number;
+  stoppedBy?: string;
+  stoppedByName?: string;
+  stoppedReason?: string;
+  stoppedReasonCode?: string;
+}
+type AnyClient = Record<string, any> | null | undefined;
+type Patch = Record<string, any>;
+export const AUTO_EVERY_DAYS: number;
+export const AUTO_SET_VIA: 'auto_booked';
+export const AUTO_KIND: 'auto_booked';
+export const AUTO_REASON: string;
+export const ACCOUNTING_STOP_REASON: string;
+export const STOP_REASONS: string[];
+export const RECENT_BOOKING_DAYS: number;
+export const ACCOUNTING_ACTOR: { by: string; byName: string };
+export function nextAutoDate(anchorMs: number | null | undefined, nowMs?: number, everyDays?: number): number;
+export function isBookedState(c: AnyClient): boolean;
+export function isAutoOn(c: AnyClient): boolean;
+export function isAutoScheduled(c: AnyClient): boolean;
+export function hasOtherSchedule(c: AnyClient): boolean;
+export function isRecentBooking(ms: number | null | undefined, nowMs?: number): boolean;
+export function bookingAnchor(c: AnyClient): number;
+export function planEnableAutoFollowUp(client: AnyClient, opts?: { now?: number; anchor?: number; by?: string; byName?: string; via?: string }, del?: unknown): Patch | null;
+export function planDisableAutoFollowUp(client: AnyClient, opts?: { now?: number; by?: string; byName?: string; reason?: string; reasonCode?: string }, del?: unknown): Patch | null;
+export function planAutoAfterFollowUp(client: AnyClient, opts?: { now?: number; doneAt?: number; manualNextTs?: number }, del?: unknown): Patch;
+export function manualOverridePatch(client: AnyClient, del?: unknown): Patch;
+export function planOnBecameBooked(before: AnyClient, after: AnyClient, opts?: { now?: number; anchor?: number; by?: string; byName?: string; via?: string }, del?: unknown): Patch | null;
+export function planAccountingAutoFollowUp(current: AnyClient, patch: Patch | null | undefined, opts?: { now?: number; bookingId?: string }, del?: unknown): Patch | null;

@@ -555,8 +555,21 @@ async function verifyAccountingService(req) {
   }
 }
 
+// Automatic personal follow-up every 2 weeks (shared ESM module, loaded once per instance).
+let autoFollowUp = null;
+const loadAutoFollowUp = async () => (autoFollowUp = autoFollowUp || (await import("./autoFollowUp.mjs")));
+
+// Activity-log entry for the automatic 2-week follow-up being switched on/off by accounting.
+function autoFollowUpLog(auto, clientId, clientName, now) {
+  const on = auto.autoFollowUp.enabled;
+  return { userId: autoFollowUp.ACCOUNTING_ACTOR.by, userName: autoFollowUp.ACCOUNTING_ACTOR.byName,
+    action: on ? "تشغيل المتابعة التلقائية كل أسبوعين (حجز من الحسابات)" : `إيقاف المتابعة التلقائية: ${autoFollowUp.ACCOUNTING_STOP_REASON}`,
+    targetId: clientId, targetName: clientName || "", timestamp: now };
+}
+
 async function handleAccountingIngest(req, res) {
   if (!(await verifyAccountingService(req))) return res.status(403).json({ error: "Not allowed" });
+  await loadAutoFollowUp();
   const bookingId = String(req.body?.bookingId || "");
   const booking = req.body?.booking;
   const customer = req.body?.customer || {};
@@ -590,8 +603,10 @@ async function handleAccountingIngest(req, res) {
     const ref = db.collection("clients").doc();
     const created = accountingIngest.newClientFromBooking(customer, summary, agent, now);
     created.searchKeys = (await import("./searchKeys.mjs")).buildSearchKeys(created.name, created.phone);
-    await ref.set({ ...created, accountingBookingIds: [bookingId] });
-    await audit({ targetRef: ref.id, result: "created_client" });
+    // Personal follow-up every 2 weeks for a recent booking (no delete sentinels in a new doc).
+    const autoOn = autoFollowUp.planAccountingAutoFollowUp({}, created, { now, bookingId });
+    await ref.set({ ...created, ...(autoOn || {}), accountingBookingIds: [bookingId] });
+    await audit({ targetRef: ref.id, result: "created_client", autoFollowUp: autoOn ? "enabled" : null });
     return res.json({ success: true, action: "created_client", clientId: ref.id });
   }
 
@@ -600,10 +615,14 @@ async function handleAccountingIngest(req, res) {
     const snap = await tx.get(clientRef);
     const current = snap.data() || {};
     const plan = accountingIngest.planClientAccounting(current, summary, now);
-    tx.update(clientRef, { ...plan.patch, accountingBookingIds: admin.firestore.FieldValue.arrayUnion(bookingId) });
-    return plan;
+    // On for a new/recent booking, off when no booking is ACTIVE any more; null = no change
+    // (repeat syncs of the same booking never touch it, so this cannot loop or pile up).
+    const auto = autoFollowUp.planAccountingAutoFollowUp(current, plan.patch, { now, bookingId }, admin.firestore.FieldValue.delete());
+    tx.update(clientRef, { ...plan.patch, ...(auto || {}), accountingBookingIds: admin.firestore.FieldValue.arrayUnion(bookingId) });
+    if (auto) tx.set(db.collection("logs").doc(), autoFollowUpLog(auto, clientRef.id, current.name, now));
+    return { ...plan, autoFollowUp: auto ? (auto.autoFollowUp.enabled ? "enabled" : "disabled") : null };
   });
-  await audit({ targetRef: clientRef.id, result: "updated_client", changedFields: result.changedFields, overwroteFinancials: result.overwroteFinancials });
+  await audit({ targetRef: clientRef.id, result: "updated_client", changedFields: result.changedFields, overwroteFinancials: result.overwroteFinancials, autoFollowUp: result.autoFollowUp });
   await db.collection("sync_review").doc(bookingId).delete().catch(() => {});
   return res.json({ success: true, action: "updated_client", clientId: clientRef.id, changedFields: result.changedFields });
 }
@@ -731,17 +750,23 @@ exports.accountingCrmBridge = onRequest({ region: "us-central1", cors: true, sec
       ? await accountingDocument(`${productCollection}/${encodeURIComponent(booking.productId)}`, actor.token)
       : null;
     const now = Date.now();
+    await loadAutoFollowUp();
     const auditRef = db.collection("integrationEvents").doc(`accounting_booking_${bookingId}`);
     const result = await db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(db.collection("clients").doc(match.id));
       const current = snapshot.data() || {};
       if (current.accountingBookingIds?.includes(bookingId)) return { action: "already_synced" };
       const plan = planAccountingBookingSync(current, booking, product?.name);
+      const auto = plan.isLatestBooking
+        ? autoFollowUp.planAccountingAutoFollowUp(current, plan.applied, { now, bookingId }, admin.firestore.FieldValue.delete())
+        : null;
       transaction.update(snapshot.ref, {
         accountingBookingIds: admin.firestore.FieldValue.arrayUnion(bookingId),
         accountingLastSyncedAt: now,
         ...(plan.isLatestBooking ? plan.applied : {}),
+        ...(auto || {}),
       });
+      if (auto) transaction.set(db.collection("logs").doc(), autoFollowUpLog(auto, snapshot.id, current.name, now));
       transaction.set(auditRef, {
         correlationId: `accounting_booking_${bookingId}`,
         sourceSystem: "accounting",

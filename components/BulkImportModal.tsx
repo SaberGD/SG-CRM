@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { normalizePhoneKey } from '../utils/clientMerge.mjs';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
+import { planEnableAutoFollowUp, isRecentBooking, isBookedState } from '../utils/autoFollowUp';
 import { Client, ClientStatus, ClientSource, Gender } from '../types';
 import { X, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, RefreshCw, FileDown, ArrowRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -42,6 +43,7 @@ interface ParsedRow {
   errorMessage?: string;
   isExistingClient?: boolean;
   existingClientId?: string;
+  existingClient?: Partial<Client>;
 }
 
 export const BulkImportModal: React.FC<BulkImportModalProps> = ({
@@ -153,10 +155,11 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
         });
       });
       const existingClientsMap = new Map<string, string>(); // phoneKey -> docId
+      const existingData = new Map<string, any>(); // docId -> data (already read; used for the auto follow-up)
       const keyList = [...fileKeys];
       for (let i = 0; i < keyList.length; i += 30) {
         const snap = await firestore.getDocs(firestore.query(firestore.collection(db, 'clients'), firestore.where('phoneKey', 'in', keyList.slice(i, i + 30))));
-        snap.docs.forEach((d) => existingClientsMap.set(String(d.data().phoneKey), d.id));
+        snap.docs.forEach((d) => { existingClientsMap.set(String(d.data().phoneKey), d.id); existingData.set(d.id, d.data()); });
       }
 
       const parsed: ParsedRow[] = [];
@@ -269,7 +272,8 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           isValid,
           errorMessage,
           isExistingClient: !!existingDocId,
-          existingClientId: existingDocId
+          existingClientId: existingDocId,
+          existingClient: existingDocId ? existingData.get(existingDocId) : undefined
         });
       });
 
@@ -294,6 +298,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
 
     let updatedCount = 0;
     let createdCount = 0;
+    let autoOnCount = 0;
 
     try {
       const chunkSize = 200; // Batch limit safe size
@@ -315,10 +320,19 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             deductionReason = '٣٪ عمولة تحويل و ١٤٪ ضرايب';
           }
 
+          // Automatic 2-week follow-up for bookings of the last 3 months: on for clients that
+          // become booked here (or never had it); a sales person's "off" is left alone.
+          const existing = row.existingClient || {};
+          const autoOn = isRecentBooking(bookingTimestamp, nowTs) && (!isBookedState(existing) || !existing.autoFollowUp)
+            ? planEnableAutoFollowUp(existing, { now: nowTs, anchor: bookingTimestamp, by: currentUser.uid, byName: currentUser.name, via: 'bulk_import' }, row.isExistingClient ? firestore.deleteField() : undefined)
+            : null;
+          if (autoOn) autoOnCount++;
+
           if (row.isExistingClient && row.existingClientId) {
             // UPDATE EXISTING CLIENT -> Change status to BOOKED and attach booking details
             const clientRef = firestore.doc(db, 'clients', row.existingClientId);
             batch.update(clientRef, {
+              ...(autoOn || {}),
               status: ClientStatus.BOOKED,
               isBooked: true,
               bookedCourseId: row.bookedCourseId || 'custom',
@@ -365,7 +379,8 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
               exchangeRateUsed: row.exchangeRateUsed || 48.5,
               deductionAmount,
               deductionReason,
-              transferHistory: []
+              transferHistory: [],
+              ...(autoOn || {}),
             };
             batch.set(newDocRef, clientData);
             createdCount++;
@@ -379,7 +394,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
       await logActivity(
         currentUser.uid, 
         currentUser.name, 
-        `استيراد جماعي لـ ${validRows.length} حجز (تحديث: ${updatedCount} - جديد: ${createdCount})`,
+        `استيراد جماعي لـ ${validRows.length} حجز (تحديث: ${updatedCount} - جديد: ${createdCount} - تشغيل المتابعة التلقائية: ${autoOnCount})`,
         'BULK_IMPORT',
         `تم الاستيراد بنجاح من ملف ${file?.name || ''}`
       );

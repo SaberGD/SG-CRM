@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, getCountFromServer, doc, updateDoc, QueryConstraint } from 'firebase/firestore';
+import { collection, query, where, getCountFromServer, doc, updateDoc, deleteField, QueryConstraint } from 'firebase/firestore';
+import { manualOverridePatch, AUTO_SET_VIA } from '../utils/autoFollowUp';
 import { db, logActivity } from '../firebase';
 import { useAuth } from '../App';
 import { Client, UserRole } from '../types';
@@ -102,7 +103,7 @@ const Notifications: React.FC = () => {
 
     try {
       setLoading(true);
-      await updateDoc(doc(db, 'clients', rescheduleClient.id), { nextFollowUpDate: nextTs });
+      await updateDoc(doc(db, 'clients', rescheduleClient.id), { nextFollowUpDate: nextTs, ...manualOverridePatch(rescheduleClient, deleteField()) });
       await logActivity(user.uid, user.name, "إعادة جدولة سريعة", rescheduleClient.id, rescheduleClient.name);
       setRescheduleClient(null);
       refresh();
@@ -245,8 +246,10 @@ const TaskCard: React.FC<{
         <h3>{task.name}</h3>
         {isUnreviewedAi ? (
           <button type="button" onClick={onAccept} className="sgui-state is-warning mt-1"><Clock4 size={12} /> AI Generated — Accept</button>
-        ) : task.nextFollowUpSetVia === 'ai_automation' && task.nextFollowUpReviewedByName && (
+        ) : task.nextFollowUpSetVia === 'ai_automation' && task.nextFollowUpReviewedByName ? (
           <span className="sgui-state mt-1"><Clock4 size={12} /> AI Generated & Accepted by {task.nextFollowUpReviewedByName}</span>
+        ) : task.nextFollowUpSetVia === AUTO_SET_VIA && (
+          <span className="sgui-state is-good mt-1"><Clock4 size={12} /> متابعة شخصية كل أسبوعين (عميل حاجز)</span>
         )}
         <dl>
           <div><dt><BookOpen size={13} /> الخدمة</dt><dd>{task.serviceName}</dd></div>

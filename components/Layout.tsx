@@ -46,7 +46,8 @@ const AlarmManager: React.FC<{ user: any }> = ({ user }) => {
       where('nextFollowUpDate', '>=', start.getTime()), where('nextFollowUpDate', '<=', end.getTime()));
     const check = () => {
       const now = Date.now();
-      const due = todayDueRef.current.find(c => c.nextFollowUpDate && Math.abs(c.nextFollowUpDate - now) < 60000);
+      // The automatic 2-week check-in of booked clients is a day-level task (shown in the lists), not a ringing appointment.
+      const due = todayDueRef.current.find(c => c.nextFollowUpDate && c.nextFollowUpSetVia !== 'auto_booked' && Math.abs(c.nextFollowUpDate - now) < 60000);
       setActiveAlarm(prev => (due ? (prev?.id === due.id ? prev : due) : null));
     };
     const refreshOverdue = () => getCountFromServer(query(collection(db, 'clients'), where('salesAgentId', '==', user.uid),

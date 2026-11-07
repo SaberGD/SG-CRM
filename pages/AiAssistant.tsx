@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
+import { manualOverridePatch } from '../utils/autoFollowUp';
 import { useAuth } from '../App';
 import { Client, UserRole, User, ClientStatus, CommMethod, AiRecommendation, FollowUp } from '../types';
 import { analyzeClientWithAi } from '../geminiService';
@@ -469,6 +470,7 @@ export const AiAssistant: React.FC = () => {
       if (isAccept) {
         updateData.nextFollowUpDate = rec.suggestedTimestamp || (now + 86400000);
         updateData.nextFollowUpMethod = method;
+        Object.assign(updateData, manualOverridePatch(client, firestore.deleteField()));
         const noteText = `[تحويل لمتابعة AI - ${user?.name}]: ${comment.trim() ? comment : rec.suggestedPitch}`;
         updateData.notes = client.notes ? `${client.notes}\n${noteText}` : noteText;
       }
@@ -539,6 +541,7 @@ export const AiAssistant: React.FC = () => {
         'aiRecommendation.supervisorNotes': note.trim() || 'تمت الإعادة للمتابعة بقرار المشرف',
         nextFollowUpDate: rec.suggestedTimestamp || (now + 86400000),
         nextFollowUpMethod: method,
+        ...manualOverridePatch(client, firestore.deleteField()),
         notes: client.notes ? `${client.notes}\n${noteText}` : noteText
       });
 

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import MaroAssistant from './MaroAssistant';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
+import ReportProblem from './ReportProblem';
 import { auth, db, logActivity } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { collection, query, where, onSnapshot, getDocs, getDoc, doc, getCountFromServer } from 'firebase/firestore';
@@ -347,6 +348,7 @@ const Layout: React.FC = () => {
         </main>
       </div>
       {user && assistantEnabled && <MaroAssistant />}
+      {user && <ReportProblem system="crm" getIdToken={() => auth.currentUser!.getIdToken()} />}
     </div>
   );
 };

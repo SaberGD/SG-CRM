@@ -119,6 +119,10 @@ const ClientDetails: React.FC = () => {
     setIsAnalyzingAi(true);
     try {
       const result = await analyzeClientWithAi(client, followUps);
+      if (result.fallback) {
+        alert(result.limitReached ? "وصلت للحد اليومي للتحليلات. جرّب بكرة." : "التحليل مش متاح دلوقتي. جرّب تاني بعد شوية.");
+        return;
+      }
       const [year, month, day] = (result.suggestedDate || '').split('-').map(Number);
       let suggestedTimestamp = Date.now() + 86400000;
       if (year && month && day) {

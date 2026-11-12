@@ -195,6 +195,8 @@ export const AiAssistant: React.FC = () => {
       const followUps = followUpsSnap.docs.map(d => d.data() as FollowUp);
 
       const result = await analyzeClientWithAi(client, followUps);
+      // A canned reply (AI down or daily limit) is not an analysis: don't store it as one.
+      if (result.fallback) return result.limitReached ? 'limit' : 'failed';
 
       const [year, month, day] = (result.suggestedDate || '').split('-').map(Number);
       let suggestedTimestamp = Date.now() + 86400000;
@@ -220,9 +222,11 @@ export const AiAssistant: React.FC = () => {
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
         aiRecommendation: newRecommendation
       });
+      return 'ok';
 
     } catch (err: any) {
       console.error("Error analyzing client:", err);
+      return 'failed';
     } finally {
       setAnalyzingClientId(null);
     }
@@ -352,22 +356,32 @@ export const AiAssistant: React.FC = () => {
     // 4. Concurrency execution in chunks of 4
     const CONCURRENCY = 4;
     let processedCount = 0;
+    let notAnalyzed = 0;
+    let limitHit = false;
 
     for (let i = 0; i < targetClients.length; i += CONCURRENCY) {
       const chunk = targetClients.slice(i, i + CONCURRENCY);
       
-      await Promise.all(
+      const outcomes = await Promise.all(
         chunk.map(async (c) => {
           try {
-            await handleAnalyzeClient(c, activeRound, true);
+            return await handleAnalyzeClient(c, activeRound, true);
           } catch (e) {
             console.warn(`Failed to analyze client ${c.name}`, e);
+            return 'failed';
           }
         })
       );
 
+      notAnalyzed += outcomes.filter(o => o !== 'ok').length;
       processedCount += chunk.length;
       setBatchProgress(Math.round((processedCount / targetClients.length) * 100));
+      // Stop when the daily limit is reached, or the AI is down for a whole chunk.
+      limitHit = outcomes.includes('limit');
+      if (limitHit || outcomes.every(o => o !== 'ok')) {
+        notAnalyzed += targetClients.length - processedCount;
+        break;
+      }
 
       if (i + CONCURRENCY < targetClients.length) {
         await new Promise(r => setTimeout(r, 300));
@@ -375,6 +389,11 @@ export const AiAssistant: React.FC = () => {
     }
 
     setIsBatchAnalyzing(false);
+    if (notAnalyzed > 0) {
+      alert(limitHit
+        ? `وصلت للحد اليومي للتحليلات. ${notAnalyzed} عميل ما اتحللوش، كمّل بكرة.`
+        : `${notAnalyzed} عميل ما اتحللوش (الذكاء الاصطناعي مش متاح دلوقتي). جرّب تاني بعد شوية.`);
+    }
   };
 
   // Revert / Undo Last Analyzed Batch

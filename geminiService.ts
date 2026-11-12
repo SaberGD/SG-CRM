@@ -77,7 +77,9 @@ export const analyzeClientWithAi = async (client: Client, followUps: FollowUp[] 
         suggestedPitch: `أهلاً بك يا ${client.name}! معك المساعد الذكي من أكاديمية صابر جروب (SABER GROUP) 🎨 نحب نذكرك بإن باب الحجز المبكر لكورس ${courseName} مفتوح حالياً بخصم مميز بالإضافة لكوبون خصم إضافي 400 جنيه متاح لمدة 24 ساعة فقط! لتأكيد الحجز تواصل معنا عبر واتساب الرسمي: 01040784390`,
         conversionPriority: (client.status as string) === 'interested' || (client.status as string) === 'مهتم' || client.status === ClientStatus.INTERESTED ? 'عالي' : 'متوسط',
         insightsSummary: `تحليل صابر جروب الذكي: العميل (${client.name}) يظهر اهتماماً بـ (${courseName}). نوصي بالدخول مباشرة بالتفاصيل والتقسيط المريح.`,
-        salesTip: "استخدم كوبون الـ 400 جنيه الإضافي لتشجيع العميل على التأكيد المباشر."
+        salesTip: "استخدم كوبون الـ 400 جنيه الإضافي لتشجيع العميل على التأكيد المباشر.",
+        fallback: true,
+        limitReached: response.status === 429
       };
     }
     return await response.json();
@@ -92,7 +94,9 @@ export const analyzeClientWithAi = async (client: Client, followUps: FollowUp[] 
       suggestedPitch: `أهلاً بك يا ${client.name}! معك المساعد الذكي من أكاديمية صابر جروب 🎨 نود تذكيرك بعرض الحجز المبكر المتاح حالياً لكورس ${courseName} مع إمكانية التقسيط المريح بدون فوائد. لتأكيد حجزك تواصل معنا على واتساب: 01040784390`,
       conversionPriority: 'متوسط',
       insightsSummary: `توصية ذكية لمتابعة العميل ${client.name} وتقديم خيارات التقسيط المتاحة.`,
-      salesTip: "ركز على إبراز التطبيق العملي وبورتفوليو خريجي الأكاديمية."
+      salesTip: "ركز على إبراز التطبيق العملي وبورتفوليو خريجي الأكاديمية.",
+      fallback: true,
+      limitReached: false
     };
   }
 };

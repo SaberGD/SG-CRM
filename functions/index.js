@@ -128,6 +128,44 @@ const ai = new GoogleGenAI({
   location: "global",
 });
 
+// Daily ceiling per caller for the Gemini endpoints, so a stuck tab or a looping
+// workflow can't run up the bill. Same counter doc keeps the day's token totals.
+const AI_DAILY_LIMIT = 400;
+const AI_DAILY_LIMIT_AUTOMATION = 1000;
+
+function aiUsageRef(caller) {
+  const today = new Date().toISOString().slice(0, 10);
+  return db.doc(`ai_usage/${caller.automation ? "automation" : caller.uid}_${today}`);
+}
+
+async function takeAiQuota(caller, res) {
+  const ref = aiUsageRef(caller);
+  const limit = caller.automation ? AI_DAILY_LIMIT_AUTOMATION : AI_DAILY_LIMIT;
+  // A counter failure must not take the feature down: let the call through.
+  const allowed = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const count = snap.exists ? snap.data().count || 0 : 0;
+    if (count >= limit) return false;
+    tx.set(ref, { uid: caller.uid || "automation", date: ref.id.slice(-10), count: count + 1 }, { merge: true });
+    return true;
+  }).catch((e) => { console.warn("ai quota check failed:", e?.message || e); return true; });
+  if (!allowed) res.status(429).json({ error: `وصلت للحد اليومي لتحليلات الذكاء الاصطناعي (${limit}).`, limitReached: true });
+  return allowed;
+}
+
+// Numbers only: no prompt text or client data goes to the log.
+async function logAiUsage(task, caller, response, ok) {
+  const u = response?.usageMetadata || {};
+  const inTokens = u.promptTokenCount || 0, outTokens = (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0);
+  console.log(JSON.stringify({ aiCall: task, model: AI_MODEL, ok, inTokens, outTokens, caller: caller.automation ? "automation" : caller.uid }));
+  if (!inTokens && !outTokens) return;
+  const inc = admin.firestore.FieldValue.increment;
+  await aiUsageRef(caller).set({ inTokens: inc(inTokens), outTokens: inc(outTokens) }, { merge: true })
+    .catch((e) => console.warn("ai usage log failed:", e?.message || e));
+}
+
+const AI_MODEL = "gemini-3.6-flash";
+
 /**
  * Predicts a lead's conversion likelihood from their status + follow-up history.
  * Mirrors server.ts's POST /api/gemini/predict-sales route.
@@ -143,6 +181,7 @@ exports.geminiPredictSales = onRequest({ region: "us-central1", cors: true }, as
     if (!client) {
       return res.status(400).json({ error: "Missing client parameter" });
     }
+    if (!(await takeAiQuota(caller, res))) return;
 
     const history = (followUps || []).map((f) => {
       const timing = f.isEarly ? "EARLY" : "ON-TIME";
@@ -157,7 +196,7 @@ exports.geminiPredictSales = onRequest({ region: "us-central1", cors: true }, as
       3. Provide 1 professional recommendation in Arabic.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: AI_MODEL,
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -173,6 +212,7 @@ exports.geminiPredictSales = onRequest({ region: "us-central1", cors: true }, as
       },
     });
 
+    await logAiUsage("predictSales", caller, response, true);
     const jsonStr = response.text?.trim();
     if (!jsonStr) {
       return res.json({ score: "Medium", reason: "لم يتم استلام رد من الذكاء الاصطناعي" });
@@ -199,6 +239,7 @@ exports.geminiAnalyzeReport = onRequest({ region: "us-central1", cors: true }, a
     if (!report) {
       return res.status(400).json({ error: "Missing report parameter" });
     }
+    if (!(await takeAiQuota(caller, res))) return;
 
     const prompt = `تحليل تقرير مبيعات أكاديمية تعليمية:
       الموظف: ${report.userName}
@@ -213,10 +254,11 @@ exports.geminiAnalyzeReport = onRequest({ region: "us-central1", cors: true }, a
       قدم تحليل مهني قصير (30 كلمة) باللغة العربية مع نصيحة واحدة لتحسين الأداء أو سرعة المتابعة.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: AI_MODEL,
       contents: prompt,
     });
 
+    await logAiUsage("analyzeReport", caller, response, true);
     return res.json({ text: response.text || "تم تسجيل التقرير بنجاح. ينصح بالتركيز على سرعة التواصل مع الجدد." });
   } catch (error) {
     console.error("geminiAnalyzeReport error:", error);
@@ -270,6 +312,7 @@ exports.geminiAnalyzeClient = onRequest({ region: "us-central1", cors: true }, a
   if (!client) {
     return res.status(400).json({ error: "Missing client parameter" });
   }
+  if (!(await takeAiQuota(caller, res))) return;
 
   const historyText = (followUps || []).map((f) => {
     const dateStr = f.timestamp ? new Date(f.timestamp).toLocaleDateString("ar-EG") : "";
@@ -359,7 +402,7 @@ ${historyText || "لا توجد متابعات سابقة بعد"}
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-3.6-flash",
+        model: AI_MODEL,
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -379,6 +422,7 @@ ${historyText || "لا توجد متابعات سابقة بعد"}
         },
       });
 
+      await logAiUsage("analyzeClient", caller, response, true);
       const jsonStr = response.text?.trim();
       if (jsonStr) {
         return res.json(JSON.parse(jsonStr));
@@ -386,7 +430,7 @@ ${historyText || "لا توجد متابعات سابقة بعد"}
     } catch (err) {
       const isQuotaOrAuth = err?.status === 429 || err?.message?.includes("429") || err?.message?.includes("prepayment") || err?.message?.includes("quota");
       if (isQuotaOrAuth) {
-        return res.json(generateFallbackClientAnalysis(client));
+        return res.json({ ...generateFallbackClientAnalysis(client), fallback: true });
       }
       if (attempt < 2) {
         await new Promise((r) => setTimeout(r, 1000));
@@ -394,7 +438,7 @@ ${historyText || "لا توجد متابعات سابقة بعد"}
     }
   }
 
-  return res.json(generateFallbackClientAnalysis(client));
+  return res.json({ ...generateFallbackClientAnalysis(client), fallback: true });
 });
 
 // ---------------------------------------------------------------------------

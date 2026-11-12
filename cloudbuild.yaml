@@ -19,6 +19,8 @@ availableSecrets:
       env: 'META_ACCESS_TOKEN'
     - versionName: projects/sg-crm-e3a38/secrets/GEMINI_API_KEY/versions/latest
       env: 'GEMINI_API_KEY'
+    - versionName: projects/sg-crm-e3a38/secrets/AUTOMATION_SECRET/versions/latest
+      env: 'AUTOMATION_SECRET'
 options:
   logging: CLOUD_LOGGING_ONLY
 timeout: 900s

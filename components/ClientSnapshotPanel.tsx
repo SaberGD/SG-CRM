@@ -176,7 +176,7 @@ const ClientSnapshotPanel: React.FC<Props> = ({ client, canPull, onMarkAlumni })
                   const isSel = c.bookingId === selected;
                   return (
                     <button key={c.bookingId || c.name} type="button" onClick={() => setSelected(c.bookingId)} aria-pressed={isSel}
-                      className={`w-full text-right rounded-xl border p-3 transition-colors ${isSel ? 'border-primary-500 bg-slate-50 dark:bg-slate-800' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}>
+                      className={`w-full text-right rounded-xl border p-3 transition-colors ${isSel ? 'border-slate-400 dark:border-slate-500 bg-slate-50 dark:bg-slate-800' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}>
                       <div className="flex flex-wrap items-center gap-2 justify-between">
                         <span className="font-black text-sm min-w-0 truncate">{c.name || 'كورس'}</span>
                         <Badge tone={st.tone}>{st.label}</Badge>

@@ -8,7 +8,7 @@ import { db } from '../firebase';
 import { useAuth } from '../App';
 import { Client, User, UserRole, ClientStatus } from '../types';
 import {
-  Users, Calendar, PhoneCall, Clock, CalendarDays, AlertTriangle, Filter, ArrowRightLeft, ChevronLeft, BellRing, History, CheckCircle2, PlayCircle, Square, Coffee
+  Users, Calendar, PhoneCall, Clock, CalendarDays, AlertTriangle, Filter, ArrowRightLeft, ChevronLeft, BellRing, History, CheckCircle2, PlayCircle, Square, Coffee, HeartHandshake
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
@@ -19,7 +19,7 @@ const Dashboard: React.FC = () => {
   const { user, effectiveRole, effectiveUser } = useAuth();
   const navigate = useNavigate();
   const { shift, isShiftApplicable, openGate, openEndModal, startBreak, endBreak, startNewShift } = useShift();
-  const [stats, setStats] = useState({ total: 0, today: 0, upcoming: 0, overdue: 0, transfersToday: 0, booked: 0 });
+  const [stats, setStats] = useState({ total: 0, today: 0, upcoming: 0, overdue: 0, transfersToday: 0, booked: 0, checkIn: 0 });
   const [emergencyTasks, setEmergencyTasks] = useState<Client[]>([]);
   const [todayTasks, setTodayTasks] = useState<Client[]>([]);
   const salesAgents = useAgentOptions([UserRole.SALES_AGENT, UserRole.TEAM_LEADER, UserRole.SUPERVISOR]);
@@ -48,17 +48,19 @@ const Dashboard: React.FC = () => {
         const todayStart = new Date().setHours(0, 0, 0, 0);
         const todayEnd = new Date().setHours(23, 59, 59, 999);
         const count = (extra: QueryConstraint[]) => getCountFromServer(query(clientsRef, ...scope, ...extra)).then((r) => r.data().count);
-        const [total, today, upcoming, overdue, booked, overdueSnap, todaySnap] = await Promise.all([
+        const [total, today, upcoming, overdue, booked, checkIn, overdueSnap, todaySnap] = await Promise.all([
           count([]),
           count([where('nextFollowUpDate', '>=', todayStart), where('nextFollowUpDate', '<=', todayEnd)]),
           count([where('nextFollowUpDate', '>', todayEnd)]),
           count([where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now)]),
           count([where('status', '==', ClientStatus.BOOKED)]),
+          // Personal check-ins (اطمئنان) due today or overdue: their own field, never part of the counts above.
+          count([where('nextCheckInDate', '>', 0), where('nextCheckInDate', '<=', todayEnd)]),
           getDocs(query(clientsRef, ...scope, where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now), orderBy('nextFollowUpDate', 'asc'), limit(3))),
           getDocs(query(clientsRef, ...scope, where('nextFollowUpDate', '>=', now), where('nextFollowUpDate', '<=', todayEnd), orderBy('nextFollowUpDate', 'asc'), limit(3))),
         ]);
         if (cancelled) return;
-        setStats(prev => ({ ...prev, total, today, upcoming, overdue, booked }));
+        setStats(prev => ({ ...prev, total, today, upcoming, overdue, booked, checkIn }));
         setEmergencyTasks(overdueSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
         setTodayTasks(todaySnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
         setLoading(false);
@@ -157,6 +159,7 @@ const Dashboard: React.FC = () => {
         <StatCard icon={Calendar} label="متابعات النهارده" value={stats.today} tone="info" />
         <StatCard icon={Clock} label="مجدولة بعد كده" value={stats.upcoming} />
         <StatCard icon={AlertTriangle} label="متابعات متأخرة" value={stats.overdue} tone={stats.overdue > 0 ? 'danger' : 'neutral'} />
+        <StatCard icon={HeartHandshake} label="اطمئنان مستحق (النهارده + المتأخر)" value={stats.checkIn} tone="checkin" />
         {isHighRole && <StatCard icon={ArrowRightLeft} label="تحويلات النهارده" value={stats.transfersToday} tone="warning" />}
       </div>
 

@@ -2,7 +2,7 @@
 import { buildSearchKeys } from '../utils/searchKeys.mjs';
 import { normalizePhoneKey } from '../utils/clientMerge.mjs';
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 import { sendMetaEvent } from '../metaService';
@@ -30,8 +30,8 @@ import AcceptFlowModal from '../components/AcceptFlowModal';
 import { getLabelColorStyle } from '../utils/labelColors';
 import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
 import {
-  AUTO_KIND, STOP_REASONS, isAutoOn, isAutoScheduled, isBookedState, hasOtherSchedule,
-  planEnableAutoFollowUp, planDisableAutoFollowUp, planAutoAfterFollowUp, planOnBecameBooked, manualOverridePatch,
+  AUTO_KIND, STOP_REASONS, isAutoOn, isBookedState, checkInDate, isLegacyCheckIn, legacyCheckInCleanup,
+  planEnableAutoFollowUp, planDisableAutoFollowUp, planCheckInDone, planCheckInReschedule, planOnBecameBooked,
 } from '../utils/autoFollowUp';
 import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
@@ -61,6 +61,7 @@ const ClientDetails: React.FC = () => {
   const { id } = useParams();
   const { user, effectiveRole } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = user?.role === UserRole.ADMIN;
   
   const [client, setClient] = useState<Client | null>(null);
@@ -81,7 +82,7 @@ const ClientDetails: React.FC = () => {
   const [copiedSearchPhrase, setCopiedSearchPhrase] = useState(false);
 
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
-  // 'auto_booked' while documenting the automatic 2-week follow-up ("تمت المتابعة", no timer).
+  // 'auto_booked' while documenting the personal check-in ("تمت المتابعة", no timer).
   const [followUpKind, setFollowUpKind] = useState<typeof AUTO_KIND | null>(null);
   const [isAutoStopOpen, setIsAutoStopOpen] = useState(false);
   const [autoStopCode, setAutoStopCode] = useState('');
@@ -176,9 +177,9 @@ const ClientDetails: React.FC = () => {
       }
 
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+        ...legacyCheckInCleanup(client, firestore.deleteField()), // keep a legacy check-in date
         nextFollowUpDate: rec.suggestedTimestamp,
         nextFollowUpMethod: method,
-        ...manualOverridePatch(client, firestore.deleteField()),
         notes: client.notes ? `${client.notes}\n[توصية AI]: ${rec.suggestedPitch}` : `[توصية AI]: ${rec.suggestedPitch}`,
         'aiRecommendation.status': 'ACCEPTED',
         'aiRecommendation.acceptedAt': Date.now(),
@@ -330,12 +331,19 @@ const ClientDetails: React.FC = () => {
     if (!user || !client) return;
     setFollowUpKind(AUTO_KIND);
     setStartTime(Date.now());
-    setActiveAppointmentId(isAutoScheduled(client) ? 'scheduled' : null);
+    setActiveAppointmentId(checkInDate(client) ? 'scheduled' : null);
     setIsCommunicating(false);
     setMethod(CommMethod.WHATSAPP);
     setScheduleNext(false);
     setShowForm(true);
   };
+
+  // Coming from the check-in tab ("تمت المتابعة" there): open the check-in form straight away.
+  useEffect(() => {
+    if (searchParams.get('checkin') !== '1' || !client || !user) return;
+    if (isAutoOn(client) && !showForm && !isCommunicating) handleAutoFollowUpDone();
+    setSearchParams({}, { replace: true });
+  }, [searchParams, client?.id, !!user]);
 
   const handleStopAutoFollowUp = async () => {
     if (!user || !client) return;
@@ -444,12 +452,13 @@ const ClientDetails: React.FC = () => {
     }
 
     const isAutoKind = followUpKind === AUTO_KIND;
-    const scheduledTime = client.nextFollowUpDate || 0;
+    // The check-in has its own date; a normal follow-up is measured against nextFollowUpDate.
+    const scheduledTime = isAutoKind ? checkInDate(client) : (isLegacyCheckIn(client) ? 0 : client.nextFollowUpDate || 0);
     let delayStatus: 'on_time' | 'acceptable' | 'large_delay' = 'on_time';
     
     if (scheduledTime > 0) {
       const delayMins = (startTime - scheduledTime) / (1000 * 60);
-      if (isAutoKind && isAutoScheduled(client)) {
+      if (isAutoKind) {
         // A day-level check-in: on time any time on its day.
         if (delayMins > 24 * 60) delayStatus = 'large_delay';
       } else if (delayMins > 15) delayStatus = 'large_delay';
@@ -472,8 +481,13 @@ const ClientDetails: React.FC = () => {
         status: isBooked ? ClientStatus.BOOKED : status,
         labels,
         lastFollowUpDate: Date.now(),
-        nextFollowUpDate: nextTs || 0 // Clear if not rescheduled
       };
+      // The check-in form never touches the normal follow-up date (unless a regular one is
+      // scheduled in it); a normal follow-up clears its date when not rescheduled.
+      if (!isAutoKind || nextTs) {
+        Object.assign(updateData, legacyCheckInCleanup(client, firestore.deleteField())); // keep a legacy check-in date
+        updateData.nextFollowUpDate = nextTs || 0;
+      }
 
       if (isBooked) {
         updateData.isBooked = true;
@@ -502,15 +516,14 @@ const ClientDetails: React.FC = () => {
       if (nextTs) {
         updateData.nextFollowUpDate = nextTs;
         updateData.nextFollowUpMethod = nextFollowUpMethod;
-        Object.assign(updateData, manualOverridePatch(client, firestore.deleteField()));
       }
 
-      // Automatic 2-week follow-up: switch on when the client becomes booked here; when it is
-      // already on, the next one is in 2 weeks unless a specific date was picked above.
+      // Personal check-in (اطمئنان) every 2 weeks: switched on when the client becomes booked
+      // here; "تمت المتابعة" moves it to 2 weeks from now. A normal follow-up never moves it.
       const del = firestore.deleteField();
-      const after = { ...client, ...updateData, nextFollowUpSetVia: nextTs ? 'manual' : undefined };
+      const after = { ...client, status: updateData.status, ...(updateData.isBooked ? { isBooked: true } : {}) };
       const enable = planOnBecameBooked(client, after, { now: endTime, anchor: endTime, by: user.uid, byName: user.name, via: 'booking' }, del);
-      Object.assign(updateData, enable || planAutoAfterFollowUp(client, { now: endTime, manualNextTs: nextTs }, del));
+      Object.assign(updateData, enable || (isAutoKind ? planCheckInDone(client, { now: endTime }, del) : {}));
 
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), updateData);
       
@@ -544,9 +557,9 @@ const ClientDetails: React.FC = () => {
     const wasAiSet = client.nextFollowUpSetVia === 'ai_automation' && !client.nextFollowUpReviewedBySales;
     try {
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
+        ...legacyCheckInCleanup(client, firestore.deleteField()), // keep a legacy check-in date
         nextFollowUpDate: nextTs,
         nextFollowUpMethod: nextFollowUpMethod,
-        ...manualOverridePatch(client, firestore.deleteField()),
         ...(wasAiSet ? {
           nextFollowUpReviewedBySales: true,
           nextFollowUpReviewedByName: user.name,
@@ -796,20 +809,19 @@ const ClientDetails: React.FC = () => {
       {(isBookedState(client) || client.autoFollowUp) && (() => {
         const af = client.autoFollowUp;
         const on = isAutoOn(client);
-        const autoDate = isAutoScheduled(client) ? client.nextFollowUpDate! : 0;
-        const otherDate = hasOtherSchedule(client) ? client.nextFollowUpDate! : 0;
+        const autoDate = checkInDate(client);
         const lastDone = af?.lastDoneAt || client.lastFollowUpDate || 0;
         const due = !!autoDate && autoDate <= new Date().setHours(23, 59, 59, 999);
         const fmtDay = (ms: number) => new Date(ms).toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'short' });
         return (
-          <div className={`sgui-panel p-5 md:p-6 space-y-4 ${on && due ? 'border-2 border-amber-300 dark:border-amber-500/40' : ''}`}>
+          <div className="sgui-panel is-checkin p-5 md:p-6 space-y-4">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <div className="flex items-center gap-3">
-                <span className="sgui-row-icon"><HeartHandshake size={20} /></span>
+                <span className="sgui-row-icon is-checkin"><HeartHandshake size={20} /></span>
                 <div>
                   <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    المتابعة التلقائية كل أسبوعين
-                    <Badge tone={on ? 'good' : 'neutral'}>{on ? 'شغالة' : 'متوقفة'}</Badge>
+                    المتابعة التلقائية كل أسبوعين (اطمئنان)
+                    <span className={`sgui-state ${on ? 'is-checkin' : ''}`}>{on ? 'شغالة' : 'متوقفة'}</span>
                   </h3>
                   <p className="text-[11px] font-bold text-slate-500 mt-0.5">متابعة شخصية للعميل الحاجز: نتطمن عليه وإن الكورس ماشي تمام.</p>
                 </div>
@@ -832,9 +844,9 @@ const ClientDetails: React.FC = () => {
               <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl">
                 <p className="text-[10px] font-black text-slate-400 mb-1">المتابعة الجاية</p>
                 <p className="font-black text-slate-900 dark:text-white">
-                  {!on ? '—' : autoDate ? fmtDay(autoDate) : otherDate ? `فيه موعد متحدد ${fmtDay(otherDate)} — وبعده بأسبوعين` : 'هتتحدد بعد أول متابعة'}
+                  {!on ? '—' : autoDate ? fmtDay(autoDate) : 'هتتحدد بعد أول متابعة'}
                 </p>
-                {on && due && <p className="text-[10px] font-bold text-amber-600 mt-1">{autoDate < Date.now() - 86400000 ? 'فات ميعادها — تابع العميل لما تقدر' : 'ميعادها النهارده'}</p>}
+                {on && due && <p className="text-[10px] font-bold mt-1" style={{ color: 'var(--sg-checkin)' }}>{autoDate < Date.now() - 86400000 ? 'فات ميعادها — تابع العميل لما تقدر' : 'ميعادها النهارده'}</p>}
               </div>
               <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl">
                 <p className="text-[10px] font-black text-slate-400 mb-1">آخر متابعة</p>
@@ -843,8 +855,8 @@ const ClientDetails: React.FC = () => {
             </div>
 
             {on ? (
-              <div className="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-500/5 border border-emerald-100 dark:border-emerald-500/10 space-y-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 leading-relaxed">
-                <p className="text-[10px] font-black text-emerald-700 dark:text-emerald-400">تقول إيه؟</p>
+              <div className="sgui-checkin-box p-4 rounded-xl space-y-1.5 text-xs font-bold leading-relaxed">
+                <p className="is-title text-[10px] font-black">تقول إيه؟</p>
                 <p>• لو الكورس لسه مابدأش: حمّسه للكورس وقوله "بنتطمن عليك بشكل شخصي، بدأت تستعد للكورس؟"</p>
                 <p>• لو الكورس بدأ: "الكورس ماشي تمام؟ محتاج أي مساعدة؟"</p>
               </div>
@@ -990,15 +1002,16 @@ const ClientDetails: React.FC = () => {
           <div className="relative border-r-2 border-slate-100 dark:border-slate-800 pr-6 space-y-5">
             {timelinePage.rows.map((item: any) => {
               const isUnreviewedAiFollowUp = item.type === 'followup' && item.isAutomated && !item.reviewedBySales;
+              const isCheckIn = item.type === 'followup' && item.kind === AUTO_KIND;
               return (
               <div key={item.id} className="relative">
-                <div className={`absolute -right-[33px] top-1 w-4 h-4 rounded-full border-4 border-white dark:border-slate-950 ${isUnreviewedAiFollowUp ? 'bg-orange-500' : item.type === 'followup' ? 'bg-primary-500' : 'bg-slate-300'}`}></div>
-                <div className={`sg-surface p-5 ${isUnreviewedAiFollowUp ? 'bg-orange-50/60 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20' : ''}`}>
+                <div className={`absolute -right-[33px] top-1 w-4 h-4 rounded-full border-4 border-white dark:border-slate-950 ${isUnreviewedAiFollowUp ? 'bg-orange-500' : isCheckIn ? '' : item.type === 'followup' ? 'bg-primary-500' : 'bg-slate-300'}`} style={isCheckIn ? { background: 'var(--sg-checkin)' } : undefined}></div>
+                <div className={`sg-surface p-5 ${isUnreviewedAiFollowUp ? 'bg-orange-50/60 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20' : ''}`} style={isCheckIn ? { background: 'var(--sg-checkin-bg)', border: '1px solid var(--sg-checkin-line)' } : undefined}>
                   <div className="flex justify-between items-start mb-3">
                     <span className="text-[10px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-full">{new Date(item.timestamp).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-                    <span className={`text-[9px] font-black uppercase flex items-center gap-1 ${isUnreviewedAiFollowUp ? 'text-orange-600 dark:text-orange-400' : 'text-primary-500'}`}>
+                    <span className={`text-[9px] font-black uppercase flex items-center gap-1 ${isUnreviewedAiFollowUp ? 'text-orange-600 dark:text-orange-400' : 'text-primary-500'}`} style={isCheckIn ? { color: 'var(--sg-checkin)' } : undefined}>
                       {isUnreviewedAiFollowUp && <Sparkles size={10} />}
-                      {item.type === 'followup' ? (item.isAutomated ? 'متابعة أتمتة' : item.kind === 'auto_booked' ? 'متابعة شخصية (كل أسبوعين)' : 'متابعة سيلز') : 'تحديث نظام'}
+                      {item.type === 'followup' ? (item.isAutomated ? 'متابعة أتمتة' : item.kind === 'auto_booked' ? 'اطمئنان (متابعة شخصية)' : 'متابعة سيلز') : 'تحديث نظام'}
                     </span>
                   </div>
                   {item.type === 'followup' ? (
@@ -1133,10 +1146,10 @@ const ClientDetails: React.FC = () => {
           )}
 
           {showForm ? (
-            <div className="sg-surface p-6 border-2 border-primary-500/30 sticky top-6 animate-fade-in">
+            <div className="sg-surface p-6 border-2 border-primary-500/30 sticky top-6 animate-fade-in" style={followUpKind === AUTO_KIND ? { borderColor: 'var(--sg-checkin)' } : undefined}>
               <h3 className="text-xl font-black mb-6 flex items-center gap-2"><LayoutList className="text-primary-500"/> {followUpKind === AUTO_KIND ? 'تمت المتابعة الشخصية' : 'توثيق المتابعة'}</h3>
               {followUpKind === AUTO_KIND && (
-                <p className="-mt-3 mb-5 text-[11px] font-bold text-slate-500 leading-relaxed">سجّل المتابعة اللي عملتها. لو ماحددتش موعد جديد، المتابعة الجاية هتتحط لوحدها بعد أسبوعين.</p>
+                <p className="-mt-3 mb-5 text-[11px] font-bold text-slate-500 leading-relaxed">سجّل الاطمئنان اللي عملته. الاطمئنان الجاي هيتحط لوحده بعد أسبوعين، ومواعيد المتابعة العادية مابتتأثرش.</p>
               )}
               <form onSubmit={submitFollowUp} className="space-y-5">
                 <div className="space-y-1">
@@ -1160,7 +1173,7 @@ const ClientDetails: React.FC = () => {
                 
                 <div className="p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl space-y-3">
                    <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-black text-slate-700 dark:text-slate-300">تحديد موعد تواصل جديد؟</label>
+                      <label className="text-[11px] font-black text-slate-700 dark:text-slate-300">{followUpKind === AUTO_KIND ? 'جدولة متابعة عادية (اختياري)؟' : 'تحديد موعد تواصل جديد؟'}</label>
                       <input type="checkbox" checked={scheduleNext} onChange={e => setScheduleNext(e.target.checked)} className="w-5 h-5 accent-primary-500" />
                    </div>
                    {scheduleNext && (

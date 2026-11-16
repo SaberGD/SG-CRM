@@ -11,6 +11,7 @@
   --sg-control: #9c8b7b; --sg-text: #2b231e; --sg-muted: #6c5b4e; --sg-accent: #9f3024; --sg-red: #c73520;
   --sg-red-hover: #a62d1b; --sg-good: #176245; --sg-good-bg: #e9f5ed; --sg-warning: #805000; --sg-warning-bg: #fff3d5;
   --sg-danger: #9f3024; --sg-danger-bg: #fff0eb; --sg-info: #1d4f91; --sg-info-bg: #e8f0fb;
+  --sg-checkin: #5b3fa8; --sg-checkin-bg: #efeafb; --sg-checkin-line: #cfc2ee;
   --sg-shadow: 0 12px 32px rgba(43, 35, 30, 0.08);
 }
 html.dark {
@@ -19,6 +20,7 @@ html.dark {
   --sg-control: #88776a; --sg-text: #f6f1ed; --sg-muted: #c4b7ad; --sg-accent: #ffa36f; --sg-red: #c73520;
   --sg-red-hover: #a62d1b; --sg-good: #8ce6b7; --sg-good-bg: #193a2a; --sg-warning: #f4ce7a; --sg-warning-bg: #3b2d14;
   --sg-danger: #ffb4a6; --sg-danger-bg: #3b201b; --sg-info: #a5c9ff; --sg-info-bg: #18263b;
+  --sg-checkin: #c9b8ff; --sg-checkin-bg: #2a2145; --sg-checkin-line: #4d3f7e;
   --sg-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
 }
 
@@ -220,6 +222,7 @@ html[data-color-theme] .sg-crm-shell .sgui-field-search input { padding-inline-s
 .sgui-stat.is-danger { border-color: color-mix(in srgb, var(--sg-danger) 45%, var(--sg-line)); }
 .sgui-stat.is-good strong, .sgui-stat.is-good svg { color: var(--sg-good); }
 .sgui-stat.is-warning strong, .sgui-stat.is-warning svg { color: var(--sg-warning); }
+.sgui-stat.is-checkin strong, .sgui-stat.is-checkin svg { color: var(--sg-checkin); }
 .sgui-stat.is-info svg { color: var(--sg-info); }
 .sgui-inline-field { display: inline-flex; align-items: center; gap: 8px; color: var(--sg-muted); }
 .sgui-inline-field select { min-width: 190px; }
@@ -279,6 +282,23 @@ html[data-color-theme] .sg-crm-shell .sgui-action-menu > div > :is(button, a):ho
 .sgui-followup.is-overdue { border-inline-start: 3px solid var(--sg-danger); }
 .sgui-followup.is-today { border-inline-start: 3px solid var(--sg-warning); }
 .sgui-followup.is-suggested { border-inline-start: 3px solid var(--sg-accent); }
+/* Personal check-ins (اطمئنان) have their own violet family: pending = tinted, done = muted. */
+.sgui-followup.is-checkin { border-color: var(--sg-checkin-line); border-inline-start: 3px solid var(--sg-checkin); background: color-mix(in srgb, var(--sg-checkin-bg) 55%, var(--sg-panel)); }
+.sgui-followup.is-checkin-done { border-color: var(--sg-checkin-line); border-inline-start: 3px solid var(--sg-checkin-line); background: var(--sg-panel); opacity: .92; }
+.sgui-followup.is-checkin-done .sgui-followup-time b { font-size: 15px; }
+.sgui-followup.is-checkin-done h3 a { color: inherit; text-decoration: none; }
+.sgui-followup.is-checkin-done h3 a:hover { color: var(--sg-checkin); text-decoration: underline; }
+.sgui-state.is-checkin { background: var(--sg-checkin-bg); color: var(--sg-checkin); }
+.sgui-tabs button.is-checkin { color: var(--sg-checkin); border-color: var(--sg-checkin-line); }
+.sgui-tabs button.is-checkin.is-active { background: var(--sg-checkin-bg); color: var(--sg-checkin); border-color: var(--sg-checkin); }
+.sgui-segment { display: inline-flex; padding: 3px; gap: 3px; border: 1px solid var(--sg-checkin-line); border-radius: 9px; background: var(--sg-panel); margin-bottom: 14px; }
+.sgui-segment button { min-height: 34px; padding: 5px 14px; border: 0; border-radius: 6px; background: transparent; color: var(--sg-muted); font: inherit; font-size: 13px; font-weight: 600; }
+.sgui-segment button.is-active { background: var(--sg-checkin-bg); color: var(--sg-checkin); }
+.sgui-checkin-hint { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--sg-checkin-bg); color: var(--sg-checkin); font-size: 12px; font-weight: 600; line-height: 1.7; }
+.sgui-panel.is-checkin { border-color: var(--sg-checkin-line); border-inline-start: 3px solid var(--sg-checkin); }
+.sgui-row-icon.is-checkin { background: var(--sg-checkin-bg); color: var(--sg-checkin); }
+.sgui-checkin-box { background: var(--sg-checkin-bg); color: var(--sg-text); border: 1px solid var(--sg-checkin-line); }
+.sgui-checkin-box .is-title { color: var(--sg-checkin); }
 .sgui-followup-time { display: grid; justify-items: start; gap: 2px; padding-inline-end: 16px; border-inline-end: 1px solid var(--sg-line); }
 .sgui-followup-time b { font-size: 24px; font-weight: 700; line-height: 1.4; font-variant-numeric: tabular-nums; }
 .sgui-followup-time small { color: var(--sg-muted); font-size: 12px; }

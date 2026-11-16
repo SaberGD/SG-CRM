@@ -5,7 +5,7 @@ import { useServices } from '../utils/refData';
 import { Client, ClientStatus, CommMethod, StatusLabels, CommMethodLabels } from '../types';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
-import { planOnBecameBooked, planAutoAfterFollowUp, manualOverridePatch, hasOtherSchedule } from '../utils/autoFollowUp';
+import { planOnBecameBooked, legacyCheckInCleanup } from '../utils/autoFollowUp';
 
 import FloatingPanel from './FloatingPanel';
 
@@ -116,20 +116,16 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
       }
 
       if (nextTs) {
+        Object.assign(updateData, legacyCheckInCleanup(client, firestore.deleteField())); // keep a legacy check-in date
         updateData.nextFollowUpDate = nextTs;
         updateData.nextFollowUpMethod = nextFollowUpMethod;
-        Object.assign(updateData, manualOverridePatch(client, firestore.deleteField()));
       }
 
-      // Automatic 2-week follow-up: on when the client becomes booked here; when already on,
-      // the next one is 2 weeks after this contact unless a date was picked (or one is
-      // already set by a person/the AI: this form never cleared it).
-      const del = firestore.deleteField();
-      const now = Date.now();
-      const after = { ...client, ...updateData, nextFollowUpSetVia: nextTs ? 'manual' : client.nextFollowUpSetVia };
-      const enable = planOnBecameBooked(client, after, { now, anchor: followUpTimestamp, by: user.uid, byName: user.name, via: 'booking' }, del);
-      const keptDate = nextTs || (hasOtherSchedule(client) ? client.nextFollowUpDate || 0 : 0);
-      Object.assign(updateData, enable || planAutoAfterFollowUp(client, { now, doneAt: followUpTimestamp, manualNextTs: keptDate }, del));
+      // Personal check-in (اطمئنان) every 2 weeks: switched on when the client becomes booked
+      // here. A normal follow-up never moves an existing check-in.
+      const after = { ...client, ...updateData };
+      const enable = planOnBecameBooked(client, after, { now: Date.now(), anchor: followUpTimestamp, by: user.uid, byName: user.name, via: 'booking' }, firestore.deleteField());
+      if (enable) Object.assign(updateData, enable);
 
       await firestore.updateDoc(firestore.doc(db, 'clients', client.id), updateData);
 

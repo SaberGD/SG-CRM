@@ -18,7 +18,7 @@ export const SectionTitle: React.FC<{ title: React.ReactNode; icon?: React.React
   </div>
 );
 
-type Tone = 'neutral' | 'good' | 'warning' | 'danger' | 'info';
+type Tone = 'neutral' | 'good' | 'warning' | 'danger' | 'info' | 'checkin';
 
 export const StatCard: React.FC<{ label: string; value: React.ReactNode; icon?: React.ElementType; tone?: Tone; hint?: string }> = ({ label, value, icon: Icon, tone = 'neutral', hint }) => (
   <div className={`sgui-stat is-${tone}`}>
@@ -37,11 +37,11 @@ export const Badge: React.FC<{ tone?: Tone; children: React.ReactNode; className
 
 export const Tabs = <T extends string>({ value, onChange, items, label }: {
   value: T; onChange: (v: T) => void; label: string;
-  items: { value: T; label: string; count?: number; icon?: React.ElementType; danger?: boolean }[];
+  items: { value: T; label: string; count?: number; icon?: React.ElementType; danger?: boolean; checkin?: boolean }[];
 }) => (
   <div className="sgui-tabs" role="tablist" aria-label={label}>
-    {items.map(({ value: v, label: l, count, icon: Icon, danger }) => (
-      <button key={v} type="button" role="tab" aria-selected={value === v} className={`${value === v ? 'is-active' : ''} ${danger ? 'is-danger' : ''}`} onClick={() => onChange(v)}>
+    {items.map(({ value: v, label: l, count, icon: Icon, danger, checkin }) => (
+      <button key={v} type="button" role="tab" aria-selected={value === v} className={`${value === v ? 'is-active' : ''} ${danger ? 'is-danger' : ''} ${checkin ? 'is-checkin' : ''}`} onClick={() => onChange(v)}>
         {Icon && <Icon size={16} aria-hidden="true" />}
         <span>{l}</span>
         {count !== undefined && <span className="sgui-count">{count}</span>}

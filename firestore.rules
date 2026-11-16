@@ -105,12 +105,18 @@ service cloud.firestore {
     match /clients/{clientId} {
       allow read: if isStaff();
       // A sales agent creates clients for themself; leaders can create for anyone.
-      allow create: if isStaff() && (request.resource.data.get('salesAgentId', '') == request.auth.uid || isTeamLeader());
+      // Server-written fields can never be smuggled in on create.
+      allow create: if isStaff() && (request.resource.data.get('salesAgentId', '') == request.auth.uid || isTeamLeader()) &&
+        !request.resource.data.keys().hasAny(['snapshot360', 'courseEndsAt', 'alumniDue', 'activeBookingsCount', 'multiCourse']);
       allow update: if isAdmin() || (
         isStaff() &&
         (isTeamLeader() || resource.data.get('salesAgentId', '') == request.auth.uid) &&
-        // AI recommendations and accounting-synced fields are written by the server only.
-        !changed(['aiRecommendation', 'accountingBookingIds', 'accountingLastSyncedAt', 'accounting']) &&
+        // AI recommendations, accounting-synced fields and the client 360 snapshot (and the
+        // list fields derived from it / from the bookings) are written by the server only.
+        // isAlumni / alumniSince are NOT here on purpose: the owner agent sets them from the
+        // "حوّله لعميل سابق" button.
+        !changed(['aiRecommendation', 'accountingBookingIds', 'accountingLastSyncedAt', 'accounting',
+                  'snapshot360', 'courseEndsAt', 'alumniDue', 'activeBookingsCount', 'multiCourse']) &&
         // Money of a client linked to accounting bookings comes from accounting only.
         !(resource.data.get('accountingBookingIds', []).size() > 0 &&
           changed(['totalPrice', 'paidAmount', 'remainingAmount', 'bookedCourseName', 'bookedCourseId', 'bookingDate'])) &&

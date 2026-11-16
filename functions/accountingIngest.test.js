@@ -49,3 +49,14 @@ test("a new client can be built from a booking nobody had", () => {
   const c = newClientFromBooking({ name: "منى", phone: "01012345678", countryCode: "+20" }, summarizeBooking("b1", booking(), "C", 1), { id: "u1", name: "Pool" }, 5);
   assert.equal(c.createdVia, "accounting_sync"); assert.equal(c.phoneKey, "1012345678"); assert.equal(c.isBooked, true); assert.equal(c.paidAmount, 800);
 });
+
+test("activeBookingsCount / multiCourse follow the ACTIVE bookings only", () => {
+  const one = planClientAccounting({}, summarizeBooking("b1", booking(), "A", 1), 1).patch;
+  assert.equal(one.activeBookingsCount, 1); assert.equal(one.multiCourse, false);
+  const two = planClientAccounting({ accounting: { bookings: one.accounting.bookings } }, summarizeBooking("b2", booking({ productId: "p2" }), "B", 2), 2).patch;
+  assert.equal(two.activeBookingsCount, 2); assert.equal(two.multiCourse, true);
+  const refunded = planClientAccounting({ accounting: { bookings: two.accounting.bookings } }, summarizeBooking("b2", booking({ status: "REFUNDED" }), "B", 3), 3).patch;
+  assert.equal(refunded.activeBookingsCount, 1); assert.equal(refunded.multiCourse, false);
+  const none = planClientAccounting({ accounting: { bookings: one.accounting.bookings } }, summarizeBooking("b1", booking({ status: "REFUNDED" }), "A", 4), 4).patch;
+  assert.equal(none.activeBookingsCount, 0); assert.equal(none.multiCourse, false);
+});

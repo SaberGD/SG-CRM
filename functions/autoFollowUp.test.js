@@ -41,37 +41,34 @@ test("a cohort booked over 3 months spreads over the next 2 weeks", async () => 
   assert.ok(days.size >= 14, `spread over ${days.size} days`);
 });
 
-test("enable sets the schedule unless a person/AI date exists, and is idempotent", async () => {
-  const { planEnableAutoFollowUp, AUTO_SET_VIA, AUTO_REASON } = await load();
+test("enable sets nextCheckInDate only (never the normal follow-up fields), idempotent", async () => {
+  const { planEnableAutoFollowUp } = await load();
   const p = planEnableAutoFollowUp({ status: "booked", nextFollowUpDate: 0 }, { now: NOW, anchor: NOW, by: "u1", byName: "Ali", via: "booking" }, DEL);
   assert.equal(p.autoFollowUp.enabled, true); assert.equal(p.autoFollowUp.everyDays, 14);
   assert.equal(p.autoFollowUp.startedBy, "u1"); assert.equal(p.autoFollowUp.startedVia, "booking");
-  assert.equal(p.nextFollowUpDate, noonCairo(2026, 11, 21));
-  assert.equal(p.nextFollowUpSetVia, AUTO_SET_VIA); assert.equal(p.nextFollowUpReason, AUTO_REASON);
-  assert.equal(p.nextFollowUpReviewedBySales, DEL);
-  // a manual future date stays
-  const keepFuture = planEnableAutoFollowUp({ nextFollowUpDate: NOW + DAY, nextFollowUpSetVia: "manual" }, { now: NOW }, DEL);
-  assert.deepEqual(Object.keys(keepFuture), ["autoFollowUp"]);
-  // an AI date (even overdue) stays
-  const keepAi = planEnableAutoFollowUp({ nextFollowUpDate: NOW - DAY, nextFollowUpSetVia: "ai_automation" }, { now: NOW }, DEL);
-  assert.deepEqual(Object.keys(keepAi), ["autoFollowUp"]);
+  assert.equal(p.nextCheckInDate, noonCairo(2026, 11, 21));
+  assert.deepEqual(Object.keys(p).sort(), ["autoFollowUp", "nextCheckInDate"]);
+  // a manual / AI follow-up date coexists and is not touched
+  for (const c of [{ nextFollowUpDate: NOW + DAY, nextFollowUpSetVia: "manual" }, { nextFollowUpDate: NOW - DAY, nextFollowUpSetVia: "ai_automation" }]) {
+    const k = planEnableAutoFollowUp(c, { now: NOW }, DEL);
+    assert.equal(k.nextCheckInDate, noonCairo(2026, 11, 21));
+    assert.ok(!Object.keys(k).some((f) => f.startsWith("nextFollowUp")));
+  }
   // already on -> nothing
   assert.equal(planEnableAutoFollowUp({ autoFollowUp: { enabled: true } }, { now: NOW }, DEL), null);
   // a new document: no delete sentinels, no undefined values
   const created = planEnableAutoFollowUp({}, { now: NOW });
-  assert.ok(!("nextFollowUpMethod" in created));
   assert.ok(Object.values(created.autoFollowUp).every((v) => v !== undefined));
 });
 
-test("disable keeps a person's date, clears only the automatic one", async () => {
+test("disable clears the check-in date and keeps the normal follow-up date", async () => {
   const { planDisableAutoFollowUp, planEnableAutoFollowUp } = await load();
-  const on = { status: "booked", nextFollowUpDate: 0, ...planEnableAutoFollowUp({}, { now: NOW }, DEL) };
+  const on = { status: "booked", nextFollowUpDate: NOW + DAY, nextFollowUpSetVia: "manual", ...planEnableAutoFollowUp({}, { now: NOW }, DEL) };
   const off = planDisableAutoFollowUp(on, { now: NOW + 1, by: "u1", byName: "Ali", reason: "استرد: رجع فلوسه", reasonCode: "استرد" }, DEL);
   assert.equal(off.autoFollowUp.enabled, false); assert.equal(off.autoFollowUp.stoppedReason, "استرد: رجع فلوسه");
   assert.equal(off.autoFollowUp.stoppedByName, "Ali"); assert.equal(off.autoFollowUp.startedAt, NOW);
-  assert.equal(off.nextFollowUpDate, 0); assert.equal(off.nextFollowUpSetVia, DEL);
-  const manual = planDisableAutoFollowUp({ ...on, nextFollowUpDate: NOW + DAY, nextFollowUpSetVia: "manual" }, { now: NOW, reason: "x" }, DEL);
-  assert.deepEqual(Object.keys(manual), ["autoFollowUp"]);
+  assert.equal(off.nextCheckInDate, 0);
+  assert.ok(!Object.keys(off).some((f) => f.startsWith("nextFollowUp")));
   assert.equal(planDisableAutoFollowUp({ ...on, ...off }, { now: NOW, reason: "x" }, DEL), null);
   // re-enable starts again from now and remembers the last done date
   const again = planEnableAutoFollowUp({ ...on, ...off, autoFollowUp: { ...off.autoFollowUp, lastDoneAt: NOW - DAY } }, { now: NOW }, DEL);
@@ -79,19 +76,34 @@ test("disable keeps a person's date, clears only the automatic one", async () =>
   assert.equal(again.autoFollowUp.stoppedReason, undefined);
 });
 
-test("after a follow-up: next in 2 weeks unless the sales person picked a date", async () => {
-  const { planAutoAfterFollowUp, manualOverridePatch } = await load();
-  const on = { autoFollowUp: { enabled: true, everyDays: 14 }, nextFollowUpDate: NOW - DAY, nextFollowUpSetVia: "auto_booked" };
-  const p = planAutoAfterFollowUp(on, { now: NOW }, DEL);
-  assert.equal(p.autoFollowUp.lastDoneAt, NOW); assert.equal(p.nextFollowUpDate, noonCairo(2026, 11, 21));
-  const m = planAutoAfterFollowUp(on, { now: NOW, manualNextTs: NOW + 3 * DAY }, DEL);
-  assert.equal(m.nextFollowUpDate, undefined); assert.equal(m.autoFollowUp.lastDoneAt, NOW);
-  assert.deepEqual(planAutoAfterFollowUp({ autoFollowUp: { enabled: false } }, { now: NOW }, DEL), {});
-  // a contact logged later ("تم التواصل مسبقاً" 3 days ago): next = that day + 14
-  const late = planAutoAfterFollowUp(on, { now: NOW, doneAt: NOW - 3 * DAY }, DEL);
-  assert.equal(late.nextFollowUpDate, noonCairo(2026, 11, 18)); assert.equal(late.autoFollowUp.lastDoneAt, NOW - 3 * DAY);
-  assert.deepEqual(manualOverridePatch(on, DEL), { nextFollowUpSetVia: "manual", nextFollowUpReason: DEL });
-  assert.deepEqual(manualOverridePatch({ nextFollowUpSetVia: "ai_automation" }, DEL), {});
+test("check-in done: next in 2 weeks after the contact, normal follow-up untouched", async () => {
+  const { planCheckInDone, planCheckInReschedule } = await load();
+  const on = { autoFollowUp: { enabled: true, everyDays: 14 }, nextCheckInDate: NOW - DAY, nextFollowUpDate: NOW + 2 * DAY, nextFollowUpSetVia: "manual" };
+  const p = planCheckInDone(on, { now: NOW }, DEL);
+  assert.equal(p.autoFollowUp.lastDoneAt, NOW); assert.equal(p.nextCheckInDate, noonCairo(2026, 11, 21));
+  assert.ok(!Object.keys(p).some((f) => f.startsWith("nextFollowUp")));
+  const late = planCheckInDone(on, { now: NOW, doneAt: NOW - 3 * DAY }, DEL);
+  assert.equal(late.nextCheckInDate, noonCairo(2026, 11, 18)); assert.equal(late.autoFollowUp.lastDoneAt, NOW - 3 * DAY);
+  assert.deepEqual(planCheckInDone({ autoFollowUp: { enabled: false } }, { now: NOW }, DEL), {});
+  assert.deepEqual(planCheckInReschedule(on, NOW + 5 * DAY, DEL), { nextCheckInDate: NOW + 5 * DAY });
+});
+
+test("legacy check-in (nextFollowUpSetVia auto_booked) is still read and moved on first write", async () => {
+  const { checkInDate, planCheckInDone, planCheckInReschedule, planDisableAutoFollowUp, legacyCheckInCleanup } = await load();
+  const legacy = { autoFollowUp: { enabled: true, everyDays: 14 }, nextFollowUpDate: NOW + DAY, nextFollowUpSetVia: "auto_booked", nextFollowUpReason: "x" };
+  assert.equal(checkInDate(legacy), NOW + DAY);
+  assert.equal(checkInDate({ ...legacy, nextCheckInDate: NOW + 3 * DAY }), NOW + 3 * DAY);
+  assert.equal(checkInDate({ nextFollowUpDate: NOW + DAY, nextFollowUpSetVia: "manual" }), 0);
+  assert.equal(checkInDate({}), 0);
+  const done = planCheckInDone(legacy, { now: NOW }, DEL);
+  assert.equal(done.nextFollowUpDate, 0); assert.equal(done.nextFollowUpSetVia, DEL); assert.equal(done.nextFollowUpReason, DEL);
+  assert.equal(done.nextCheckInDate, noonCairo(2026, 11, 21));
+  assert.equal(planCheckInReschedule(legacy, NOW + 9 * DAY, DEL).nextFollowUpDate, 0);
+  const off = planDisableAutoFollowUp(legacy, { now: NOW, reason: "x" }, DEL);
+  assert.equal(off.nextCheckInDate, 0); assert.equal(off.nextFollowUpDate, 0); assert.equal(off.nextFollowUpSetVia, DEL);
+  // a regular write on a legacy doc preserves the check-in date
+  assert.deepEqual(legacyCheckInCleanup(legacy).nextCheckInDate, NOW + DAY);
+  assert.deepEqual(legacyCheckInCleanup({ nextFollowUpDate: NOW, nextFollowUpSetVia: "manual" }, DEL), {});
 });
 
 test("browser edits switch it on only when the client BECOMES booked", async () => {
@@ -120,12 +132,12 @@ const ingest = async (current, bookingId, b) => {
 test("accounting: a new booking switches it on; repeat syncs change nothing", async () => {
   const { next, auto } = await ingest({ status: "interested", nextFollowUpDate: 0 }, "b1", booking());
   assert.equal(auto.autoFollowUp.enabled, true); assert.equal(auto.autoFollowUp.startedVia, "accounting");
-  assert.equal(next.nextFollowUpSetVia, "auto_booked");
+  assert.equal(next.nextFollowUpSetVia, undefined);
   // booked 2026-11-01 (noon Cairo) -> Nov 15
-  assert.equal(next.nextFollowUpDate, noonCairo(2026, 11, 15));
+  assert.equal(next.nextCheckInDate, noonCairo(2026, 11, 15));
   const again = await ingest(next, "b1", booking({ paymentSummary: { paidTotal: 3000, remaining: 0 } }));
   assert.equal(again.auto, null);
-  assert.equal(again.next.nextFollowUpDate, next.nextFollowUpDate);
+  assert.equal(again.next.nextCheckInDate, next.nextCheckInDate);
 });
 
 test("accounting: a sales person's 'off' survives payment updates, a NEW booking turns it on again", async () => {
@@ -145,7 +157,7 @@ test("accounting: refund / delete of the last active booking switches it off", a
   assert.equal(refund.auto.autoFollowUp.enabled, false);
   assert.equal(refund.auto.autoFollowUp.stoppedReason, "الحجز اتلغى أو اترد (من الحسابات)");
   assert.equal(refund.auto.autoFollowUp.stoppedByName, "نظام الحسابات");
-  assert.equal(refund.next.nextFollowUpDate, 0); assert.equal(refund.next.nextFollowUpSetVia, DEL);
+  assert.equal(refund.next.nextCheckInDate, 0);
   // replayed refund: nothing more
   const replay = await ingest(refund.next, "b1", booking({ status: "REFUNDED" }));
   assert.equal(replay.auto, null);
@@ -155,12 +167,13 @@ test("accounting: refund / delete of the last active booking switches it off", a
   assert.equal(partial.next.isBooked, true); assert.equal(partial.auto, null);
 });
 
-test("accounting: old bookings (over 90 days) are not switched on; a manual date is kept", async () => {
+test("accounting: old bookings (over 90 days) are not switched on; a manual follow-up date coexists", async () => {
   const old = await ingest({ status: "interested" }, "b1", booking({ bookingDate: "2026-06-01" }));
   assert.equal(old.auto, null);
   const manual = await ingest({ status: "interested", nextFollowUpDate: NOW + DAY, nextFollowUpSetVia: "manual" }, "b1", booking());
   assert.equal(manual.auto.autoFollowUp.enabled, true);
   assert.equal(manual.next.nextFollowUpDate, NOW + DAY); assert.equal(manual.next.nextFollowUpSetVia, "manual");
+  assert.equal(manual.next.nextCheckInDate, noonCairo(2026, 11, 15));
 });
 
 test("accounting: a client created from a booking starts with the automatic follow-up", async () => {
@@ -170,7 +183,7 @@ test("accounting: a client created from a booking starts with the automatic foll
   const auto = planAccountingAutoFollowUp({}, created, { now: NOW, bookingId: "b1" });
   const doc = { ...created, ...auto };
   assert.equal(doc.autoFollowUp.enabled, true);
-  assert.equal(doc.nextFollowUpDate, noonCairo(2026, 11, 15));
+  assert.equal(doc.nextCheckInDate, noonCairo(2026, 11, 15)); assert.equal(doc.nextFollowUpDate, 0);
   assert.ok(!Object.values(doc).includes(undefined));
-  assert.ok(!("nextFollowUpMethod" in doc)); // no delete sentinel in a new document
+  assert.ok(!Object.values(doc).includes(DEL)); // no delete sentinel in a new document
 });

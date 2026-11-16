@@ -152,7 +152,8 @@ export interface Client {
   lastFollowUpDate?: number;
   nextFollowUpDate?: number;
   nextFollowUpMethod?: CommMethod;
-  // 'auto_booked' = the automatic 2-week personal follow-up of a booked client (utils/autoFollowUp).
+  // 'auto_booked' is LEGACY: the first release kept the 2-week check-in here; it now lives in
+  // nextCheckInDate (see utils/autoFollowUp.ts, scripts/migrate-checkins.cjs).
   nextFollowUpSetVia?: 'ai_automation' | 'manual' | 'auto_booked';
   nextFollowUpReason?: string;
   nextFollowUpReviewedBySales?: boolean;
@@ -192,6 +193,8 @@ export interface Client {
   reviewedAt?: number;
   // Automatic personal follow-up every 2 weeks (booked clients). See utils/autoFollowUp.ts.
   autoFollowUp?: AutoFollowUpState;
+  // Next personal check-in (اطمئنان) of a booked client, ms; 0/absent = none. Separate from nextFollowUpDate.
+  nextCheckInDate?: number;
   // Written by the accounting sync (read-only in the CRM).
   accountingLatestBookingDate?: number;
 }
@@ -218,7 +221,7 @@ export interface FollowUp {
   reviewedBySales?: boolean;
   reviewedByName?: string;
   reviewedAt?: number;
-  // 'auto_booked' = logged with "تمت المتابعة" for the automatic 2-week follow-up.
+  // 'auto_booked' = a done personal check-in (اطمئنان), logged with "تمت المتابعة".
   kind?: 'auto_booked';
 }
 

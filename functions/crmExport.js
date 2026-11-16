@@ -1,7 +1,7 @@
 // Read-only export of CRM collections for the accounting project's data analyst.
 // Personal contact data and free-text notes never leave the CRM.
 const EXPORTABLE = {
-  clients: { drop: ["phone", "phoneKey", "phoneKeys", "profileLink", "notes", "chatId", "chatwootContactId", "distinctiveSearchPhrase", "automationSalesRepNameRaw", "aiRecommendation", "transferHistory"] },
+  clients: { drop: ["phone", "phoneKey", "phoneKeys", "profileLink", "notes", "chatId", "chatwootContactId", "distinctiveSearchPhrase", "automationSalesRepNameRaw", "aiRecommendation", "transferHistory", "snapshot360"] },
   followups: { drop: ["note", "salesBrief", "result", "chatwootConversationId"] },
   services: { drop: [] },
   labels: { drop: [] },

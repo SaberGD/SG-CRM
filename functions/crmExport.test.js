@@ -13,3 +13,7 @@ test("only whitelisted collections and bounded page sizes", () => {
   assert.equal(isExportable("clients"), true); assert.equal(isExportable("invitations"), false); assert.equal(isExportable("allowed_users"), false);
   assert.equal(pageSize(99999), 1000); assert.equal(pageSize(0), 1000); assert.equal(pageSize(50), 50);
 });
+test("the client 360 snapshot (personal data from other systems) is never exported", () => {
+  const d = sanitizeDoc("clients", "c1", { name: "x", status: "booked", snapshot360: { briefing: "..", accounting: { customer: { name: "y" } } }, courseEndsAt: "2026-12-01" });
+  assert.deepEqual(d, { id: "c1", name: "x", status: "booked", courseEndsAt: "2026-12-01" });
+});

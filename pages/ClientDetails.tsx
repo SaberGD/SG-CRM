@@ -18,13 +18,15 @@ import {
   MessageSquare, Edit2, X, Save, User, CalendarPlus, 
   Download, FileText, UserCheck, Settings, Timer, LayoutList, History as HistoryIcon,
   MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw,
-  Facebook, Instagram, Music2, Globe2, CalendarX, UserPlus, HeartHandshake, PauseCircle, PlayCircle
+  Facebook, Instagram, Music2, Globe2, CalendarX, UserPlus, HeartHandshake, PauseCircle, PlayCircle, GraduationCap, BookOpen
 } from 'lucide-react';
 import { useServices, useLabels, useStaff } from '../utils/refData';
 import { usePagedList } from '../utils/usePagedQuery';
 import Pager from '../components/Pager';
 import { Badge } from '../components/ui';
 import FloatingPanel from '../components/FloatingPanel';
+import ClientSnapshotPanel from '../components/ClientSnapshotPanel';
+import { activeCourses, canPullClientFile } from '../utils/clientCourses';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
 import AcceptFlowModal from '../components/AcceptFlowModal';
 import { getLabelColorStyle } from '../utils/labelColors';
@@ -364,6 +366,20 @@ const ClientDetails: React.FC = () => {
     } finally { setAutoSaving(false); }
   };
 
+  // One week after the course ended the owner agent moves the client to "عميل سابق" (the check-in stops).
+  const handleMarkAlumni = async () => {
+    if (!user || !client) return;
+    const now = Date.now();
+    const stop = planDisableAutoFollowUp(client, { now, by: user.uid, byName: user.name, reason: 'الكورس خلص', reasonCode: 'الكورس خلص' }, firestore.deleteField());
+    try {
+      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), { ...(stop || {}), isAlumni: true, alumniSince: now });
+      await logActivity(user.uid, user.name, 'تحويل العميل لعميل سابق (الكورس خلص)', client.id, client.name);
+    } catch (err) {
+      console.error(err);
+      alert('ماقدرناش نحوّل العميل. اتأكد إن العميل ده بتاعك أو كلم الليدر.');
+    }
+  };
+
   const handleStartAutoFollowUp = async () => {
     if (!user || !client) return;
     const patch = planEnableAutoFollowUp(client, { now: Date.now(), by: user.uid, byName: user.name, via: 'manual' }, firestore.deleteField());
@@ -623,6 +639,8 @@ const ClientDetails: React.FC = () => {
   if (!client) return <div className="text-center py-40">العميل غير موجود</div>;
   const sourceMeta = getClientSourceMeta(client.source);
   const SourceIcon = sourceMeta.Icon;
+  const courseNames = activeCourses(client);
+  const canSeeSnapshot = canPullClientFile(user, client);
 
   return (
     <div className="sg-page max-w-6xl mx-auto space-y-6 animate-fade-in">
@@ -716,6 +734,8 @@ const ClientDetails: React.FC = () => {
                 <SourceIcon size={10}/>
                 {sourceMeta.label}
               </span>
+              {client.isAlumni && <span className="sgui-state" title="خلص كورسه وانتقل لعميل سابق"><GraduationCap size={10}/> عميل سابق</span>}
+              {courseNames.length >= 2 && <span className="sgui-state is-info" title={courseNames.join(' + ')}><BookOpen size={10}/> اشترى {courseNames.length} كورسات</span>}
               {client.profileLink && (
                 <a href={client.profileLink} target="_blank" className="sgui-state is-info hover:underline">
                   <ExternalLink size={10}/> رابط الحساب
@@ -871,6 +891,8 @@ const ClientDetails: React.FC = () => {
           </div>
         );
       })()}
+
+      {canSeeSnapshot && <ClientSnapshotPanel client={client} canPull={canSeeSnapshot} onMarkAlumni={handleMarkAlumni} />}
 
       {client.notes && (
         <div className="sgui-info-card items-start">

@@ -197,6 +197,72 @@ export interface Client {
   nextCheckInDate?: number;
   // Written by the accounting sync (read-only in the CRM).
   accountingLatestBookingDate?: number;
+  accounting?: ClientAccounting;
+  // Written by the accounting sync / the client 360 pull (server only, see firestore.rules).
+  activeBookingsCount?: number;
+  multiCourse?: boolean;
+  courseEndsAt?: string | null;
+  alumniDue?: boolean;
+  snapshot360?: ClientSnapshot360;
+  // "عميل سابق": set by the owner agent one week after the course ended.
+  isAlumni?: boolean;
+  alumniSince?: number;
+}
+
+// client.accounting as written by functions/accountingIngest.js (money comes from accounting only).
+export interface ClientAccountingBooking {
+  id: string;
+  status: string; // ACTIVE | DEACTIVATED | REFUNDED | DELETED
+  courseName: string;
+  total: number;
+  paid: number;
+  remaining: number;
+  nextDueDate?: string | null;
+}
+export interface ClientAccounting {
+  bookings?: Record<string, ClientAccountingBooking>;
+  activeCount?: number;
+}
+
+// ---- client 360 (functions/clientSnapshot.js) -------------------------------------------
+export interface SnapInstallment { dueDate: string; amount: number; paidAmount: number; status: 'pending' | 'paid' | 'delayed' | 'cancelled' | string; }
+export interface SnapBooking {
+  id: string; status: string; productName: string; productType?: string; bookingType?: string; bookingDate?: string;
+  group?: { id?: string; name?: string; startDate?: string; status?: string; scheduleLabel?: string; trainer?: string } | null;
+  pricing?: { listPrice?: number; finalPrice?: number; discount?: number; offer?: string; promoCode?: string; referralDiscount?: number; isScholarship?: boolean };
+  paid: number; remaining: number; refundedTotal?: number;
+  lastPayment?: { date: string; amount: number; method?: string } | null;
+  nextDue?: { date: string; amount: number } | null;
+  overdue?: { dueDate: string; amount: number }[];
+  installments?: SnapInstallment[];
+}
+export interface SnapStudent {
+  sourceBookingId: string; groupId?: string; groupName?: string; courseName?: string; startDate?: string; endDate?: string;
+  totalSessions?: number; heldSessions?: number; attended?: number; attendancePct?: number;
+  lastAttended?: { sessionNumber: number; date: string } | null;
+  absenceStreak?: number;
+  tasks?: { delivered: number; required: number };
+  access?: { deactivated?: boolean; is50PercentPaid?: boolean; reasonCategory?: string };
+  trainerName?: string; archived?: boolean;
+  portal?: { hasLoggedIn?: boolean; lastLoginAt?: string | null; loginCount?: number };
+  followUp?: { status?: string; lastContactAt?: string | null; lastChannel?: string };
+  finalScore?: number | null;
+}
+export interface SnapCourse {
+  bookingId: string; name: string; productType?: string; status: string; startDate: string; endDate: string; groupName: string;
+  paid: number; remaining: number; finalPrice: number; nextDue: string; nextDueAmount: number; hasTraining: boolean;
+}
+export type LifecycleState = 'before_start' | 'running' | 'finished' | 'alumni_due' | 'unknown';
+export interface ClientSnapshot360 {
+  pulledAt: number; pulledBy: string; pulledByName: string;
+  accounting: { found?: boolean; bookings?: SnapBooking[]; totals?: { bookings: number; active: number; paid: number; remaining: number } } | null;
+  accountingError: string;
+  training: { found?: boolean; students?: SnapStudent[] } | null;
+  trainingError: string;
+  followUps: { at: number; by: string; method: string; result: string; kind: string }[];
+  courses: SnapCourse[];
+  lifecycle: { courseEndsAt: string | null; alumniFrom: string | null; state: LifecycleState };
+  briefing: string; model: string; usage: { inputTokens: number; outputTokens: number };
 }
 
 export interface FollowUp {

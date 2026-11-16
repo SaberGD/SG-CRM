@@ -19,12 +19,13 @@ import {
   Plus, Search, MessageCircle, History, ArrowRightLeft, Trash2,
   Phone, MessageSquare, User, Clock, X,
   ExternalLink, Layers, AlertTriangle, Upload, Download, Sparkles,
-  SlidersHorizontal, ChevronDown, Facebook, Instagram, Music2, Globe2, UserPlus, MoreHorizontal } from 'lucide-react';
+  SlidersHorizontal, ChevronDown, Facebook, Instagram, Music2, Globe2, UserPlus, MoreHorizontal, GraduationCap, BookOpen } from 'lucide-react';
 import { PageHeader } from '../components/ui';
 import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
 import { searchTerm as toSearchKey, matchesSearch, buildSearchKeys } from '../utils/searchKeys.mjs';
 import { planEnableAutoFollowUp } from '../utils/autoFollowUp';
 import { usePagedQuery } from '../utils/usePagedQuery';
+import { activeCourses } from '../utils/clientCourses';
 import { useServices, useLabels, useAgentOptions, useStaff } from '../utils/refData';
 import Pager from '../components/Pager';
 import FilterPanel, { Field } from '../components/FilterPanel';
@@ -33,6 +34,9 @@ import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
 } from '../utils/currency';
+
+// ACTIVE accounting bookings of a client, straight from the row (no read).
+const courseNames = (c: Client) => activeCourses(c);
 
 const ARAB_COUNTRIES = [
   { name: 'مصر', code: '+20' },
@@ -85,6 +89,9 @@ const ClientsList: React.FC = () => {
   const [filterBookedCourse, setFilterBookedCourse] = useState<string>('all');
   const [filterSalesAgent, setFilterSalesAgent] = useState<string>('all');
   const [filterTransferType, setFilterTransferType] = useState<string>('all');
+  // 'all' | 'multi' (اشترى أكتر من كورس, multiCourse == true) | 'alumni' (عميل سابق, isAlumni == true).
+  // One select, so the two never combine (each has its own composite index with createdAt).
+  const [filterKind, setFilterKind] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'createdAt' | 'lastChatwootContactAsc'>('createdAt');
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
 
@@ -240,10 +247,12 @@ const ClientsList: React.FC = () => {
       if (filterBookedCourse !== 'all') c.push(firestore.where('bookedCourseId', '==', filterBookedCourse));
       if (filterLabel !== 'all') c.push(firestore.where('labels', 'array-contains', filterLabel));
       if (filterTransferType === 'external') c.push(firestore.where('isExternalTransfer', '==', true));
+      if (filterKind === 'multi') c.push(firestore.where('multiCourse', '==', true));
+      if (filterKind === 'alumni') c.push(firestore.where('isAlumni', '==', true));
     }
-    const key = JSON.stringify([effectiveRole, scopedId, poolAgentId, debouncedSearch, sortBy, filterSalesAgent, filterStatus, filterService, filterLaptop, filterMode, filterGender, filterBookedCourse, filterLabel, filterTransferType]);
+    const key = JSON.stringify([effectiveRole, scopedId, poolAgentId, debouncedSearch, sortBy, filterSalesAgent, filterStatus, filterService, filterLaptop, filterMode, filterGender, filterBookedCourse, filterLabel, filterTransferType, filterKind]);
     return { constraints: c, key };
-  }, [authLoading, user?.uid, isHighRole, staff.length, poolAgentId, scopedId, effectiveRole, debouncedSearch, sortBy, filterSalesAgent, filterStatus, filterService, filterLaptop, filterMode, filterGender, filterBookedCourse, filterLabel, filterTransferType]);
+  }, [authLoading, user?.uid, isHighRole, staff.length, poolAgentId, scopedId, effectiveRole, debouncedSearch, sortBy, filterSalesAgent, filterStatus, filterService, filterLaptop, filterMode, filterGender, filterBookedCourse, filterLabel, filterTransferType, filterKind]);
 
   const paged = usePagedQuery<Client>({
     collectionName: 'clients',
@@ -269,7 +278,7 @@ const ClientsList: React.FC = () => {
 
   const resetFilters = () => {
     setSearchTerm(''); setFilterStatus('all'); setFilterService('all'); setFilterSalesAgent('all'); setSortBy('createdAt');
-    setFilterLabel('all'); setFilterBookedCourse('all'); setFilterLaptop('all'); setFilterMode('all'); setFilterGender('all'); setFilterTransferType('all');
+    setFilterLabel('all'); setFilterBookedCourse('all'); setFilterLaptop('all'); setFilterMode('all'); setFilterGender('all'); setFilterTransferType('all'); setFilterKind('all');
   };
 
   // Export reads the booked clients in the user's scope once, on demand (the list itself only
@@ -807,7 +816,7 @@ const ClientsList: React.FC = () => {
       {/* Filters: daily ones always visible, the rest under "فلاتر متقدمة". */}
       <FilterPanel
         advancedCount={advancedFiltersCount}
-        activeCount={advancedFiltersCount + [filterStatus, filterService, filterSalesAgent].filter(v => v !== 'all').length + (searchTerm ? 1 : 0) + (sortBy !== 'createdAt' ? 1 : 0)}
+        activeCount={advancedFiltersCount + [filterStatus, filterService, filterSalesAgent, filterKind].filter(v => v !== 'all').length + (searchTerm ? 1 : 0) + (sortBy !== 'createdAt' ? 1 : 0)}
         onReset={resetFilters}
         main={<>
           <Field label="بحث" wide>
@@ -836,6 +845,13 @@ const ClientsList: React.FC = () => {
               </select>
             </Field>
           )}
+          <Field label="نوع العميل">
+            <select value={filterKind} onChange={e => setFilterKind(e.target.value)} disabled={isSearchActive}>
+              <option value="all">كل العملاء</option>
+              <option value="multi">اشترى أكتر من كورس</option>
+              <option value="alumni">عميل سابق</option>
+            </select>
+          </Field>
           <Field label="الترتيب">
             <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)} disabled={isSearchActive}>
               <option value="createdAt">الأحدث تسجيلاً</option>
@@ -1048,6 +1064,14 @@ const ClientsList: React.FC = () => {
                       {StatusLabels[client.status]?.ar}
                     </span>
                     <p className="text-[10px] font-bold text-slate-500 mt-1">{client.serviceName}</p>
+                    {(client.isAlumni || courseNames(client).length >= 2) && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {client.isAlumni && <span className="sgui-state" title="خلص كورسه وانتقل لعميل سابق"><GraduationCap size={10} /> عميل سابق</span>}
+                        {courseNames(client).length >= 2 && (
+                          <span className="sgui-state is-info" title={courseNames(client).join(' + ')}><BookOpen size={10} /> اشترى {courseNames(client).length} كورسات</span>
+                        )}
+                      </div>
+                    )}
                     {clientLabels.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mt-2">
                         {clientLabels.slice(0, 3).map(label => (

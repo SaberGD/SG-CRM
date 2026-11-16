@@ -309,9 +309,9 @@ const ClientsList: React.FC = () => {
   );
   const allVisibleSelected = filteredClients.length > 0 && filteredClients.every(client => selectedClientSet.has(client.id));
   const advancedFiltersCount = useMemo(() => (
-    [filterLabel, filterBookedCourse, filterLaptop, filterMode, filterGender, filterTransferType]
+    [filterLabel, filterBookedCourse, filterLaptop, filterMode, filterGender, filterTransferType, filterKind]
       .filter(value => value !== 'all').length
-  ), [filterLabel, filterBookedCourse, filterLaptop, filterMode, filterGender, filterTransferType]);
+  ), [filterLabel, filterBookedCourse, filterLaptop, filterMode, filterGender, filterTransferType, filterKind]);
 
 
   useEffect(() => {
@@ -816,7 +816,7 @@ const ClientsList: React.FC = () => {
       {/* Filters: daily ones always visible, the rest under "فلاتر متقدمة". */}
       <FilterPanel
         advancedCount={advancedFiltersCount}
-        activeCount={advancedFiltersCount + [filterStatus, filterService, filterSalesAgent, filterKind].filter(v => v !== 'all').length + (searchTerm ? 1 : 0) + (sortBy !== 'createdAt' ? 1 : 0)}
+        activeCount={advancedFiltersCount + [filterStatus, filterService, filterSalesAgent].filter(v => v !== 'all').length + (searchTerm ? 1 : 0) + (sortBy !== 'createdAt' ? 1 : 0)}
         onReset={resetFilters}
         main={<>
           <Field label="بحث" wide>
@@ -845,13 +845,6 @@ const ClientsList: React.FC = () => {
               </select>
             </Field>
           )}
-          <Field label="نوع العميل">
-            <select value={filterKind} onChange={e => setFilterKind(e.target.value)} disabled={isSearchActive}>
-              <option value="all">كل العملاء</option>
-              <option value="multi">اشترى أكتر من كورس</option>
-              <option value="alumni">عميل سابق</option>
-            </select>
-          </Field>
           <Field label="الترتيب">
             <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)} disabled={isSearchActive}>
               <option value="createdAt">الأحدث تسجيلاً</option>
@@ -860,6 +853,13 @@ const ClientsList: React.FC = () => {
           </Field>
         </>}
         advanced={<>
+          <Field label="نوع العميل">
+            <select value={filterKind} onChange={e => setFilterKind(e.target.value)} disabled={isSearchActive}>
+              <option value="all">كل العملاء</option>
+              <option value="multi">اشترى أكتر من كورس</option>
+              <option value="alumni">عميل سابق</option>
+            </select>
+          </Field>
           <Field label="التصنيف (Label)">
             <select value={filterLabel} onChange={e => setFilterLabel(e.target.value)} disabled={isSearchActive}>
               <option value="all">كل التصنيفات</option>

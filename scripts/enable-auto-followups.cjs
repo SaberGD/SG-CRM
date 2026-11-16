@@ -1,4 +1,4 @@
-// Switches ON the automatic personal follow-up every 2 weeks (utils/autoFollowUp) for clients
+// Switches ON the personal check-in (اطمئنان) every 2 weeks (utils/autoFollowUp) for clients
 // who booked in the last 3 months (owner's request 2026-11-07). New bookings get it on their
 // own; this is the one-time start for the existing ones.
 //
@@ -6,7 +6,8 @@
 // accountingLatestBookingDate / newest ACTIVE accounting booking) within the last 90 days,
 // not refunded/deleted in accounting, and no autoFollowUp field yet. The first date is
 // bookingDate + k*14 days (the first one not in the past), so they spread over the next 2
-// weeks. A date already set by a person or the AI is kept.
+// weeks. The check-in lives in its own field (nextCheckInDate), so a normal follow-up date
+// (person/AI) is never touched.
 //
 //   KEY=/path/to/service-account.json node scripts/enable-auto-followups.cjs            (dry run)
 //   KEY=... node scripts/enable-auto-followups.cjs --execute
@@ -26,9 +27,8 @@ admin.initializeApp(KEY ? { credential: admin.credential.cert(require(path.resol
 const db = admin.firestore();
 const FV = admin.firestore.FieldValue;
 
-const FIELDS = ['autoFollowUp', 'nextFollowUpDate', 'nextFollowUpSetVia', 'nextFollowUpReason', 'nextFollowUpMethod',
-  'nextFollowUpReviewedBySales', 'nextFollowUpReviewedByName', 'nextFollowUpReviewedAt'];
-const READ = ['status', 'isBooked', 'bookingDate', 'accountingLatestBookingDate', 'accounting', 'salesAgentId', 'salesAgentName', ...FIELDS];
+const FIELDS = ['autoFollowUp', 'nextCheckInDate'];
+const READ = ['status', 'isBooked', 'bookingDate', 'accountingLatestBookingDate', 'accounting', 'salesAgentId', 'salesAgentName', ...FIELDS, 'nextFollowUpDate', 'nextFollowUpSetVia'];
 const EXECUTE = process.argv.includes('--execute');
 const FORCE = process.argv.includes('--force');
 const restoreFile = (process.argv.find((a) => a.startsWith('--restore=')) || '').split('=').slice(1).join('=');
@@ -48,7 +48,7 @@ const day = (ms) => new Date(ms).toISOString().slice(0, 10);
         const cur = snaps[k];
         const af = cur.exists ? cur.get('autoFollowUp') : null;
         const untouched = af && af.startedVia === 'backfill' && af.startedAt === backup.at && af.enabled === true &&
-          (cur.get('nextFollowUpDate') || 0) === (r.new.nextFollowUpDate ?? cur.get('nextFollowUpDate') ?? 0);
+          (cur.get('nextCheckInDate') || 0) === r.new.nextCheckInDate;
         if (!cur.exists || (!untouched && !FORCE)) { skipped.push(r.id); return; }
         const patch = {};
         FIELDS.forEach((f) => { patch[f] = f in r.old ? r.old[f] : FV.delete(); });
@@ -70,7 +70,7 @@ const day = (ms) => new Date(ms).toISOString().slice(0, 10);
   const byId = new Map();
   [...byStatus.docs, ...byFlag.docs].forEach((d) => byId.set(d.id, d));
 
-  const why = { alreadyHasField: 0, noBookingDate: 0, olderThan90Days: 0, refundedOrDeleted: 0 };
+  const why = { legacyFields: 0, alreadyHasField: 0, noBookingDate: 0, olderThan90Days: 0, refundedOrDeleted: 0 };
   const rows = [];
   for (const d of byId.values()) {
     const c = d.data();
@@ -80,12 +80,14 @@ const day = (ms) => new Date(ms).toISOString().slice(0, 10);
     const anchor = auto.bookingAnchor(c);
     if (!anchor) { why.noBookingDate++; continue; }
     if (!auto.isRecentBooking(anchor, now)) { why.olderThan90Days++; continue; }
+    // Legacy docs (check-in still in nextFollowUpDate) already have autoFollowUp, so they are skipped above;
+    // scripts/migrate-checkins.cjs moves those.
     const patch = auto.planEnableAutoFollowUp(c, { now, anchor, by: 'system:backfill', byName: 'تشغيل أولي (حجوزات آخر 3 شهور)', via: 'backfill' }, FV.delete());
     if (!patch) continue;
+    if (Object.keys(patch).some((k) => !FIELDS.includes(k))) { why.legacyFields++; continue; } // not expected; the backup only covers FIELDS
     const old = {}; FIELDS.forEach((f) => { if (c[f] !== undefined) old[f] = c[f]; });
-    const keptDate = !('nextFollowUpDate' in patch);
-    rows.push({ id: d.id, agentId: c.salesAgentId || '', agent: c.salesAgentName || '', bookedOn: day(anchor), next: keptDate ? null : day(patch.nextFollowUpDate), keptDate, old, patch,
-      new: { nextFollowUpDate: keptDate ? (c.nextFollowUpDate || 0) : patch.nextFollowUpDate } });
+    rows.push({ id: d.id, agentId: c.salesAgentId || '', agent: c.salesAgentName || '', bookedOn: day(anchor), next: day(patch.nextCheckInDate), old, patch,
+      new: { nextCheckInDate: patch.nextCheckInDate } });
   }
 
   const perAgent = {}; const perDay = {};
@@ -93,11 +95,11 @@ const day = (ms) => new Date(ms).toISOString().slice(0, 10);
     perAgent[r.agent || '(no agent)'] = (perAgent[r.agent || '(no agent)'] || 0) + 1;
     if (r.next) perDay[r.next] = (perDay[r.next] || 0) + 1;
   });
-  console.log(`booked clients read: ${byId.size}; to switch on: ${rows.length} (keeping an existing person/AI date: ${rows.filter((r) => r.keptDate).length})`);
+  console.log(`booked clients read: ${byId.size}; to switch on: ${rows.length}`);
   console.log('skipped:', why);
   console.log('per sales person:', perAgent);
-  console.log('first automatic date per day:', Object.fromEntries(Object.entries(perDay).sort()));
-  console.log('sample (no names/phones):', rows.slice(0, 10).map((r) => ({ id: r.id, agent: r.agent, bookedOn: r.bookedOn, next: r.next || 'kept existing date' })));
+  console.log('first check-in date per day:', Object.fromEntries(Object.entries(perDay).sort()));
+  console.log('sample (no names/phones):', rows.slice(0, 10).map((r) => ({ id: r.id, agent: r.agent, bookedOn: r.bookedOn, next: r.next })));
   if (!EXECUTE) { console.log('dry run, nothing written (pass --execute)'); return; }
   if (!rows.length) { console.log('nothing to do'); return; }
 

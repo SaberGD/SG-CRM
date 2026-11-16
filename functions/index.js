@@ -1,9 +1,10 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const crypto = require("crypto");
-const { OAuth2Client } = require("google-auth-library");
+const { OAuth2Client, GoogleAuth } = require("google-auth-library");
 const accountingIngest = require("./accountingIngest");
 const crmExport = require("./crmExport");
 const crmAssistant = require("./crmAssistant");
+const clientSnapshot = require("./clientSnapshot");
 const { defineSecret } = require("firebase-functions/params");
 
 // Claude key for the CRM assistant (Firebase secret in this project).
@@ -701,11 +702,42 @@ async function handleAssistant(req, res) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// "ملف العميل": the owner agent (or a leader) pulls accounting + training data for ONE client on
+// demand. Server-to-server calls carry a Google OIDC token for the receiving function's URL.
+// ---------------------------------------------------------------------------
+const googleAuth = new GoogleAuth();
+const idTokenClients = new Map(); // audience -> IdTokenClient (per warm instance)
+async function oidcTokenFor(audience) {
+  let client = idTokenClients.get(audience);
+  if (!client) { client = await googleAuth.getIdTokenClient(audience); idTokenClients.set(audience, client); }
+  const headers = await client.getRequestHeaders();
+  return String(headers.Authorization || headers.authorization || "").replace(/^Bearer /i, "");
+}
+
+async function handleClientSnapshot(req, res) {
+  let user;
+  try { user = await assistantStaff(req); } catch (e) { user = null; }
+  if (!user) return res.status(401).json({ error: "سجّل دخولك الأول." });
+  try {
+    const result = await clientSnapshot.pullClientSnapshot({
+      clientId: req.body?.clientId, force: req.body?.force === true, user,
+      deps: { store: clientSnapshot.firestoreStore(db), fetchImpl: fetch, getIdToken: oidcTokenFor, apiKey: ANTHROPIC_API_KEY_CRM.value() },
+    });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    if (error instanceof clientSnapshot.SnapshotError) return res.status(error.status).json({ error: error.message });
+    console.error("client snapshot failed:", error?.message || error);
+    return res.status(500).json({ error: "ماقدرناش نسحب ملف العميل دلوقتي. جرّب بعد شوية." });
+  }
+}
+
 exports.accountingCrmBridge = onRequest({ region: "us-central1", cors: true, secrets: [ANTHROPIC_API_KEY_CRM], timeoutSeconds: 120 }, async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   const action = req.body?.action;
-  if (!["lookup", "syncBooking", "ingest", "export", "assistant"].includes(action)) return res.status(400).json({ error: "Invalid action" });
+  if (!["lookup", "syncBooking", "ingest", "export", "assistant", "clientSnapshot"].includes(action)) return res.status(400).json({ error: "Invalid action" });
   if (action === "assistant") return handleAssistant(req, res);
+  if (action === "clientSnapshot") return handleClientSnapshot(req, res);
   if (action === "export") {
     try { return await handleCrmExport(req, res); }
     catch (error) { console.error("crm export failed:", error); return res.status(500).json({ error: "Export failed" }); }

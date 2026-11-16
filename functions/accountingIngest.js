@@ -56,6 +56,10 @@ function planClientAccounting(current, summary, now = Date.now()) {
   const patch = {
     accounting: { bookings, totals, activeCount: active.length, lastSyncedAt: now },
     accountingLastSyncedAt: now,
+    // Top-level, indexed: "اشترى أكتر من كورس" in the clients list (an equality filter on the
+    // boolean works with orderBy createdAt; a numeric >= 2 would not).
+    activeBookingsCount: active.length,
+    multiCourse: active.length >= 2,
   };
   if (latest) {
     Object.assign(patch, {

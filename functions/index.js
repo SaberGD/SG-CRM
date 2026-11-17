@@ -1,5 +1,6 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const crypto = require("crypto");
+const { automationKeyOk } = require("./automationKey");
 const { OAuth2Client, GoogleAuth } = require("google-auth-library");
 const accountingIngest = require("./accountingIngest");
 const crmExport = require("./crmExport");
@@ -24,8 +25,7 @@ function hashForMeta(value) {
 // either an active staff member's Firebase ID token (what the CRM web app sends) or
 // the automation secret (server-to-server callers such as n8n).
 async function requireStaffOrAutomation(req, res) {
-  const secret = process.env.AUTOMATION_SECRET || "";
-  if (secret && req.get("x-automation-secret") === secret) return { automation: true };
+  if (automationKeyOk(req.get("x-automation-secret"), process.env.AUTOMATION_SECRET)) return { automation: true };
   const match = (req.get("authorization") || "").match(/^Bearer (.+)$/);
   if (!match) {
     res.status(401).json({ error: "Sign in required" });
@@ -403,7 +403,7 @@ ${historyText || "لا توجد متابعات سابقة بعد"}
 // WhatsApp/Messenger/Instagram apps or Chatwoot's own UI.
 //
 // Auth: shared secret in the "x-automation-secret" header (or
-// req.body.automationSecret), compared against AUTOMATION_SECRET env var.
+// req.body.automationSecret), checked by automationKey.js.
 //
 // Deliberately conservative: never sets isBooked/financial fields and never
 // overwrites a status of "not_interested" — those stay human-only decisions.
@@ -1123,12 +1123,7 @@ async function postMetaLeadEvent(phoneFull, contentName, contentCategory) {
  * against the real course list instead of a hardcoded name list baked into the prompt.
  */
 exports.getActiveServicesForAutomation = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
-  const expectedSecret = process.env.AUTOMATION_SECRET || "";
-  const providedSecret = req.get("x-automation-secret") || "";
-  if (!expectedSecret) {
-    return res.status(500).json({ error: "AUTOMATION_SECRET not configured on server" });
-  }
-  if (providedSecret !== expectedSecret) {
+  if (!automationKeyOk(req.get("x-automation-secret"), process.env.AUTOMATION_SECRET)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
@@ -1165,12 +1160,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const expectedSecret = process.env.AUTOMATION_SECRET || "";
   const providedSecret = req.get("x-automation-secret") || (req.body && req.body.automationSecret) || "";
-  if (!expectedSecret) {
-    return res.status(500).json({ error: "AUTOMATION_SECRET not configured on server" });
-  }
-  if (providedSecret !== expectedSecret) {
+  if (!automationKeyOk(providedSecret, process.env.AUTOMATION_SECRET)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 

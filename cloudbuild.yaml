@@ -7,7 +7,6 @@ steps:
         echo "META_PIXEL_ID=1748422296177915" > functions/.env
         echo "META_ACCESS_TOKEN=$$META_ACCESS_TOKEN" >> functions/.env
         echo "GEMINI_API_KEY=$$GEMINI_API_KEY" >> functions/.env
-        echo "AUTOMATION_SECRET=rQc2uXOMLx-01PEXeHqgV1gpPfuyDgrH7CXTbXodiGk" >> functions/.env
         cd functions
         npm install
         cd ..

@@ -25,7 +25,7 @@ function hashForMeta(value) {
 // either an active staff member's Firebase ID token (what the CRM web app sends) or
 // the automation secret (server-to-server callers such as n8n).
 async function requireStaffOrAutomation(req, res) {
-  if (automationKeyOk(req.get("x-automation-secret"), process.env.AUTOMATION_SECRET)) return { automation: true };
+  if (automationKeyOk(req.get("x-automation-secret"))) return { automation: true };
   const match = (req.get("authorization") || "").match(/^Bearer (.+)$/);
   if (!match) {
     res.status(401).json({ error: "Sign in required" });
@@ -1127,7 +1127,7 @@ async function postMetaLeadEvent(phoneFull, contentName, contentCategory) {
  * against the real course list instead of a hardcoded name list baked into the prompt.
  */
 exports.getActiveServicesForAutomation = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
-  if (!automationKeyOk(req.get("x-automation-secret"), process.env.AUTOMATION_SECRET)) {
+  if (!automationKeyOk(req.get("x-automation-secret"))) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
@@ -1165,7 +1165,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
   }
 
   const providedSecret = req.get("x-automation-secret") || (req.body && req.body.automationSecret) || "";
-  if (!automationKeyOk(providedSecret, process.env.AUTOMATION_SECRET)) {
+  if (!automationKeyOk(providedSecret)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 

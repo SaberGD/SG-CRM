@@ -2,6 +2,7 @@
 import { buildSearchKeys } from '../utils/searchKeys.mjs';
 import { normalizePhoneKey } from '../utils/clientMerge.mjs';
 import React, { useState, useEffect, useMemo } from 'react';
+import { EGYPT_GOVERNORATES, clientLocationLabel } from '../utils/governorates';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
@@ -18,7 +19,7 @@ import {
   MessageSquare, Edit2, X, Save, User, CalendarPlus, 
   Download, FileText, UserCheck, Settings, Timer, LayoutList, History as HistoryIcon,
   MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw,
-  Facebook, Instagram, Music2, Globe2, CalendarX, UserPlus, HeartHandshake, PauseCircle, PlayCircle, GraduationCap, BookOpen
+  Facebook, Instagram, Music2, Globe2, CalendarX, UserPlus, HeartHandshake, PauseCircle, PlayCircle, GraduationCap, BookOpen, MapPin
 } from 'lucide-react';
 import { useServices, useLabels, useStaff } from '../utils/refData';
 import { usePagedList } from '../utils/usePagedQuery';
@@ -225,7 +226,8 @@ const ClientDetails: React.FC = () => {
     name: '', position: '', phone: '', serviceName: '', serviceId: '', customServiceName: '', status: ClientStatus.INTERESTED,
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
     labels: [] as string[],
-    source: ClientSource.WHATSAPP, profileLink: '', chatId: '', distinctiveSearchPhrase: '', notes: ''
+    source: ClientSource.WHATSAPP, profileLink: '', chatId: '', distinctiveSearchPhrase: '', notes: '',
+    governorate: '', city: ''
   });
 
   const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
@@ -254,7 +256,9 @@ const ClientDetails: React.FC = () => {
           profileLink: data.profileLink || '',
           chatId: data.chatId || '',
           distinctiveSearchPhrase: data.distinctiveSearchPhrase || '',
-          notes: data.notes || ''
+          notes: data.notes || '',
+          governorate: data.governorate || '',
+          city: data.city || ''
         });
         setStatus(data.status);
         setLabels(data.labels || []);
@@ -610,7 +614,7 @@ const ClientDetails: React.FC = () => {
   const handleUpdateClient = async () => {
     if (!client || !user) return;
     try {
-      const finalData = { ...editClientData };
+      const finalData = { ...editClientData, governorate: editClientData.governorate.trim(), city: editClientData.city.trim() };
       if (finalData.serviceId === 'other' && finalData.customServiceName) {
         finalData.serviceName = finalData.customServiceName;
       } else if (finalData.serviceId) {
@@ -690,6 +694,9 @@ const ClientDetails: React.FC = () => {
               <p className="text-slate-400 font-bold text-xs mt-0.5">{client.position}</p>
             )}
             <p className="text-primary-500 font-bold flex items-center gap-2 mt-1"><PhoneIncoming size={14}/> <span dir="ltr">{client.phone}</span></p>
+            {clientLocationLabel(client) && (
+              <p className="text-slate-400 font-bold text-xs flex items-center gap-2 mt-1"><MapPin size={14}/> {clientLocationLabel(client)}</p>
+            )}
             {client.chatId && (
               <a
                 href={buildChatwootConversationLink(client.chatId)}
@@ -1572,6 +1579,17 @@ const ClientDetails: React.FC = () => {
                   <select className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-xs" value={editClientData.mode} onChange={e => setEditClientData({...editClientData, mode: e.target.value as AttendanceMode})}>
                     <option value={AttendanceMode.OFFLINE}>أوفلاين</option><option value={AttendanceMode.ONLINE}>أونلاين</option><option value={AttendanceMode.UNSPECIFIED}>لم يحدد</option>
                   </select>
+               </div>
+               <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المحافظة</label>
+                    <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-right" list="sg-governorates-edit" maxLength={60} placeholder="القاهرة" value={editClientData.governorate} onChange={e => setEditClientData({...editClientData, governorate: e.target.value})} />
+                    <datalist id="sg-governorates-edit">{EGYPT_GOVERNORATES.map(g => <option key={g} value={g} />)}</datalist>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المدينة</label>
+                    <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-slate-900 dark:text-white text-right" maxLength={60} placeholder="مدينة نصر" value={editClientData.city} onChange={e => setEditClientData({...editClientData, city: e.target.value})} />
+                  </div>
                </div>
                <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase mr-2">التصنيفات (Labels)</label>

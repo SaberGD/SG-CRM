@@ -29,6 +29,7 @@ import { activeCourses } from '../utils/clientCourses';
 import { useServices, useLabels, useAgentOptions, useStaff } from '../utils/refData';
 import Pager from '../components/Pager';
 import FilterPanel, { Field } from '../components/FilterPanel';
+import { EGYPT_GOVERNORATES } from '../utils/governorates';
 import { normalizePhoneKey } from '../utils/clientMerge.mjs';
 import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
@@ -123,7 +124,7 @@ const ClientsList: React.FC = () => {
     name: '', position: '', phone: '', status: ClientStatus.INTERESTED,
     source: ClientSource.WHATSAPP, profileLink: '',
     gender: Gender.MALE, laptop: LaptopStatus.WITHOUT, mode: AttendanceMode.OFFLINE,
-    serviceId: '', customServiceName: '', country: 'مصر', countryCode: '+20', 
+    serviceId: '', customServiceName: '', country: 'مصر', countryCode: '+20', governorate: '', city: '',
     labels: [] as string[],
     notes: '',
     preferredMethod: CommMethod.PHONE,
@@ -1298,6 +1299,18 @@ const ClientsList: React.FC = () => {
                   onChange={e => handlePhoneChange(e.target.value)} 
                 />
               </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المحافظة (اختياري)</label>
+              <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" list="sg-governorates" maxLength={60} placeholder="القاهرة" value={newClient.governorate} onChange={e => setNewClient({...newClient, governorate: e.target.value})} />
+              <datalist id="sg-governorates">{EGYPT_GOVERNORATES.map(g => <option key={g} value={g} />)}</datalist>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase mr-2">المدينة (اختياري)</label>
+              <input className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none font-bold dark:text-white" maxLength={60} placeholder="مدينة نصر" value={newClient.city} onChange={e => setNewClient({...newClient, city: e.target.value})} />
             </div>
           </div>
 

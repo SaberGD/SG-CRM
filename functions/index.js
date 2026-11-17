@@ -1038,6 +1038,13 @@ async function getDefaultAutomationAgent() {
   return cachedDefaultAgent;
 }
 
+// A governorate / city name from the automation: short plain text, '' when unknown.
+function automationPlace(value) {
+  const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  if (!text || text.length > 60 || /^(unknown|unspecified|null|none|n\/a|غير معروف|غير محدد|لم يحدد|لم يذكر)$/i.test(text)) return "";
+  return text;
+}
+
 async function findAgentByName(rawName) {
   if (!rawName || !String(rawName).trim()) return null;
   const terms = expandAgentLookupTerms(rawName);
@@ -1153,6 +1160,7 @@ exports.getActiveServicesForAutomation = onRequest({ region: "us-central1", cors
  * the AI extraction step run over a Chatwoot conversation transcript):
  * {
  *   customer_phone, customer_name, country_code,
+ *   governorate, city,            (optional: where the client lives, only when they said it)
  *   sales_brief, detailed_result,
  *   suggested_status, suggested_labels[], suggested_service,
  *   booked, next_followup_date, next_followup_channel,
@@ -1351,6 +1359,9 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       if (!existingClient.position && body.position && String(body.position).trim()) {
         updateData.position = String(body.position).trim();
       }
+      // Where the client lives: only filled when the CRM has nothing yet, never overwritten.
+      if (!existingClient.governorate && automationPlace(body.governorate)) updateData.governorate = automationPlace(body.governorate);
+      if (!existingClient.city && automationPlace(body.city)) updateData.city = automationPlace(body.city);
       if (!existingClient.chatId && body.chatwoot_conversation_id) {
         updateData.chatId = String(body.chatwoot_conversation_id);
       }
@@ -1452,6 +1463,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       lastFollowUpDate: followUpStartTime,
       country: "مصر",
       countryCode: body.country_code || "+20",
+      governorate: automationPlace(body.governorate),
+      city: automationPlace(body.city),
       source: mappedSource,
       profileLink: body.profile_link ? String(body.profile_link).trim() : "",
       distinctiveSearchPhrase,

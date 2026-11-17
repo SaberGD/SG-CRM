@@ -163,6 +163,9 @@ export interface Client {
   preferredMethod?: CommMethod;
   country: string;
   countryCode: string;
+  // Where the client lives, when known (typed by sales or filled by the automation).
+  governorate?: string;
+  city?: string;
   // Booking Fields
   isBooked?: boolean;
   bookedCourseId?: string;

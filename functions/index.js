@@ -954,6 +954,9 @@ function normalizeAgentLookupText(value) {
 
 const SALES_REP_ALIAS_GROUPS = [
   ["ياسمين", "ياسمين جمال", "ياسمن", "yasmin", "yasmine", "yasmeen", "yasmin gamal"],
+  // The accounting system spells these two differently from their CRM user names.
+  ["علياء", "aliaa", "alyaa", "alyaa elsayed"],
+  ["تسنيم", "tasneem ahmed", "tasneem ahmad"],
 ];
 
 function expandAgentLookupTerms(rawName) {

@@ -711,8 +711,12 @@ const idTokenClients = new Map(); // audience -> IdTokenClient (per warm instanc
 async function oidcTokenFor(audience) {
   let client = idTokenClients.get(audience);
   if (!client) { client = await googleAuth.getIdTokenClient(audience); idTokenClients.set(audience, client); }
+  // google-auth-library v10 returns a fetch Headers object, older versions a plain object.
   const headers = await client.getRequestHeaders();
-  return String(headers.Authorization || headers.authorization || "").replace(/^Bearer /i, "");
+  const value = typeof headers.get === "function" ? headers.get("authorization") : (headers.Authorization || headers.authorization);
+  const token = String(value || "").replace(/^Bearer /i, "");
+  if (!token) throw new Error("could not mint a Google ID token");
+  return token;
 }
 
 async function handleClientSnapshot(req, res) {

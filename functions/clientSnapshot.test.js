@@ -89,7 +89,8 @@ test("Claude call is logged with tokens, and the request has no phone, e-mail or
   await pull(ctx);
   const sent = JSON.stringify(ctx.state.claudeBody);
   assert.equal(ctx.state.claudeBody.model, "claude-haiku-5-5");
-  assert.equal(ctx.state.claudeBody.max_tokens, 700);
+  assert.equal(ctx.state.claudeBody.max_tokens, 2000);
+  assert.equal(ctx.state.claudeBody.temperature, undefined);
   for (const secret of ["01012345678", "mona@example.com", "1099999999", "109 999 9999", "منى", "SG1"]) assert.ok(!sent.includes(secret), `leaked ${secret}`);
   assert.ok(sent.includes("2026-12-11"), "plain dates survive the scrub");
   assert.equal(ctx.state.logged.length, 1);

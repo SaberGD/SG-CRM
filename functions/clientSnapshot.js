@@ -139,13 +139,18 @@ async function askClaude({ apiKey, fetchImpl, model, input }) {
     method: "POST",
     headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({
-      model, max_tokens: 700, temperature: 0.3,
+      // No temperature: this model rejects it with a 400. It thinks by default, so the
+      // limit leaves room for that on top of the short briefing.
+      model, max_tokens: 2000, output_config: { effort: "low" },
       system: [{ type: "text", text: BRIEFING_PROMPT }],
       messages: [{ role: "user", content: `بيانات العميل (JSON):\n${JSON.stringify(input)}` }],
     }),
     signal: AbortSignal.timeout(CLAUDE_TIMEOUT_MS),
   });
-  if (!res.ok) throw new Error(`Claude API ${res.status}`);
+  if (!res.ok) {
+    const detail = await Promise.resolve().then(() => res.json()).then((j) => `${j?.error?.type || ""} ${j?.error?.message || ""}`.trim().slice(0, 150)).catch(() => "");
+    throw new Error(`Claude API ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
   const out = await res.json();
   const text = (out.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
   return { text, usage: { inputTokens: out.usage?.input_tokens || 0, outputTokens: out.usage?.output_tokens || 0 } };

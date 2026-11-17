@@ -8,7 +8,6 @@ const { defineSecret } = require("firebase-functions/params");
 
 // Claude key for the CRM assistant (Firebase secret in this project).
 const ANTHROPIC_API_KEY_CRM = defineSecret("ANTHROPIC_API_KEY_CRM");
-const { GoogleGenAI, Type } = require("@google/genai");
 
 function hashForMeta(value) {
   return crypto.createHash("sha256").update(value.trim().toLowerCase()).digest("hex");
@@ -116,22 +115,12 @@ exports.metaCapiEvent = onRequest({ region: "us-central1", cors: true }, async (
 });
 
 // ---------------------------------------------------------------------------
-// Gemini AI bridge functions.
-// Production (Hostinger static hosting) has no Node/Express server, so the
-// three /api/gemini/* routes that exist only inside server.ts (used by AI
-// Studio's own preview) never run in production. These Cloud Functions mirror
-// those routes exactly so geminiService.ts can call them from the live site.
+// AI bridge functions (Claude). The exported names still say "gemini" because the
+// live site and the deploy list call them by those names; the model behind them
+// is Claude, with the key in Secret Manager (ANTHROPIC_API_KEY_CRM).
 // ---------------------------------------------------------------------------
 
-// Vertex AI mode via Application Default Credentials — bills to this project's
-// Cloud Billing account instead of a free-tier API key.
-const ai = new GoogleGenAI({
-  vertexai: true,
-  project: "sg-crm-e3a38",
-  location: "global",
-});
-
-// Daily ceiling per caller for the Gemini endpoints, so a stuck tab or a looping
+// Daily ceiling per caller for the AI endpoints, so a stuck tab or a looping
 // workflow can't run up the bill. Same counter doc keeps the day's token totals.
 const AI_DAILY_LIMIT = 400;
 const AI_DAILY_LIMIT_AUTOMATION = 1000;
@@ -156,24 +145,58 @@ async function takeAiQuota(caller, res) {
   return allowed;
 }
 
+const AI_MODEL_FAST = "claude-haiku-5-5";   // scores and short report notes
+const AI_MODEL_PITCH = "claude-sonnet-5-5"; // the Arabic sales pitch is customer-facing wording
+
 // Numbers only: no prompt text or client data goes to the log.
-async function logAiUsage(task, caller, response, ok) {
-  const u = response?.usageMetadata || {};
-  const inTokens = u.promptTokenCount || 0, outTokens = (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0);
-  console.log(JSON.stringify({ aiCall: task, model: AI_MODEL, ok, inTokens, outTokens, caller: caller.automation ? "automation" : caller.uid }));
+async function logAiUsage(task, caller, model, usage, ok) {
+  const u = usage || {};
+  const inTokens = u.input_tokens || 0, outTokens = u.output_tokens || 0;
+  const cacheRead = u.cache_read_input_tokens || 0, cacheWrite = u.cache_creation_input_tokens || 0;
+  console.log(JSON.stringify({ aiCall: task, model, ok, inTokens, outTokens, cacheRead, cacheWrite, caller: caller.automation ? "automation" : caller.uid }));
   if (!inTokens && !outTokens) return;
   const inc = admin.firestore.FieldValue.increment;
-  await aiUsageRef(caller).set({ inTokens: inc(inTokens), outTokens: inc(outTokens) }, { merge: true })
+  await aiUsageRef(caller).set({ inTokens: inc(inTokens), outTokens: inc(outTokens), cacheRead: inc(cacheRead), cacheWrite: inc(cacheWrite) }, { merge: true })
     .catch((e) => console.warn("ai usage log failed:", e?.message || e));
 }
 
-const AI_MODEL = "gemini-3.6-flash";
+// One Claude call. `tool` forces a structured JSON answer; `system` is cached (the
+// knowledge base is identical across calls, so repeats read it at a tenth of the price).
+async function callClaude({ model, system, prompt, maxTokens, tool }) {
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    messages: [{ role: "user", content: prompt }],
+  };
+  if (system) body.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
+  if (tool) { body.tools = [tool]; body.tool_choice = { type: "tool", name: tool.name }; }
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": ANTHROPIC_API_KEY_CRM.value(), "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!res.ok) {
+    const err = new Error(`Claude API ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
+  }
+  const out = await res.json();
+  const content = out.content || [];
+  return {
+    text: content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim(),
+    input: content.find((b) => b.type === "tool_use")?.input || null,
+    usage: out.usage || {},
+  };
+}
+
+const AI_FN_OPTIONS = { region: "us-central1", cors: true, secrets: [ANTHROPIC_API_KEY_CRM], timeoutSeconds: 90 };
 
 /**
  * Predicts a lead's conversion likelihood from their status + follow-up history.
  * Mirrors server.ts's POST /api/gemini/predict-sales route.
  */
-exports.geminiPredictSales = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+exports.geminiPredictSales = onRequest(AI_FN_OPTIONS, async (req, res) => {
   const caller = await requireStaffOrAutomation(req, res);
   if (!caller) return;
   if (req.method !== "POST") {
@@ -198,29 +221,18 @@ exports.geminiPredictSales = onRequest({ region: "us-central1", cors: true }, as
       2. Analyze if early communication is working for this lead.
       3. Provide 1 professional recommendation in Arabic.`;
 
-    const response = await ai.models.generateContent({
-      model: AI_MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            score: { type: Type.STRING },
-            reason: { type: Type.STRING },
-            earlyContactEffect: { type: Type.STRING },
-          },
-          required: ["score", "reason"],
-        },
+    const r = await callClaude({
+      model: AI_MODEL_FAST, maxTokens: 400, prompt,
+      tool: {
+        name: "submit_prediction", description: "Submit the conversion prediction for this lead.",
+        input_schema: { type: "object", properties: { score: { type: "string", enum: ["High", "Medium", "Low"] }, reason: { type: "string" }, earlyContactEffect: { type: "string" } }, required: ["score", "reason"] },
       },
     });
-
-    await logAiUsage("predictSales", caller, response, true);
-    const jsonStr = response.text?.trim();
-    if (!jsonStr) {
+    await logAiUsage("predictSales", caller, AI_MODEL_FAST, r.usage, true);
+    if (!r.input) {
       return res.json({ score: "Medium", reason: "لم يتم استلام رد من الذكاء الاصطناعي" });
     }
-    return res.json(JSON.parse(jsonStr));
+    return res.json(r.input);
   } catch (error) {
     console.error("geminiPredictSales error:", error);
     return res.json({ score: "Medium", reason: "فرصة تحويل متوسطة - بناءً على بيانات العميل وسجل المتابعات" });
@@ -231,7 +243,7 @@ exports.geminiPredictSales = onRequest({ region: "us-central1", cors: true }, as
  * Generates a short Arabic performance analysis for a daily sales report.
  * Mirrors server.ts's POST /api/gemini/analyze-report route.
  */
-exports.geminiAnalyzeReport = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+exports.geminiAnalyzeReport = onRequest(AI_FN_OPTIONS, async (req, res) => {
   const caller = await requireStaffOrAutomation(req, res);
   if (!caller) return;
   if (req.method !== "POST") {
@@ -256,13 +268,9 @@ exports.geminiAnalyzeReport = onRequest({ region: "us-central1", cors: true }, a
 
       قدم تحليل مهني قصير (30 كلمة) باللغة العربية مع نصيحة واحدة لتحسين الأداء أو سرعة المتابعة.`;
 
-    const response = await ai.models.generateContent({
-      model: AI_MODEL,
-      contents: prompt,
-    });
-
-    await logAiUsage("analyzeReport", caller, response, true);
-    return res.json({ text: response.text || "تم تسجيل التقرير بنجاح. ينصح بالتركيز على سرعة التواصل مع الجدد." });
+    const r = await callClaude({ model: AI_MODEL_FAST, maxTokens: 300, prompt });
+    await logAiUsage("analyzeReport", caller, AI_MODEL_FAST, r.usage, true);
+    return res.json({ text: r.text || "تم تسجيل التقرير بنجاح. ينصح بالتركيز على سرعة التواصل مع الجدد." });
   } catch (error) {
     console.error("geminiAnalyzeReport error:", error);
     return res.json({ text: "تم تسجيل التقرير بنجاح. ينصح باستغلال المتابعات الأولى لزيادة نسبة الحجز." });
@@ -304,7 +312,7 @@ function generateFallbackClientAnalysis(client) {
  * personalized Arabic sales pitch. Mirrors server.ts's POST /api/gemini/analyze-client
  * route, including its embedded SABER GROUP knowledge base and rule-based fallback.
  */
-exports.geminiAnalyzeClient = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+exports.geminiAnalyzeClient = onRequest(AI_FN_OPTIONS, async (req, res) => {
   const caller = await requireStaffOrAutomation(req, res);
   if (!caller) return;
   if (req.method !== "POST") {
@@ -368,8 +376,9 @@ exports.geminiAnalyzeClient = onRequest({ region: "us-central1", cors: true }, a
   - *الخوف من السعر:* إبراز خيارات التقسيط المريحة وأن الأكاديمية لا تقفل الباب أمام أي متدرب.
 `;
 
-  const prompt = `أنت المساعد الذكي ورئيس فريق المبيعات الأكاديمي (AI Sales Lead & Advisor) لأكاديمية صابر جروب (SABER GROUP Courses Academy).
-تاريخ اليوم الحالي: ${todayStr}.
+  // Fixed part (role + knowledge base + task) goes in the cached system prompt;
+  // only the client data changes between calls.
+  const system = `أنت المساعد الذكي ورئيس فريق المبيعات الأكاديمي (AI Sales Lead & Advisor) لأكاديمية صابر جروب (SABER GROUP Courses Academy).
 
 استند بالكامل إلى قاعدة معرفة صابر جروب التالية عند تحليل بيانات العميل واقتراح خطوات المبيعات:
 ${SABER_KNOWLEDGE_BASE}
@@ -378,7 +387,19 @@ ${SABER_KNOWLEDGE_BASE}
 - إذا كانت حالة العميل هي (حجز / booked / مسجل / تم الحجز / enrolled)، فهذا يعني أن العميل قام بالشراء والانضمام للكورس بالفعل، وبالتالي تمت عملية البيع بنجاح وهو غير مستهدف بعروض بيعية جديدة، بل تكون التوصية للترحيب به كطالب وتوجيهه لقنوات الدعم الأكاديمي.
 - أما إذا كانت حالته (مهتم / محتمل / interested / potential)، فهو العميل المستهدف الرئيسي بالمتابعات البيعية والعروض والتأكيد على الحجز والتقسيط وكوبون الخصم.
 
----
+المطلوب منك تحليل العميل وتوليد توصية وسيناريو مبيعات احترافي باللغة العربية (بالنبرة المصرية الدافئة والمقنعة لأكاديمية صابر جروب):
+1. **suggestedDate**: موعد المتابعة القادمة الأنسب بتاريخ مستقبلي (YYYY-MM-DD).
+2. **suggestedTime**: ساعة المتابعة (HH:MM).
+3. **suggestedChannel**: قناة التواصل الأنسب (واتساب / اتصال هاتفي / مقابلة في المقر / رسالة نصية).
+4. **suggestedPitch**: سيناريو رسالة إقناع مخصص ومكتوب بالنبرة المصرية الدافئة لأكاديمية صابر جروب (يشمل التطمين، الإشارة للبورتفوليو أو التقسيط أو كوبون الـ 400 جنيه الخاص بالمساعد الذكي مارو، مع دعوتهم للتواصل عبر واتساب 01040784390 للحجز).
+5. **conversionPriority**: أولوية تحويل العميل ('عالي' / 'متوسط' / 'منخفض').
+6. **insightsSummary**: ملخص سريع لسلوك ورغبة العميل واعتراضاته المحتملة بناءً على سجله والدورة المطلوبة.
+7. **salesTip**: نصيحة مبيعات ذهبية للمسؤول المتابع للتعامل مع هذا العميل وإغلاق الصفقة.
+
+سلّم النتيجة عن طريق الأداة submit_recommendation فقط.`;
+
+  const prompt = `تاريخ اليوم الحالي: ${todayStr}.
+
 بيانات العميل المراد تحليله:
 - الاسم: ${client.name}
 - الهاتف: ${client.phone}
@@ -390,49 +411,38 @@ ${SABER_KNOWLEDGE_BASE}
 - تاريخ إنشاء البروفايل: ${client.createdAt ? new Date(client.createdAt).toLocaleDateString("ar-EG") : "غير محدد"}
 
 سجل المتابعة والمكالمات السابقة:
-${historyText || "لا توجد متابعات سابقة بعد"}
-
----
-المطلوب منك تحليل العميل وتوليد توصية وسيناريو مبيعات احترافي باللغة العربية (بالنبرة المصرية الدافئة والمقنعة لأكاديمية صابر جروب):
-1. **suggestedDate**: موعد المتابعة القادمة الأنسب بتاريخ مستقبلي (YYYY-MM-DD).
-2. **suggestedTime**: ساعة المتابعة (HH:MM).
-3. **suggestedChannel**: قناة التواصل الأنسب (واتساب / اتصال هاتفي / مقابلة في المقر / رسالة نصية).
-4. **suggestedPitch**: سيناريو رسالة إقناع مخصص ومكتوب بالنبرة المصرية الدافئة لأكاديمية صابر جروب (يشمل التطمين، الإشارة للبورتفوليو أو التقسيط أو كوبون الـ 400 جنيه الخاص بالمساعد الذكي مارو، مع دعوتهم للتواصل عبر واتساب 01040784390 للحجز).
-5. **conversionPriority**: أولوية تحويل العميل ('عالي' / 'متوسط' / 'منخفض').
-6. **insightsSummary**: ملخص سريع لسلوك ورغبة العميل واعتراضاته المحتملة بناءً على سجله والدورة المطلوبة.
-7. **salesTip**: نصيحة مبيعات ذهبية للمسؤول المتابع للتعامل مع هذا العميل وإغلاق الصفقة.`;
+${historyText || "لا توجد متابعات سابقة بعد"}`;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const response = await ai.models.generateContent({
-        model: AI_MODEL,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
+      const r = await callClaude({
+        model: AI_MODEL_PITCH, maxTokens: 1500, system, prompt,
+        tool: {
+          name: "submit_recommendation", description: "Submit the follow-up recommendation for this client.",
+          input_schema: {
+            type: "object",
             properties: {
-              suggestedDate: { type: Type.STRING, description: "YYYY-MM-DD" },
-              suggestedTime: { type: Type.STRING, description: "HH:MM" },
-              suggestedChannel: { type: Type.STRING },
-              suggestedPitch: { type: Type.STRING },
-              conversionPriority: { type: Type.STRING },
-              insightsSummary: { type: Type.STRING },
-              salesTip: { type: Type.STRING },
+              suggestedDate: { type: "string", description: "YYYY-MM-DD" },
+              suggestedTime: { type: "string", description: "HH:MM" },
+              suggestedChannel: { type: "string" },
+              suggestedPitch: { type: "string" },
+              conversionPriority: { type: "string", enum: ["عالي", "متوسط", "منخفض"] },
+              insightsSummary: { type: "string" },
+              salesTip: { type: "string" },
             },
             required: ["suggestedDate", "suggestedChannel", "suggestedPitch", "conversionPriority", "insightsSummary", "salesTip"],
           },
         },
       });
 
-      await logAiUsage("analyzeClient", caller, response, true);
-      const jsonStr = response.text?.trim();
-      if (jsonStr) {
-        return res.json(JSON.parse(jsonStr));
+      await logAiUsage("analyzeClient", caller, AI_MODEL_PITCH, r.usage, true);
+      if (r.input) {
+        return res.json(r.input);
       }
     } catch (err) {
-      const isQuotaOrAuth = err?.status === 429 || err?.message?.includes("429") || err?.message?.includes("prepayment") || err?.message?.includes("quota");
-      if (isQuotaOrAuth) {
+      console.error("analyzeClient AI error:", err?.message || err);
+      // Bad key, no credit or rate limit: a second try won't help.
+      if ([400, 401, 403, 429].includes(err?.status)) {
         return res.json({ ...generateFallbackClientAnalysis(client), fallback: true });
       }
       if (attempt < 2) {

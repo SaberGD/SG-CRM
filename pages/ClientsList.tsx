@@ -496,13 +496,13 @@ const ClientsList: React.FC = () => {
       console.log("Client added successfully");
       await logActivity(user.uid, user.name, `إضافة عميل جديد (${newClient.source}): ${newClient.name}`, 'new', newClient.name);
       if (autoOn) await logActivity(user.uid, user.name, 'تشغيل المتابعة التلقائية كل أسبوعين (العميل حجز)', createdRef.id, newClient.name);
+      // Always a Lead: the Purchase comes from the server once the booking is in accounting.
       sendMetaEvent({
-        eventName: isBooked ? 'Purchase' : 'Lead',
+        eventName: 'Lead',
         phone: phoneFull,
-        value: isBooked ? (paidAmount || totalPrice || 0) : undefined,
-        currency: isBooked ? 'EGP' : undefined,
-        contentName: isBooked ? bookedCourseName : newClient.name,
+        contentName: newClient.serviceName || '',
         contentCategory: newClient.source,
+        eventId: `lead_${createdRef.id}`,
       });
       setIsAddModalOpen(false);
       // Reset and Clear cache context so it reloads on next mount or manually reload

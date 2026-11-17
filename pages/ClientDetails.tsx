@@ -6,7 +6,6 @@ import { EGYPT_GOVERNORATES, clientLocationLabel } from '../utils/governorates';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
-import { sendMetaEvent } from '../metaService';
 import { analyzeClientWithAi } from '../geminiService';
 import { useAuth } from '../App';
 import { 
@@ -549,18 +548,7 @@ const ClientDetails: React.FC = () => {
       
       await logActivity(user.uid, user.name, `${isAutoKind ? 'تمت المتابعة الشخصية (كل أسبوعين)' : 'إنهاء متابعة'}: ${salesBrief}`, client.id, client.name);
       if (enable) await logActivity(user.uid, user.name, 'تشغيل المتابعة التلقائية كل أسبوعين (العميل حجز)', client.id, client.name);
-      
-
-      if (isBooked) {
-        sendMetaEvent({
-          eventName: 'Purchase',
-          phone: client.phone,
-          value: paidAmount || totalPrice || 0,
-          currency: 'EGP',
-          contentName: bookedCourseName || client.serviceName,
-          contentCategory: client.source,
-        });
-      }
+      // The Purchase for Meta is sent by the server from the accounting booking (one per booking).
 
       setShowForm(false);
       setNote(''); setResult(''); setSalesBrief('');

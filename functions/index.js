@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const { automationKeyOk } = require("./automationKey");
 const { OAuth2Client, GoogleAuth } = require("google-auth-library");
 const accountingIngest = require("./accountingIngest");
+const metaCapi = require("./metaCapi");
 const crmExport = require("./crmExport");
 const crmAssistant = require("./crmAssistant");
 const clientSnapshot = require("./clientSnapshot");
@@ -581,6 +582,8 @@ async function handleAccountingIngest(req, res) {
   const keys = accountingIngest.customerPhoneKeys(customer);
   const review = async (reason, candidates = []) => {
     await db.collection("sync_review").doc(bookingId).set({ bookingId, reason, candidates, keys, summary, customerName: customer.name || "", createdAt: now, resolved: false }, { merge: true });
+    // Still a real booking for Meta, even when the CRM client is unclear.
+    await reportPurchaseToMeta({ bookingId, booking, customer, summary, clientId: null });
     return res.json({ success: true, action: "queued_for_review", reason });
   };
   if (!keys.length) return review("no_phone");
@@ -608,6 +611,7 @@ async function handleAccountingIngest(req, res) {
     const autoOn = autoFollowUp.planAccountingAutoFollowUp({}, created, { now, bookingId });
     await ref.set({ ...created, ...(autoOn || {}), accountingBookingIds: [bookingId] });
     await audit({ targetRef: ref.id, result: "created_client", autoFollowUp: autoOn ? "enabled" : null });
+    await reportPurchaseToMeta({ bookingId, booking, customer, summary, clientId: ref.id });
     return res.json({ success: true, action: "created_client", clientId: ref.id });
   }
 
@@ -625,7 +629,61 @@ async function handleAccountingIngest(req, res) {
   });
   await audit({ targetRef: clientRef.id, result: "updated_client", changedFields: result.changedFields, overwroteFinancials: result.overwroteFinancials, autoFollowUp: result.autoFollowUp });
   await db.collection("sync_review").doc(bookingId).delete().catch(() => {});
+  await reportPurchaseToMeta({ bookingId, booking, customer, summary, clientId: clientRef.id });
   return res.json({ success: true, action: "updated_client", clientId: clientRef.id, changedFields: result.changedFields });
+}
+
+// ---------------------------------------------------------------------------
+// Meta Conversions API: one server-side Purchase per new accounting booking.
+// Off until app_settings/metaCapi has enabled: true. With testEventCode set there,
+// events only show in Events Manager -> Test events (nothing counts for ads) and are logged
+// under a separate test_ document, so going live afterwards still sends the real event.
+// metaCapiEvents/{purchase_<bookingId>} makes it once per booking (no customer data stored).
+// Never fails the sync.
+// ---------------------------------------------------------------------------
+let metaCapiSettingsCache = { at: 0, value: null };
+async function metaCapiSettings() {
+  if (Date.now() - metaCapiSettingsCache.at < 60 * 1000) return metaCapiSettingsCache.value;
+  const snap = await db.collection("app_settings").doc("metaCapi").get();
+  metaCapiSettingsCache = { at: Date.now(), value: snap.exists ? snap.data() : null };
+  return metaCapiSettingsCache.value;
+}
+
+async function reportPurchaseToMeta({ bookingId, booking, customer, summary, clientId }) {
+  try {
+    const settings = await metaCapiSettings();
+    if (settings?.enabled !== true) return;
+    const pixelId = process.env.META_PIXEL_ID || "";
+    const accessToken = process.env.META_ACCESS_TOKEN || "";
+    if (!pixelId || !accessToken) return;
+    const built = metaCapi.purchaseEventForBooking({ bookingId, booking, customer, summary, clientId });
+    if (built.skip) return;
+    const testEventCode = String(settings.testEventCode || "").trim();
+    const logRef = db.collection("metaCapiEvents").doc(`${testEventCode ? "test_" : ""}purchase_${bookingId}`);
+    const claimed = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(logRef);
+      const prev = snap.exists ? snap.data() : null;
+      // A "sending" left behind by a crashed instance becomes retryable after 10 minutes.
+      const inFlight = prev?.status === "sending" && Date.now() - (prev.updatedAt || 0) < 10 * 60 * 1000;
+      if (prev && (prev.status === "sent" || inFlight || (prev.attempts || 0) >= 3)) return false;
+      tx.set(logRef, {
+        eventName: "Purchase", eventId: built.event.event_id, bookingId, clientId: clientId || null, value: summary.total,
+        courseName: summary.courseName || "", eventTime: built.event.event_time * 1000, test: !!testEventCode,
+        status: "sending", attempts: (prev?.attempts || 0) + 1, updatedAt: Date.now(),
+      }, { merge: true });
+      return true;
+    });
+    if (!claimed) return;
+    try {
+      const out = await metaCapi.sendEvents({ pixelId, accessToken, events: [built.event], testEventCode });
+      await logRef.update({ status: "sent", sentAt: Date.now(), eventsReceived: out.eventsReceived, fbtraceId: out.fbtraceId, error: admin.firestore.FieldValue.delete() });
+    } catch (err) {
+      console.error("meta purchase failed", bookingId, err?.meta || err?.message);
+      await logRef.update({ status: "failed", error: err?.meta || { message: String(err?.message || err) }, updatedAt: Date.now() });
+    }
+  } catch (err) {
+    console.error("meta purchase skipped", bookingId, err?.message || err);
+  }
 }
 
 // Paged, sanitized read of a CRM collection for the accounting data analyst (same service-to-service auth).

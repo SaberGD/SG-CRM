@@ -3,6 +3,8 @@ const crypto = require("crypto");
 const { automationKeyOk } = require("./automationKey");
 const { OAuth2Client, GoogleAuth } = require("google-auth-library");
 const accountingIngest = require("./accountingIngest");
+const automationUpsert = require("./automationUpsert");
+const agentMatch = require("./agentMatch");
 const metaCapi = require("./metaCapi");
 const crmExport = require("./crmExport");
 const crmAssistant = require("./crmAssistant");
@@ -473,21 +475,10 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const { planAccountingBookingSync } = require("./accountingSync");
 
-const ALLOWED_AUTO_STATUSES = ["interested", "potential", "not_interested"];
 const ALLOWED_METHODS = ["phone", "whatsapp", "meeting", "other"];
 const ALLOWED_SOURCES = ["whatsapp", "messenger", "facebook", "instagram", "tiktok", "google", "other"];
 const PLACEHOLDER_NAME_RE = /^(john\s*doe|unknown|user|غير معروف|عميل تلقائي(?:\s*[-(].*)?)$/i;
-
-function mapSuggestedStatus(raw) {
-  const key = String(raw || "").toLowerCase().trim();
-  if (key === "booked") {
-    return { status: "potential", bookedMentioned: true };
-  }
-  if (ALLOWED_AUTO_STATUSES.includes(key)) {
-    return { status: key, bookedMentioned: false };
-  }
-  return { status: "potential", bookedMentioned: false };
-}
+const { normalizeIncomingPhone, buildPhoneVariations } = automationUpsert;
 
 function mapMethod(raw) {
   const key = String(raw || "").toLowerCase().trim();
@@ -499,38 +490,33 @@ function mapSource(raw) {
   return ALLOWED_SOURCES.includes(key) ? key : "other";
 }
 
-/** Mirrors ClientsList.tsx's handleAddClient phone normalization exactly. */
-function normalizeIncomingPhone(rawPhone, countryCode) {
-  if (!rawPhone) return null;
-  const cc = countryCode || "+20";
-  let digits = String(rawPhone).replace(/\D/g, "");
-  if (!digits) return null;
-  const ccDigits = cc.replace(/\D/g, "");
-  if (ccDigits && digits.startsWith(ccDigits)) {
-    digits = digits.substring(ccDigits.length);
-  }
-  digits = digits.replace(/^0+/, "");
-  if (!digits) return null;
-  return cc + digits;
+// Small per-instance cache for reference data (users, labels, config docs): one read per
+// 5 minutes per warm instance instead of one per call.
+const refCache = new Map(); // key -> { at, value }
+const REF_CACHE_MS = 5 * 60 * 1000;
+async function cachedRef(key, load, ttl = REF_CACHE_MS) {
+  const hit = refCache.get(key);
+  if (hit && Date.now() - hit.at < ttl) return hit.value;
+  const value = await load();
+  refCache.set(key, { at: Date.now(), value });
+  return value;
 }
 
-/** Mirrors ClientsList.tsx's dedup phoneVariations logic exactly. */
-function buildPhoneVariations(phoneFull) {
-  const digitsOnly = phoneFull.replace(/\D/g, "");
-  const variations = new Set([phoneFull, digitsOnly]);
-  if (phoneFull.startsWith("+20")) {
-    const core = phoneFull.substring(3);
-    variations.add("0" + core);
-    variations.add(core);
-    variations.add("20" + core);
-  } else if (digitsOnly.startsWith("20")) {
-    const core = digitsOnly.substring(2);
-    variations.add("+20" + core);
-    variations.add("0" + core);
-    variations.add(core);
-  }
-  return Array.from(variations).slice(0, 10);
-}
+const cachedUsers = () => cachedRef("users", async () =>
+  (await db.collection("users").get()).docs.map((d) => {
+    const u = d.data() || {};
+    return { id: d.id, name: u.name || "", email: u.email || "", role: u.role || "", isDeactivated: u.isDeactivated === true };
+  }));
+
+const cachedLabels = () => cachedRef("labels", async () =>
+  (await db.collection("labels").get()).docs.map((d) => ({ id: d.id, text: String(d.data().text || "") })));
+
+// app_settings/salesNameAliases = { aliases: { "<name as another system writes it>": "<CRM uid or CRM name>" } }.
+// Seeded with scripts/seed-sales-aliases.cjs; missing doc = no aliases.
+const cachedSalesAliases = () => cachedRef("salesNameAliases", async () => {
+  const snap = await db.collection("app_settings").doc("salesNameAliases").get();
+  return agentMatch.normalizeAliasMap(snap.exists ? snap.data() : null);
+});
 
 const ACCOUNTING_PROJECT_ID = "crm---acounting-sg";
 const accountingAuthApp = admin.apps.find((app) => app.name === "accounting-auth") ||
@@ -1037,11 +1023,6 @@ async function claimAutomationConversation(body, startedAt) {
   };
 }
 
-function isAutomationSuggestedDate(body) {
-  return Array.isArray(body.missing_or_ambiguous_fields) &&
-    body.missing_or_ambiguous_fields.includes("next_followup_date_suggested_not_explicit");
-}
-
 function cleanDistinctiveSearchPhrase(value) {
   if (!value) return "";
   return String(value).replace(/\s+/g, " ").trim().slice(0, 280);
@@ -1051,53 +1032,6 @@ function cleanAutomationText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function normalizeAgentLookupText(value) {
-  return cleanAutomationText(value)
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
-    .replace(/[أإآ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/[^a-z0-9\u0600-\u06ff]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-const SALES_REP_ALIAS_GROUPS = [
-  ["ياسمين", "ياسمين جمال", "ياسمن", "yasmin", "yasmine", "yasmeen", "yasmin gamal"],
-  // The accounting system spells these two differently from their CRM user names.
-  ["علياء", "aliaa", "alyaa", "alyaa elsayed"],
-  ["تسنيم", "tasneem ahmed", "tasneem ahmad"],
-];
-
-function expandAgentLookupTerms(rawName) {
-  const target = normalizeAgentLookupText(rawName);
-  const terms = new Set(target ? [target] : []);
-
-  for (const group of SALES_REP_ALIAS_GROUPS) {
-    const normalizedGroup = group.map(normalizeAgentLookupText).filter(Boolean);
-    const belongsToGroup = normalizedGroup.some((alias) => target === alias || target.includes(alias) || alias.includes(target));
-    if (belongsToGroup) {
-      normalizedGroup.forEach((alias) => terms.add(alias));
-    }
-  }
-
-  return Array.from(terms);
-}
-
-function agentMatchesTerms(agent, terms) {
-  const fields = [
-    agent.name,
-    agent.email,
-    agent.email ? String(agent.email).split("@")[0] : "",
-  ];
-  return fields.some((field) => {
-    const candidate = normalizeAgentLookupText(field);
-    return candidate && terms.some((term) => candidate === term || candidate.includes(term) || term.includes(candidate));
-  });
-}
-
 function hasBetterAutomationName(body, existingClient) {
   const incomingName = body.customer_name && String(body.customer_name).trim();
   if (!incomingName || PLACEHOLDER_NAME_RE.test(incomingName)) return false;
@@ -1105,7 +1039,7 @@ function hasBetterAutomationName(body, existingClient) {
   return !existingName || PLACEHOLDER_NAME_RE.test(existingName);
 }
 
-function shouldReprocessSameConversation(body, existingClient, lastChatwootContactAt, nextFollowUpTs, phoneFull) {
+function shouldReprocessSameConversation(body, existingClient, lastChatwootContactAt, hasExplicitNextFollowUp, phoneFull) {
   if (!existingClient) return true;
 
   const hasNewerChatwootContact =
@@ -1113,7 +1047,6 @@ function shouldReprocessSameConversation(body, existingClient, lastChatwootConta
     lastChatwootContactAt > (existingClient.lastChatwootContactAt || 0);
   const canAddMissingPhone = phoneFull && !existingClient.phone;
   const canAddMissingName = hasBetterAutomationName(body, existingClient);
-  const hasExplicitNextFollowUp = nextFollowUpTs && !isAutomationSuggestedDate(body);
 
   return Boolean(hasNewerChatwootContact || canAddMissingPhone || canAddMissingName || hasExplicitNextFollowUp);
 }
@@ -1157,22 +1090,16 @@ function automationPlace(value) {
   return text;
 }
 
+// Accounting's salesName / n8n's sales_rep_name -> CRM user (see agentMatch.js). null = no
+// confident match; the caller then uses the default automation agent.
 async function findAgentByName(rawName) {
   if (!rawName || !String(rawName).trim()) return null;
-  const terms = expandAgentLookupTerms(rawName);
-  if (terms.length === 0) return null;
   try {
-    const snap = await db.collection("users").get();
-    let match = null;
-    snap.forEach((doc) => {
-      if (match) return;
-      const data = doc.data() || {};
-      if (data.isDeactivated) return;
-      if (agentMatchesTerms(data, terms)) {
-        match = { id: doc.id, name: data.name || data.email || "موظف مبيعات" };
-      }
-    });
-    return match;
+    const [users, aliases] = await Promise.all([
+      cachedUsers(),
+      cachedSalesAliases().catch((e) => { console.warn("sales aliases unavailable:", e?.message || e); return new Map(); }),
+    ]);
+    return agentMatch.matchAgent(users, rawName, aliases);
   } catch (e) {
     console.error("findAgentByName lookup failed:", e);
     return null;
@@ -1182,18 +1109,7 @@ async function findAgentByName(rawName) {
 async function matchLabelIds(suggestedLabels) {
   if (!Array.isArray(suggestedLabels) || suggestedLabels.length === 0) return [];
   try {
-    const snap = await db.collection("labels").get();
-    const allLabels = snap.docs.map((d) => ({ id: d.id, text: (d.data().text || "").toString() }));
-    const matched = [];
-    for (const raw of suggestedLabels) {
-      const needle = String(raw || "").trim().toLowerCase();
-      if (!needle) continue;
-      const hit = allLabels.find(
-        (l) => l.text.toLowerCase() === needle || l.text.toLowerCase().includes(needle) || needle.includes(l.text.toLowerCase())
-      );
-      if (hit) matched.push(hit.id);
-    }
-    return Array.from(new Set(matched));
+    return automationUpsert.matchLabelIdsFrom(await cachedLabels(), suggestedLabels);
   } catch (e) {
     console.error("matchLabelIds failed:", e);
     return [];
@@ -1221,7 +1137,9 @@ async function matchService(suggestedServiceName) {
   }
 }
 
-async function postMetaLeadEvent(phoneFull, contentName, contentCategory) {
+// Lead for Meta from a new automation client. content_name is generic on purpose: the client's
+// name never goes to Meta in clear (the phone goes only as a SHA-256 hash).
+async function postMetaLeadEvent(phoneFull, contentCategory) {
   const metaPixelId = process.env.META_PIXEL_ID || "";
   const metaAccessToken = process.env.META_ACCESS_TOKEN || "";
   if (!metaPixelId || !metaAccessToken) return;
@@ -1231,15 +1149,16 @@ async function postMetaLeadEvent(phoneFull, contentName, contentCategory) {
       event_time: Math.floor(Date.now() / 1000),
       action_source: "system_generated",
       user_data: { ph: [hashForMeta(phoneFull.replace(/\D/g, ""))] },
-      custom_data: { content_name: contentName || "", content_category: contentCategory || "automation" },
+      custom_data: { content_name: "crm_automation_lead", content_category: contentCategory || "automation" },
     };
     await fetch(`https://graph.facebook.com/v21.0/${metaPixelId}/events?access_token=${encodeURIComponent(metaAccessToken)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ data: [eventData] }),
+      signal: AbortSignal.timeout(8000),
     });
   } catch (e) {
-    console.error("postMetaLeadEvent failed (non-fatal):", e);
+    console.error("postMetaLeadEvent failed (non-fatal):", e?.message || e);
   }
 }
 
@@ -1248,7 +1167,7 @@ async function postMetaLeadEvent(phoneFull, contentName, contentCategory) {
  * so the Gemini extraction step can semantically match a customer's own wording
  * against the real course list instead of a hardcoded name list baked into the prompt.
  */
-exports.getActiveServicesForAutomation = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+exports.getActiveServicesForAutomation = onRequest({ region: "us-central1", cors: true, maxInstances: 5 }, async (req, res) => {
   if (!automationKeyOk(req.get("x-automation-secret"))) {
     return res.status(401).json({ error: "Unauthorized" });
   }
@@ -1267,32 +1186,66 @@ exports.getActiveServicesForAutomation = onRequest({ region: "us-central1", cors
   }
 });
 
-/**
- * Called by the n8n hourly-idle-conversation workflow. Body shape (all from
- * the AI extraction step run over a Chatwoot conversation transcript):
- * {
- *   customer_phone, customer_name, country_code,
- *   governorate, city,            (optional: where the client lives, only when they said it)
- *   sales_brief, detailed_result,
- *   suggested_status, suggested_labels[], suggested_service,
- *   booked, next_followup_date, next_followup_channel,
- *   distinctive_search_phrase,
- *   last_followup_date,
- *   has_meaningful_content, missing_or_ambiguous_fields[],
- *   source, chatwoot_conversation_id, chatwoot_conversation_link
- * }
+
+/*
+ * upsertClientFromAutomation: called by the n8n idle-conversation workflow (Chatwoot -> Claude
+ * extraction -> here). Full contract with examples: docs/automation-contract.md.
+ *
+ * Auth: header "x-automation-secret" only (checked by SHA-256 in automationKey.js). A key in the
+ * JSON body is no longer accepted.
+ *
+ * Request body (JSON object; every field optional unless stated; longer text is cut to the limit,
+ * a wrong type or an absurd payload (>100k chars, any text >20k, any list >100 items) -> 400):
+ *   customer_phone            string|number  <=32   needed unless a chatwoot_contact_id is given (non-WhatsApp)
+ *   country_code              string         <=6    "+20" style; default "+20"
+ *   customer_name             string         <=120  placeholders ("unknown", ...) are ignored
+ *   position, suggested_service, sales_rep_name     string <=120
+ *   governorate, city         string         <=60   only stored when the client has none
+ *   sales_brief, detailed_result                    string <=2000
+ *   suggested_status          string         interested | potential | not_interested | booked
+ *   suggested_labels          string[]       <=20 items of <=60
+ *   next_followup_date        string|number  ISO date/time or unix s/ms
+ *   next_followup_channel     string         phone | whatsapp | meeting | other
+ *   next_followup_reason      string         <=500
+ *   missing_or_ambiguous_fields string[]     <=20 items of <=80; "next_followup_date_suggested_not_explicit"
+ *                                            marks the date as the AI's suggestion
+ *   distinctive_search_phrase (or search_phrase / meta_search_phrase) string <=280
+ *   has_meaningful_content    boolean        false -> skipped
+ *   source                    string         whatsapp | messenger | facebook | instagram | tiktok | google | other
+ *   gender                    string         male | female | unspecified
+ *   has_laptop                string         with | without | unspecified
+ *   attendance_mode           string         online | offline | unspecified
+ *   profile_link, chatwoot_conversation_link        string <=500
+ *   chatwoot_conversation_id (or conversation_id), chatwoot_contact_id   string|number <=64
+ *   last_contact_at (or last_followup_date / last_followup_at / last_contacted_at / last_message_at /
+ *     chatwoot_last_activity_at)                    string|number  time of the last message
+ *   automation_mode / run_mode string <=40
+ *   ad_code                   string <=20    NEW. 1-3 letters + 1-4 digits (e.g. N12), uppercased; else ignored
+ *   first_message_at          string|number  NEW. time of the customer's first message
+ *
+ * Rules: never sets booked or money; booked / not_interested / interested are never changed
+ * (no downgrade); only an explicit FUTURE next_followup_date sets nextFollowUpDate (flagged
+ * nextFollowUpReviewedBySales:false for the agent's Accept); a suggested or past date is kept
+ * as automationSuggestedFollowUp only. Dedupe by phoneKey (then phoneKeys, then the old phone
+ * variations for legacy docs); with several matches the oldest client is used and the claim
+ * records it. adCode / firstMessageAt are first-touch: stored only when the client has none.
+ *
+ * Response: { success, action: "created_new" | "updated_existing" | "skipped", clientId?, reason?,
+ *             bookedMentioned? }   | 400 { error } | 401 | 405 | 500 { error }
  */
-exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: true, maxInstances: 10 }, async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
-
-  const providedSecret = req.get("x-automation-secret") || (req.body && req.body.automationSecret) || "";
-  if (!automationKeyOk(providedSecret)) {
+  if (!automationKeyOk(req.get("x-automation-secret"))) {
     return res.status(401).json({ error: "Unauthorized" });
   }
+  const invalid = automationUpsert.validateAutomationBody(req.body);
+  if (invalid) {
+    return res.status(400).json({ error: `Invalid payload: ${invalid}` });
+  }
 
-  const body = req.body || {};
+  const body = automationUpsert.sanitizeAutomationBody(req.body);
   const automationNow = Date.now();
   let processingClaim = null;
 
@@ -1309,38 +1262,26 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     }
   } catch (error) {
     console.error("upsertClientFromAutomation claim failed:", error);
-    return res.status(500).json({ error: error?.message || "Could not claim automation conversation" });
+    return res.status(500).json({ error: "Could not claim automation conversation" });
   }
 
-  const hasMeaningfulContent = body.has_meaningful_content !== false;
+  const markClaim = async (fields) => {
+    if (!processingClaim?.ref) return;
+    await processingClaim.ref.set({ ...fields, completedAt: Date.now(), updatedAt: Date.now() }, { merge: true });
+  };
 
-  if (!hasMeaningfulContent) {
-    if (processingClaim?.ref) {
-      await processingClaim.ref.set({
-        status: "skipped",
-        reason: "not_meaningful",
-        action: "skipped",
-        completedAt: Date.now(),
-        updatedAt: Date.now(),
-      }, { merge: true });
-    }
+  if (body.has_meaningful_content === false) {
+    await markClaim({ status: "skipped", reason: "not_meaningful", action: "skipped" });
     return res.json({ success: true, action: "skipped", reason: "not_meaningful" });
   }
 
-  let phoneFull = normalizeIncomingPhone(body.customer_phone, body.country_code || "+20");
-  const isWhatsAppSource = mapSource(body.source) === "whatsapp";
+  const phoneFull = normalizeIncomingPhone(body.customer_phone, body.country_code || "+20");
+  const phoneKey = phoneFull ? accountingIngest.normalizePhoneKey(phoneFull) : "";
+  const mappedSource = mapSource(body.source);
   const hasChatwootContactId = !!body.chatwoot_contact_id;
-  if (!phoneFull && (isWhatsAppSource || !hasChatwootContactId)) {
+  if (!phoneFull && (mappedSource === "whatsapp" || !hasChatwootContactId)) {
     console.log("upsertClientFromAutomation: skipped, no valid phone. conversation:", body.chatwoot_conversation_id);
-    if (processingClaim?.ref) {
-      await processingClaim.ref.set({
-        status: "skipped",
-        reason: "no_phone",
-        action: "skipped",
-        completedAt: Date.now(),
-        updatedAt: Date.now(),
-      }, { merge: true });
-    }
+    await markClaim({ status: "skipped", reason: "no_phone", action: "skipped" });
     return res.json({
       success: true,
       action: "skipped",
@@ -1357,12 +1298,10 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     body.last_message_at,
     body.chatwoot_last_activity_at
   );
-
-  let nextFollowUpTs = 0;
-  if (body.next_followup_date) {
-    const parsed = new Date(body.next_followup_date).getTime();
-    if (!Number.isNaN(parsed)) nextFollowUpTs = parsed;
-  }
+  const mappedMethod = mapMethod(body.next_followup_channel);
+  const datePlan = automationUpsert.planAutomationFollowUpDate({ body, method: mappedMethod, now: automationNow });
+  const adCode = automationUpsert.parseAdCode(body.ad_code);
+  const firstMessageAt = automationUpsert.parseTimestamp(body.first_message_at, automationNow);
   const followUpStartTime = lastChatwootContactAt || automationNow;
   const followUpDurationSeconds = 5 * 60;
   const followUpEndTime = followUpStartTime + (followUpDurationSeconds * 1000);
@@ -1370,97 +1309,73 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     body.distinctive_search_phrase || body.search_phrase || body.meta_search_phrase
   );
   const automationSalesRepNameRaw = cleanAutomationText(body.sales_rep_name);
+  const clients = db.collection("clients");
+  const asDocs = (snap) => snap.docs.map((d) => ({ id: d.id, ref: d.ref, data: d.data() || {} }));
 
   try {
-    let sameConversationClientDoc = null;
+    let match = null; // { pick: { id, ref, data }, ambiguous, candidateIds }
     if (body.chatwoot_conversation_id) {
-      const alreadyProcessed = await db
-        .collection("clients")
-        .where("chatId", "==", String(body.chatwoot_conversation_id))
-        .limit(1)
-        .get();
-      if (!alreadyProcessed.empty) {
-        const existingDoc = alreadyProcessed.docs[0];
+      const sameConversation = await clients.where("chatId", "==", String(body.chatwoot_conversation_id)).limit(1).get();
+      if (!sameConversation.empty) {
+        const existingDoc = sameConversation.docs[0];
         const existingClient = existingDoc.data() || {};
-        if (!shouldReprocessSameConversation(body, existingClient, lastChatwootContactAt, nextFollowUpTs, phoneFull)) {
-          if (processingClaim?.ref) {
-            await processingClaim.ref.set({
-              status: "skipped",
-              reason: "conversation_already_processed",
-              action: "skipped",
-              clientId: existingDoc.id,
-              completedAt: Date.now(),
-              updatedAt: Date.now(),
-              ...(lastChatwootContactAt ? { lastChatwootContactAt } : {}),
-            }, { merge: true });
-          }
-          return res.json({
-            success: true,
-            action: "skipped",
-            reason: "conversation_already_processed",
-            clientId: existingDoc.id,
+        if (!shouldReprocessSameConversation(body, existingClient, lastChatwootContactAt, datePlan.explicitFuture, phoneFull)) {
+          await markClaim({
+            status: "skipped", reason: "conversation_already_processed", action: "skipped", clientId: existingDoc.id,
+            ...(lastChatwootContactAt ? { lastChatwootContactAt } : {}),
           });
+          return res.json({ success: true, action: "skipped", reason: "conversation_already_processed", clientId: existingDoc.id });
         }
-        sameConversationClientDoc = existingDoc;
+        match = { pick: { id: existingDoc.id, ref: existingDoc.ref, data: existingClient }, ambiguous: false, candidateIds: [existingDoc.id] };
       }
     }
 
-    let existingSnap;
-    if (sameConversationClientDoc) {
-      existingSnap = { empty: false, docs: [sameConversationClientDoc] };
-    } else if (phoneFull) {
-      const variations = buildPhoneVariations(phoneFull);
-      existingSnap = await db.collection("clients").where("phone", "in", variations).limit(1).get();
-      if (existingSnap.empty && hasChatwootContactId) {
-        existingSnap = await db.collection("clients").where("chatwootContactId", "==", String(body.chatwoot_contact_id)).limit(1).get();
-      }
-    } else {
-      existingSnap = await db.collection("clients").where("chatwootContactId", "==", String(body.chatwoot_contact_id)).limit(1).get();
+    if (!match && phoneKey) {
+      // phoneKey first (one equality query), then the other numbers a client has (phoneKeys),
+      // then the old raw-phone variations for legacy docs written before phoneKey existed.
+      let docs = asDocs(await clients.where("phoneKey", "==", phoneKey).limit(5).get());
+      if (!docs.length) docs = asDocs(await clients.where("phoneKeys", "array-contains", phoneKey).limit(5).get());
+      if (!docs.length) docs = asDocs(await clients.where("phone", "in", buildPhoneVariations(phoneFull)).limit(5).get());
+      match = automationUpsert.pickDedupeMatch(docs);
     }
-    const { status: mappedStatus, bookedMentioned } = mapSuggestedStatus(body.suggested_status);
-    const mappedMethod = mapMethod(body.next_followup_channel);
-    const mappedSource = mapSource(body.source);
+    if (!match && hasChatwootContactId) {
+      match = automationUpsert.pickDedupeMatch(asDocs(await clients.where("chatwootContactId", "==", String(body.chatwoot_contact_id)).limit(5).get()));
+    }
+    if (match?.ambiguous) {
+      console.warn("upsertClientFromAutomation: several clients match, using the oldest", { picked: match.pick.id, candidates: match.candidateIds.length });
+    }
+    const dedupeInfo = match?.ambiguous ? { dedupe: { ambiguous: true, pickedClientId: match.pick.id, candidateIds: match.candidateIds.slice(0, 10) } } : {};
+
     const defaultAgent = await getDefaultAutomationAgent();
     const requestedAgent = body.sales_rep_name ? await findAgentByName(body.sales_rep_name) : null;
     const resolvedAgent = requestedAgent || defaultAgent;
     const matchedLabelIds = await matchLabelIds(body.suggested_labels);
 
-    if (!existingSnap.empty) {
+    if (match) {
       // ----- Existing client: log a follow-up, apply conservative updates -----
-      const existingDoc = existingSnap.docs[0];
-      const existingClient = existingDoc.data();
+      const existingDoc = match.pick;
+      const existingClient = existingDoc.data;
+      const { status: nextStatus, bookedMentioned } = automationUpsert.decideAutomationStatus(existingClient, body.suggested_status);
       const batch = db.batch();
 
       const updateData = {
         lastFollowUpDate: followUpStartTime,
       };
 
-      if (existingClient.status !== "not_interested" && existingClient.status !== "booked" && !existingClient.isBooked) {
-        updateData.status = mappedStatus;
-      }
+      if (nextStatus) updateData.status = nextStatus;
       if (matchedLabelIds.length > 0) {
         updateData.labels = Array.from(new Set([...(existingClient.labels || []), ...matchedLabelIds]));
       }
-      if (nextFollowUpTs) {
-        const isSuggestedDate = isAutomationSuggestedDate(body);
-        const shouldUpdateNextFollowUp =
-          !isSuggestedDate ||
-          !existingClient.nextFollowUpDate ||
-          existingClient.nextFollowUpDate < Date.now();
+      if (datePlan.set) Object.assign(updateData, datePlan.set);
+      else if (datePlan.suggestion) Object.assign(updateData, datePlan.suggestion);
 
-        if (shouldUpdateNextFollowUp) {
-          updateData.nextFollowUpDate = nextFollowUpTs;
-          updateData.nextFollowUpMethod = mappedMethod;
-          updateData.nextFollowUpSetVia = "ai_automation";
-          updateData.nextFollowUpReason = body.next_followup_reason ? String(body.next_followup_reason).trim() : "";
-          updateData.nextFollowUpReviewedBySales = false;
-        }
-      }
       if (phoneFull && !existingClient.phone) {
         updateData.phone = phoneFull;
-        updateData.phoneKey = accountingIngest.normalizePhoneKey(phoneFull);
-        updateData.phoneKeys = updateData.phoneKey ? [updateData.phoneKey] : [];
+        updateData.phoneKey = phoneKey;
+        updateData.phoneKeys = phoneKey ? [phoneKey] : [];
         updateData.countryCode = body.country_code || existingClient.countryCode || "+20";
+      } else {
+        Object.assign(updateData, automationUpsert.phoneKeyBackfill(existingClient, accountingIngest.normalizePhoneKey(existingClient.phone) || phoneKey));
       }
       if (hasChatwootContactId && !existingClient.chatwootContactId) {
         updateData.chatwootContactId = String(body.chatwoot_contact_id);
@@ -1468,8 +1383,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       if (hasBetterAutomationName(body, existingClient)) {
         updateData.name = String(body.customer_name).trim();
       }
-      if (!existingClient.position && body.position && String(body.position).trim()) {
-        updateData.position = String(body.position).trim();
+      if (!existingClient.position && body.position) {
+        updateData.position = body.position;
       }
       // Where the client lives: only filled when the CRM has nothing yet, never overwritten.
       if (!existingClient.governorate && automationPlace(body.governorate)) updateData.governorate = automationPlace(body.governorate);
@@ -1477,8 +1392,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       if (!existingClient.chatId && body.chatwoot_conversation_id) {
         updateData.chatId = String(body.chatwoot_conversation_id);
       }
-      if (!existingClient.profileLink && body.profile_link && String(body.profile_link).trim()) {
-        updateData.profileLink = String(body.profile_link).trim();
+      if (!existingClient.profileLink && body.profile_link) {
+        updateData.profileLink = body.profile_link;
       }
       if (lastChatwootContactAt && lastChatwootContactAt > (existingClient.lastChatwootContactAt || 0)) {
         updateData.lastChatwootContactAt = lastChatwootContactAt;
@@ -1489,6 +1404,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       if (automationSalesRepNameRaw) {
         updateData.automationSalesRepNameRaw = automationSalesRepNameRaw;
       }
+      Object.assign(updateData, automationUpsert.firstTouchFields(existingClient, { adCode, firstMessageAt }));
 
       if (updateData.name || updateData.phone) {
         const { buildSearchKeys } = await import("./searchKeys.mjs");
@@ -1503,6 +1419,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         clientName: updateData.name || existingClient.name || "عميل",
         agentId: resolvedAgent.id,
         agentName: `${resolvedAgent.name} (تحليل تلقائي)`,
+        // The client's owner when this was written (read rules let that agent see it).
+        clientAgentId: existingClient.salesAgentId || "",
         note: body.detailed_result || body.sales_brief || "تحليل تلقائي لمحادثة غير نشطة",
         result: bookedMentioned ? "العميل ذكر رغبته في الحجز - يحتاج تأكيد ودفع من موظف" : "متابعة تلقائية من تحليل المحادثة",
         salesBrief: body.sales_brief || "",
@@ -1516,14 +1434,15 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         appointmentId: null,
         isAutomated: true,
         automationSalesRepNameRaw,
-        chatwootConversationId: body.chatwoot_conversation_id || null,
+        adCode: automationUpsert.followUpAdCode(existingClient, adCode),
+        chatwootConversationId: body.chatwoot_conversation_id ? String(body.chatwoot_conversation_id) : null,
       });
 
       const logRef = db.collection("logs").doc();
       batch.set(logRef, {
         userId: resolvedAgent.id,
         userName: `${resolvedAgent.name} (تحليل تلقائي)`,
-        action: `تسجيل متابعة خارجية تلقائية: ${body.sales_brief || "محادثة Chatwoot"}`,
+        action: `تسجيل متابعة خارجية تلقائية: ${(body.sales_brief || "محادثة Chatwoot").slice(0, 300)}`,
         targetId: existingDoc.id,
         targetName: updateData.name || existingClient.name || "عميل",
         timestamp: automationNow,
@@ -1536,6 +1455,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
           clientId: existingDoc.id,
           followUpId: followUpRef.id,
           bookedMentioned,
+          ...(datePlan.suggestion ? { followUpDateKeptAsSuggestion: datePlan.suggestion.automationSuggestedFollowUp.reason } : {}),
+          ...dedupeInfo,
           completedAt: automationNow,
           updatedAt: automationNow,
           ...(lastChatwootContactAt ? { lastChatwootContactAt } : {}),
@@ -1547,25 +1468,26 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     }
 
     // ----- New client -----
+    const { status: newStatus, bookedMentioned } = automationUpsert.decideAutomationStatus(null, body.suggested_status);
     const serviceMatch = await matchService(body.suggested_service);
     const cleanName =
-      body.customer_name && body.customer_name.trim() && !PLACEHOLDER_NAME_RE.test(body.customer_name.trim())
-        ? body.customer_name.trim()
+      body.customer_name && !PLACEHOLDER_NAME_RE.test(body.customer_name)
+        ? body.customer_name
         : "عميل تلقائي (بانتظار المراجعة)";
 
-    const newClientRef = db.collection("clients").doc();
+    const newClientRef = clients.doc();
     const newClientData = {
       name: cleanName,
-      position: body.position && String(body.position).trim() ? String(body.position).trim() : "",
+      position: body.position || "",
       phone: phoneFull || "",
-      phoneKey: accountingIngest.normalizePhoneKey(phoneFull),
-      phoneKeys: accountingIngest.normalizePhoneKey(phoneFull) ? [accountingIngest.normalizePhoneKey(phoneFull)] : [],
+      phoneKey,
+      phoneKeys: phoneKey ? [phoneKey] : [],
       chatwootContactId: body.chatwoot_contact_id ? String(body.chatwoot_contact_id) : null,
       chatId: body.chatwoot_conversation_id ? String(body.chatwoot_conversation_id) : null,
       gender: ["male", "female", "unspecified"].includes(body.gender) ? body.gender : "unspecified",
       laptop: ["with", "without", "unspecified"].includes(body.has_laptop) ? body.has_laptop : "unspecified",
       mode: ["online", "offline", "unspecified"].includes(body.attendance_mode) ? body.attendance_mode : "unspecified",
-      status: mappedStatus,
+      status: newStatus,
       serviceId: serviceMatch.serviceId,
       serviceName: serviceMatch.serviceName,
       labels: matchedLabelIds,
@@ -1578,7 +1500,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       governorate: automationPlace(body.governorate),
       city: automationPlace(body.city),
       source: mappedSource,
-      profileLink: body.profile_link ? String(body.profile_link).trim() : "",
+      profileLink: body.profile_link || "",
       distinctiveSearchPhrase,
       automationSalesRepNameRaw,
       preferredMethod: mappedMethod,
@@ -1594,15 +1516,10 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       ]
         .filter(Boolean)
         .join("\n"),
+      nextFollowUpDate: 0, // "no date yet" (queryable; a missing field is not)
+      ...(datePlan.set || datePlan.suggestion || {}),
+      ...automationUpsert.firstTouchFields(null, { adCode, firstMessageAt }),
     };
-    newClientData.nextFollowUpDate = 0; // "no date yet" (queryable; a missing field is not)
-    if (nextFollowUpTs) {
-      newClientData.nextFollowUpDate = nextFollowUpTs;
-      newClientData.nextFollowUpMethod = mappedMethod;
-      newClientData.nextFollowUpSetVia = "ai_automation";
-      newClientData.nextFollowUpReason = body.next_followup_reason ? String(body.next_followup_reason).trim() : "";
-      newClientData.nextFollowUpReviewedBySales = false;
-    }
 
     const batch = db.batch();
     newClientData.searchKeys = (await import("./searchKeys.mjs")).buildSearchKeys(newClientData.name, newClientData.phone);
@@ -1614,6 +1531,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       clientName: cleanName,
       agentId: resolvedAgent.id,
       agentName: `${resolvedAgent.name} (تحليل تلقائي)`,
+      clientAgentId: resolvedAgent.id,
       note: body.detailed_result || body.sales_brief || "عميل جديد تم رصده تلقائيًا",
       result: bookedMentioned ? "العميل ذكر رغبته في الحجز - يحتاج تأكيد ودفع من موظف" : "عميل جديد من تحليل تلقائي",
       salesBrief: body.sales_brief || "",
@@ -1627,7 +1545,8 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
       appointmentId: null,
       isAutomated: true,
       automationSalesRepNameRaw,
-      chatwootConversationId: body.chatwoot_conversation_id || null,
+      adCode: adCode || null,
+      chatwootConversationId: body.chatwoot_conversation_id ? String(body.chatwoot_conversation_id) : null,
     });
 
     const logRef = db.collection("logs").doc();
@@ -1647,6 +1566,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
         clientId: newClientRef.id,
         followUpId: followUpRef.id,
         bookedMentioned,
+        ...(datePlan.suggestion ? { followUpDateKeptAsSuggestion: datePlan.suggestion.automationSuggestedFollowUp.reason } : {}),
         completedAt: automationNow,
         updatedAt: automationNow,
         ...(lastChatwootContactAt ? { lastChatwootContactAt } : {}),
@@ -1655,7 +1575,7 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
 
     await batch.commit();
     if (phoneFull) {
-      postMetaLeadEvent(phoneFull, cleanName, mappedSource);
+      await postMetaLeadEvent(phoneFull, mappedSource);
     }
 
     return res.json({ success: true, action: "created_new", clientId: newClientRef.id, bookedMentioned });
@@ -1664,12 +1584,12 @@ exports.upsertClientFromAutomation = onRequest({ region: "us-central1", cors: tr
     if (processingClaim?.ref) {
       await processingClaim.ref.set({
         status: "failed",
-        error: error?.message || "Unknown error in upsertClientFromAutomation",
+        error: String(error?.message || "Unknown error in upsertClientFromAutomation").slice(0, 500),
         updatedAt: Date.now(),
       }, { merge: true }).catch((markerError) => {
         console.error("upsertClientFromAutomation failed marker update failed:", markerError);
       });
     }
-    return res.status(500).json({ error: error?.message || "Unknown error in upsertClientFromAutomation" });
+    return res.status(500).json({ error: "Unknown error in upsertClientFromAutomation" });
   }
 });

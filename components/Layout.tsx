@@ -8,7 +8,7 @@ import { auth, db, logActivity } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { collection, query, where, onSnapshot, getDocs, getDoc, doc, getCountFromServer } from 'firebase/firestore';
 import {
-  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, UserCog, Database, Sparkles, Copy, CalendarCheck, Search } from 'lucide-react';
+  LayoutDashboard, Users, Bell, BarChart3, LogOut, Menu, X, ClipboardList, Sun, Moon, BellRing, Volume2, VolumeX, BookOpen, Tag, Eye, AlertTriangle, PhoneOutgoing, UserPlus, UserCog, Database, Sparkles, Copy, CalendarCheck, Search, Link2 } from 'lucide-react';
 import { UserRole, Client, User } from '../types';
 import ShiftGate from './ShiftGate';
 import ShiftWidget from './ShiftWidget';
@@ -16,6 +16,7 @@ import EndShiftModal from './EndShiftModal';
 import ErrorBoundary from './ErrorBoundary';
 import { useStaff } from '../utils/refData';
 import { overdueConstraints } from '../utils/overdue';
+import { isLeaderRole } from '../utils/roles';
 import { LoadingState } from './ui';
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -215,6 +216,7 @@ const Layout: React.FC = () => {
     navItems.push({ name: 'سجل النشاطات', path: '/activity', icon: ClipboardList, group: 'الإدارة' });
     navItems.push({ name: 'نظام الدعوات', path: '/invites', icon: UserPlus, group: 'الإدارة' });
     if (effectiveRole === UserRole.ADMIN) navItems.push({ name: 'العملاء المكررين', path: '/duplicates', icon: Copy, group: 'الإدارة' });
+    if (isLeaderRole(effectiveRole)) navItems.push({ name: 'حجوزات محتاجة ربط', path: '/sync-review', icon: Link2, group: 'الإدارة' });
     navItems.push({ name: 'النسخ الاحتياطي', path: '/backup', icon: Database, group: 'الإدارة' });
   }
   if (user?.role === UserRole.ADMIN) {

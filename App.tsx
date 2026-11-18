@@ -26,6 +26,7 @@ const ServicesManager = lazy(() => import('./pages/ServicesManager'));
 const LabelsManager = lazy(() => import('./pages/LabelsManager'));
 const InvitesManager = lazy(() => import('./pages/InvitesManager'));
 const DuplicatesManager = lazy(() => import('./pages/DuplicatesManager'));
+const SyncReview = lazy(() => import('./pages/SyncReview'));
 const TodayWork = lazy(() => import('./pages/TodayWork'));
 const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 const AiAssistant = lazy(() => import('./pages/AiAssistant').then((m) => ({ default: m.AiAssistant })));
@@ -243,6 +244,7 @@ const App: React.FC = () => {
             <Route path="/backup" element={<BackupManager />} />
             <Route path="/invites" element={<InvitesManager />} />
             <Route path="/duplicates" element={<DuplicatesManager />} />
+            <Route path="/sync-review" element={<SyncReview />} />
             <Route path="/admin" element={<AdminPanel />} />
           </Route>
         </Routes>

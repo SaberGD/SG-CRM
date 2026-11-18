@@ -179,7 +179,9 @@ service cloud.firestore {
       allow create: if isTeamLeader() || (isStaff() &&
         request.resource.data.get('agentId', '') == request.auth.uid &&
         canSeeClientId(request.resource.data.get('clientId', '')));
-      allow update, delete: if isManager();
+      // Managers edit; a leader moving clients may only re-stamp the owner (utils/transfers.ts).
+      allow update: if isManager() || (isTeamLeader() && onlyKeys(['clientAgentId']));
+      allow delete: if isManager();
     }
 
     // Invitations are private: leaders manage them; an invited person can read and

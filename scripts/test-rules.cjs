@@ -128,6 +128,8 @@ const cases = [
   T('leader reads any follow-up', 'ALLOW', 'get', 'followups/f1', lead, leadP, { existing: { agentId: 'other', clientAgentId: 'other' } }),
   T('sales logs a follow-up on their own client', 'ALLOW', 'create', 'followups/f2', sales, [...salesP, ...clientDoc('c1', { salesAgentId: 's1' })], { incoming: { agentId: 's1', clientId: 'c1', clientAgentId: 's1' } }),
   T('sales cannot log a follow-up on another agent\'s client', 'DENY', 'create', 'followups/f2', sales, [...salesP, ...clientDoc('c2', { salesAgentId: 'other' })], { incoming: { agentId: 's1', clientId: 'c2', clientAgentId: 'other' } }),
+  T('leader re-stamps a follow-up owner on transfer', 'ALLOW', 'update', 'followups/f1', lead, leadP, { existing: { agentId: 'x', clientAgentId: 's1' }, incoming: { agentId: 'x', clientAgentId: 'other' } }),
+  T('leader cannot edit a follow-up note', 'DENY', 'update', 'followups/f1', lead, leadP, { existing: { agentId: 'x', note: 'a' }, incoming: { agentId: 'x', note: 'b' } }),
   T('sales cannot mark follow-ups checked', 'DENY', 'update', 'followups/f1', sales, salesP, { existing: { agentId: 's1' }, incoming: { agentId: 's1', reviewedBy: 's1' } }),
 
   // --- reports ---

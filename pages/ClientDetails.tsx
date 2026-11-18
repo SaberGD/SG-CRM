@@ -1,6 +1,8 @@
 
 import { buildSearchKeys } from '../utils/searchKeys.mjs';
-import { normalizePhoneKey } from '../utils/clientMerge.mjs';
+import { normalizePhoneKey, telHref, whatsappHref } from '../utils/phone';
+import { claimPoolClient } from '../utils/poolClaim';
+import { subscribeClientFollowUps } from '../utils/followUpHistory';
 import React, { useState, useEffect, useMemo } from 'react';
 import { EGYPT_GOVERNORATES, clientLocationLabel } from '../utils/governorates';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
@@ -17,7 +19,7 @@ import {
   Play, Square, Clock, Calendar, History, PhoneIncoming, Clock4, 
   MessageSquare, Edit2, X, Save, User, CalendarPlus, 
   Download, FileText, UserCheck, Settings, Timer, LayoutList, History as HistoryIcon,
-  MessageCircle, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw,
+  MessageCircle, Phone, Globe, ExternalLink, ArrowRightLeft, Layers, Sparkles, Bot, CheckCircle2, Copy, Check, RefreshCw,
   Facebook, Instagram, Music2, Globe2, CalendarX, UserPlus, HeartHandshake, PauseCircle, PlayCircle, GraduationCap, BookOpen, MapPin
 } from 'lucide-react';
 import { useServices, useLabels, useStaff } from '../utils/refData';
@@ -39,7 +41,7 @@ import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
 } from '../utils/currency';
-import { isLeaderRole } from '../utils/roles';
+import { isLeaderRole, isManagerRole } from '../utils/roles';
 
 const getClientSourceMeta = (source?: ClientSource) => {
   switch (source) {
@@ -224,6 +226,7 @@ const ClientDetails: React.FC = () => {
   const [nextDate, setNextDate] = useState('');
   const [nextTime, setNextTime] = useState('10:00');
   const [nextPeriod, setNextPeriod] = useState<'AM' | 'PM'>('AM');
+  const [savingFollowUp, setSavingFollowUp] = useState(false);
 
   // Edit Client
   const [editClientData, setEditClientData] = useState({
@@ -273,14 +276,9 @@ const ClientDetails: React.FC = () => {
       setLoading(false);
     });
 
-    const unsubFollowups = firestore.onSnapshot(
-      firestore.query(firestore.collection(db, 'followups'), firestore.where('clientId', '==', id), firestore.orderBy('timestamp', 'desc'), firestore.limit(100)),
-      (snap) => {
-        setFollowUps(snap.docs.map(d => ({ id: d.id, ...d.data() } as FollowUp)));
-      }, (err) => {
-        console.error("ClientDetails Followups Snapshot Error:", err);
-      }
-    );
+    // Whole history when the rules allow it; under the scoped rules a sales agent gets the
+    // follow-ups they wrote + those stamped with their (or the pool's) ownership.
+    const unsubFollowups = subscribeClientFollowUps(id, user?.uid || '', (rows) => setFollowUps(rows));
 
     const unsubLogs = firestore.onSnapshot(
       // The newest 40 actions are plenty for the timeline (some clients have hundreds).
@@ -297,7 +295,7 @@ const ClientDetails: React.FC = () => {
       unsubFollowups();
       unsubLogs();
     };
-  }, [id]);
+  }, [id, user?.uid]);
 
 
   useEffect(() => {
@@ -404,11 +402,12 @@ const ClientDetails: React.FC = () => {
 
   const handleAssignToMe = async () => {
     if (!user || !client) return;
-    await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
-      salesAgentId: user.uid,
-      salesAgentName: user.name,
-    });
-    await logActivity(user.uid, user.name, 'تعيين عميل لنفسه من حساب Saber Group المشترك', client.id, client.name);
+    try {
+      await claimPoolClient(client, user);
+    } catch (err) {
+      console.error(err);
+      alert('ماقدرناش نحوّل العميل ليك. ممكن يكون حد تاني خده، حدّث الصفحة وجرّب تاني.');
+    }
   };
 
   const handleAdminCancelFollowUp = async () => {
@@ -466,7 +465,8 @@ const ClientDetails: React.FC = () => {
 
   const submitFollowUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!client || !user || !startTime) return;
+    if (!client || !user || !startTime || savingFollowUp) return;
+    setSavingFollowUp(true);
     
     const endTime = Date.now();
     const duration = Math.floor((endTime - startTime) / 1000);
@@ -490,8 +490,15 @@ const ClientDetails: React.FC = () => {
     }
 
     try {
-      await firestore.addDoc(firestore.collection(db, 'followups'), {
+      // One batch: the follow-up, the client update and the log lines land together or not at all
+      // (a double click or a denied client update used to leave a lonely follow-up behind).
+      const batch = firestore.writeBatch(db);
+      const logLine = (action: string) => batch.set(firestore.doc(firestore.collection(db, 'logs')), {
+        userId: user.uid, userName: user.name, action, targetId: client.id, targetName: client.name, timestamp: Date.now(),
+      });
+      batch.set(firestore.doc(firestore.collection(db, 'followups')), {
         clientId: client.id, clientName: client.name,
+        clientAgentId: client.salesAgentId || '',
         agentId: user.uid, agentName: user.name,
         note, result, salesBrief, method,
         timestamp: Date.now(), startTime, endTime, duration,
@@ -549,10 +556,11 @@ const ClientDetails: React.FC = () => {
       const enable = planOnBecameBooked(client, after, { now: endTime, anchor: endTime, by: user.uid, byName: user.name, via: 'booking' }, del);
       Object.assign(updateData, enable || (isAutoKind ? planCheckInDone(client, { now: endTime }, del) : {}));
 
-      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), updateData);
-      
-      await logActivity(user.uid, user.name, `${isAutoKind ? 'تمت المتابعة الشخصية (كل أسبوعين)' : 'إنهاء متابعة'}: ${salesBrief}`, client.id, client.name);
-      if (enable) await logActivity(user.uid, user.name, 'تشغيل المتابعة التلقائية كل أسبوعين (العميل حجز)', client.id, client.name);
+      batch.update(firestore.doc(db, 'clients', client.id), updateData);
+      logLine(`${isAutoKind ? 'تمت المتابعة الشخصية (كل أسبوعين)' : 'إنهاء متابعة'}: ${salesBrief}`);
+      if (enable) logLine('تشغيل المتابعة التلقائية كل أسبوعين (العميل حجز)');
+      if (updateData.status !== client.status) logLine(`تغيير الحالة: ${StatusLabels[client.status]?.ar || client.status} ← ${StatusLabels[updateData.status as ClientStatus]?.ar || updateData.status}`);
+      await batch.commit();
       // The Purchase for Meta is sent by the server from the accounting booking (one per booking).
 
       setShowForm(false);
@@ -561,7 +569,14 @@ const ClientDetails: React.FC = () => {
       setStartTime(null);
       setElapsedTime(0);
       setFollowUpKind(null);
-    } catch (err) { console.error(err); alert('حصل خطأ وماتسجلتش المتابعة. جرّب تاني.'); }
+    } catch (err) {
+      console.error(err);
+      alert(client.salesAgentId !== user.uid && !isHighRole
+        ? 'ماتسجلتش المتابعة: العميل ده مش عليك. لو على الحساب المشترك اعمله Assign to me الأول.'
+        : 'حصل خطأ وماتسجلتش المتابعة. جرّب تاني.');
+    } finally {
+      setSavingFollowUp(false);
+    }
   };
 
   const handleScheduleFollowUp = async () => {
@@ -582,13 +597,13 @@ const ClientDetails: React.FC = () => {
       await logActivity(
         user.uid, user.name,
         wasAiSet
-          ? `تعديل موعد متابعة كان مُقترح من الأتمتة: ${new Date(nextTs).toLocaleString()}`
-          : `جدولة متابعة جديدة: ${new Date(nextTs).toLocaleString()}`,
+          ? `تعديل موعد متابعة كان مُقترح من الأتمتة: ${new Date(nextTs).toLocaleString('ar-EG')}`
+          : `جدولة متابعة جديدة: ${new Date(nextTs).toLocaleString('ar-EG')}`,
         client.id, client.name
       );
       setIsScheduleModalOpen(false);
       setNextDate('');
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error(err); alert('ماقدرناش نحفظ الموعد. جرّب تاني.'); }
   };
 
   const handleMarkFollowUpReviewed = async (followUpId: string) => {
@@ -601,7 +616,7 @@ const ClientDetails: React.FC = () => {
         reviewedAt,
       });
       setFollowUps(prev => prev.map(f => f.id === followUpId ? { ...f, reviewedBySales: true, reviewedByName: user.name, reviewedAt } : f));
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error(err); alert('ماقدرناش نعلّم المتابعة. التأكيد للمديرين بس.'); }
   };
 
   const handleUpdateClient = async () => {
@@ -626,10 +641,14 @@ const ClientDetails: React.FC = () => {
         ...(phoneKey && !((client as any).phoneKeys || []).includes(phoneKey) ? { phoneKeys: [phoneKey, ...(((client as any).phoneKeys) || [])] } : {}),
         ...(enable || {}),
       });
-      await logActivity(user.uid, user.name, `تحديث بيانات العميل`, client.id, client.name);
+      // Old -> new for the fields that matter in an audit (status, name, phone, service).
+      const diffs = ([['status', 'الحالة'], ['name', 'الاسم'], ['phone', 'الرقم'], ['serviceName', 'الخدمة']] as const)
+        .filter(([k]) => String((client as any)[k] ?? '') !== String((finalData as any)[k] ?? ''))
+        .map(([k, label]) => `${label}: ${(client as any)[k] ?? '—'} ← ${(finalData as any)[k] ?? '—'}`);
+      await logActivity(user.uid, user.name, diffs.length ? `تحديث بيانات العميل (${diffs.join('، ')})` : `تحديث بيانات العميل`, client.id, client.name);
       if (enable) await logActivity(user.uid, user.name, 'تشغيل المتابعة التلقائية كل أسبوعين (العميل حجز)', client.id, client.name);
       setIsEditModalOpen(false);
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error(err); alert('ماقدرناش نحفظ التعديل. اتأكد إن العميل ده بتاعك وجرّب تاني.'); }
   };
 
   if (loading) return <div className="text-center py-40 animate-pulse font-black text-primary-500">جاري تحميل السجل...</div>;
@@ -766,6 +785,17 @@ const ClientDetails: React.FC = () => {
               <button onClick={() => handleStartCall()} className="sgui-button is-primary">
                 <Play size={18} /> بدء المتابعة
               </button>
+              {/* Dial / open WhatsApp from here; it starts the follow-up session too. */}
+              {telHref(client.phone, client.countryCode) && (
+                <a href={telHref(client.phone, client.countryCode)} onClick={() => handleStartCall()} className="sgui-button" aria-label="اتصال">
+                  <Phone size={18} /> اتصال
+                </a>
+              )}
+              {whatsappHref(client.phone, client.countryCode) && (
+                <a href={whatsappHref(client.phone, client.countryCode)} target="_blank" rel="noopener noreferrer" onClick={() => handleStartCall()} className="sgui-button is-whatsapp" aria-label="واتساب">
+                  <MessageCircle size={18} /> واتساب
+                </a>
+              )}
               <button onClick={() => setIsScheduleModalOpen(true)} className="sgui-button">
                 <CalendarPlus size={18} /> جدولة موعد
               </button>
@@ -1049,7 +1079,7 @@ const ClientDetails: React.FC = () => {
                        </div>
                        <p className="text-xs text-slate-500 dark:text-slate-400 font-bold leading-relaxed">النتيجة: {item.result}</p>
                        <p className="text-[11px] text-slate-400 italic">ملاحظات: {item.note}</p>
-                       {isUnreviewedAiFollowUp && (
+                       {isUnreviewedAiFollowUp && isManagerRole(effectiveRole) && (
                          <button
                            onClick={() => handleMarkFollowUpReviewed(item.id)}
                            className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 transition-all"
@@ -1434,7 +1464,7 @@ const ClientDetails: React.FC = () => {
                   )}
                 </div>
 
-                <button type="submit" className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all active:scale-[0.98]">حفظ وإتمام المتابعة</button>
+                <button type="submit" disabled={savingFollowUp} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all active:scale-[0.98] disabled:opacity-60">{savingFollowUp ? 'جاري الحفظ...' : 'حفظ وإتمام المتابعة'}</button>
                 <button type="button" onClick={handleCancelCall} className="w-full py-3 text-slate-400 hover:text-rose-500 font-black text-xs transition-colors flex items-center justify-center gap-1.5">
                   <X size={14} /> تراجع عن المتابعة دي (اتضغطت بالغلط)
                 </button>

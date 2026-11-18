@@ -16,6 +16,7 @@ import { useStaff } from '../utils/refData';
 import { usePagedList } from '../utils/usePagedQuery';
 import Pager from '../components/Pager';
 import { useNavigate } from 'react-router-dom';
+import { isLeaderRole } from '../utils/roles';
 
 interface BatchBackup {
   timestamp: number;
@@ -129,7 +130,7 @@ export const AiAssistant: React.FC = () => {
   const [copiedClientId, setCopiedClientId] = useState<string | null>(null);
 
   const isAdmin = user?.role === UserRole.ADMIN;
-  const isHighRole = isAdmin || effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = isLeaderRole(effectiveRole) || isAdmin;
   const isSupervisorOrAbove = isAdmin || effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
 
   const todayDateStr = new Date().toISOString().split('T')[0];

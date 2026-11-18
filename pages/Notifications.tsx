@@ -14,6 +14,7 @@ import { useServices, useAgentOptions } from '../utils/refData';
 import FloatingPanel from '../components/FloatingPanel';
 import AcceptFlowModal from '../components/AcceptFlowModal';
 import { useNavigate, Link } from 'react-router-dom';
+import { isLeaderRole } from '../utils/roles';
 
 type Tab = 'overdue' | 'today' | 'upcoming' | 'checkin';
 type CheckInView = 'pending' | 'done';
@@ -46,7 +47,7 @@ const Notifications: React.FC = () => {
   const [newTime, setNewTime] = useState('10:00');
   const [newPeriod, setNewPeriod] = useState<'AM' | 'PM'>('AM');
 
-  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = isLeaderRole(effectiveRole);
   const scopeId = effectiveUser?.uid || user?.uid || '';
 
   // Who and which service (shared by the list and the tab counts).

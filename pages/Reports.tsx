@@ -24,6 +24,7 @@ import FilterPanel, { Field } from '../components/FilterPanel';
 import { EmptyState, LoadingState } from '../components/ui';
 import { analyzeDailyReport } from '../geminiService';
 import { normalizeLabelColor } from '../utils/labelColors';
+import { isLeaderRole } from '../utils/roles';
 
 const Reports: React.FC = () => {
   const { user, effectiveRole } = useAuth();
@@ -102,7 +103,7 @@ const Reports: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = isLeaderRole(effectiveRole);
 
   useEffect(() => {
     if (!user) return;

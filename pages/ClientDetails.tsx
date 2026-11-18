@@ -39,6 +39,7 @@ import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
 } from '../utils/currency';
+import { isLeaderRole } from '../utils/roles';
 
 const getClientSourceMeta = (source?: ClientSource) => {
   switch (source) {
@@ -233,7 +234,7 @@ const ClientDetails: React.FC = () => {
     governorate: '', city: ''
   });
 
-  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = isLeaderRole(effectiveRole);
   const canEditChatId = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR;
 
   useEffect(() => {

@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
 import { PageHeader, SectionTitle, StatCard, Badge, Tabs, EmptyState, LoadingState } from '../components/ui';
 import { useShift } from '../ShiftContext';
+import { isLeaderRole } from '../utils/roles';
 
 const Dashboard: React.FC = () => {
   const { user, effectiveRole, effectiveUser } = useAuth();
@@ -29,8 +30,7 @@ const Dashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedClientForManual, setSelectedClientForManual] = useState<Client | null>(null);
 
-  const isAdminOrManager = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
-  const isHighRole = isAdminOrManager || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = isLeaderRole(effectiveRole);
   const agentId = isHighRole && selectedAgentId !== 'all' ? selectedAgentId : (effectiveUser?.uid || user?.uid || '');
   const scope = useMemo<QueryConstraint[]>(() => (isHighRole && selectedAgentId === 'all' ? [] : [where('salesAgentId', '==', agentId)]), [isHighRole, selectedAgentId, agentId]);
 

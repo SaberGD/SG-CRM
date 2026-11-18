@@ -35,6 +35,7 @@ import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
 } from '../utils/currency';
+import { isLeaderRole } from '../utils/roles';
 
 // ACTIVE accounting bookings of a client, straight from the row (no read).
 const courseNames = (c: Client) => activeCourses(c);
@@ -186,7 +187,7 @@ const ClientsList: React.FC = () => {
     setNewClient(prev => ({ ...prev, phone: cleaned }));
   };
 
-  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = isLeaderRole(effectiveRole);
   const isAdmin = user?.role === UserRole.ADMIN;
   const canDelete = isAdmin;
   const canBulkTransfer = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;

@@ -190,7 +190,7 @@ export interface Client {
   chatId?: string;
   distinctiveSearchPhrase?: string;
   automationSalesRepNameRaw?: string;
-  createdVia?: 'ai_automation' | 'manual';
+  createdVia?: 'ai_automation' | 'manual' | 'bulk_import' | 'accounting';
   reviewedBySales?: boolean;
   reviewedByName?: string;
   reviewedAt?: number;

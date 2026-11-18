@@ -8,6 +8,7 @@ import { UserPlus, Mail, Shield, Trash2, Clock, UserCheck, X } from 'lucide-reac
 import { usePagedList } from '../utils/usePagedQuery';
 import Pager from '../components/Pager';
 import FloatingPanel from '../components/FloatingPanel';
+import { isLeaderRole } from '../utils/roles';
 
 const InvitesManager: React.FC = () => {
   const { user, effectiveRole } = useAuth();
@@ -21,7 +22,7 @@ const InvitesManager: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isAdmin = effectiveRole === UserRole.ADMIN;
-  const isHighRole = isAdmin || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = isLeaderRole(effectiveRole) || isAdmin;
 
   useEffect(() => {
     if (!user) return;

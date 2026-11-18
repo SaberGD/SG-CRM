@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const { sanitizeDoc, isExportable, pageSize } = require("./crmExport");
 
 test("contact details and free text are removed from clients", () => {
-  const d = sanitizeDoc("clients", "c1", { name: "x", phone: "010", phoneKey: "10", notes: "private", status: "booked", paidAmount: 5, aiRecommendation: { a: 1 }, source: "messenger" });
+  const d = sanitizeDoc("clients", "c1", { name: "x", phone: "010", phoneKey: "10", searchKeys: ["5678", "12345678", "mo"], notes: "private", status: "booked", paidAmount: 5, aiRecommendation: { a: 1 }, source: "messenger" });
   assert.deepEqual(d, { id: "c1", name: "x", status: "booked", paidAmount: 5, source: "messenger" });
 });
 test("users export only role/name, never email", () => {

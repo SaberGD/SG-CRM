@@ -8,14 +8,15 @@ import { AlertTriangle, CalendarClock, CalendarX2, MessageCircle, PhoneCall, Che
 import { PageHeader, Tabs, EmptyState, LoadingState } from '../components/ui';
 import Pager from '../components/Pager';
 import { usePagedQuery } from '../utils/usePagedQuery';
+import { telHref, whatsappHref } from '../utils/phone';
+import { OPEN_STATUSES } from '../utils/overdue';
 
 const DAY = 86400000;
 const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
-const waLink = (phone: string) => `https://wa.me/${String(phone || '').replace(/\D/g, '').replace(/^0+/, phone.startsWith('0') ? '20' : '')}`;
 const fmt = (ms?: number) => (ms ? new Date(ms).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) : '—');
 
 type Group = 'overdue' | 'today' | 'noDate';
-const OPEN = ['interested', 'potential'];
+const OPEN = OPEN_STATUSES;
 
 // "Today's work": open leads that need action, one tab at a time, 10 per page, read from the
 // server (it used to read every open client of the team on each visit: ~2,600 documents).
@@ -35,9 +36,12 @@ const TodayWork: React.FC = () => {
   }, [mine, isLeader, ownerId]);
 
   const t0 = startOfToday();
+  // "now" is fixed per visit (minute precision) so the query key stays stable while the page is open.
+  const [now] = useState(() => Math.floor(Date.now() / 60000) * 60000);
+  // Overdue = time passed (utils/overdue, same as the Dashboard and the alarm); today = the rest of today.
   const rangeFor = (g: Group): firestore.QueryConstraint[] => (
-    g === 'overdue' ? [firestore.where('nextFollowUpDate', '>', 0), firestore.where('nextFollowUpDate', '<', t0)]
-      : g === 'today' ? [firestore.where('nextFollowUpDate', '>=', t0), firestore.where('nextFollowUpDate', '<', t0 + DAY)]
+    g === 'overdue' ? [firestore.where('nextFollowUpDate', '>', 0), firestore.where('nextFollowUpDate', '<', now)]
+      : g === 'today' ? [firestore.where('nextFollowUpDate', '>=', now), firestore.where('nextFollowUpDate', '<', t0 + DAY)]
         : [firestore.where('nextFollowUpDate', '==', 0)]
   );
 
@@ -51,7 +55,7 @@ const TodayWork: React.FC = () => {
         .catch((err) => console.error('Today count failed:', err));
     });
     return () => { cancelled = true; };
-  }, [user?.uid, scope, t0]);
+  }, [user?.uid, scope, t0, now]);
 
   // Open leads that have no nextFollowUpDate field at all can't be found by a query; an admin
   // can give them the value 0 once (one read per open client, then they show up here).
@@ -91,10 +95,12 @@ const TodayWork: React.FC = () => {
   const paged = usePagedQuery<Client>({
     collectionName: 'clients',
     constraints: user ? [...scope, ...rangeFor(group)] : null,
-    queryKey: JSON.stringify([ownerId, mine, isLeader, group, t0]),
+    queryKey: JSON.stringify([ownerId, mine, isLeader, group, t0, now]),
     orderField: group === 'noDate' ? 'createdAt' : 'nextFollowUpDate',
     orderDirection: group === 'noDate' ? 'desc' : 'asc',
     withTotal: false,
+    // Always fresh on return: the lead just handled must leave the list (counts are fresh too).
+    sessionCache: false,
   });
   const total = counts[group] ?? null;
 
@@ -155,8 +161,8 @@ const TodayWork: React.FC = () => {
                 )}
                 {c.phone && (
                   <div className="flex gap-2">
-                    <a href={`tel:${c.phone}`} className="sgui-icon-button" aria-label="اتصال"><PhoneCall size={16} /></a>
-                    <a href={waLink(c.phone)} target="_blank" rel="noreferrer" className="sgui-icon-button is-whatsapp" aria-label="واتساب"><MessageCircle size={16} /></a>
+                    <a href={telHref(c.phone, c.countryCode)} className="sgui-icon-button" aria-label="اتصال"><PhoneCall size={16} /></a>
+                    <a href={whatsappHref(c.phone, c.countryCode)} target="_blank" rel="noreferrer" className="sgui-icon-button is-whatsapp" aria-label="واتساب"><MessageCircle size={16} /></a>
                   </div>
                 )}
               </div>

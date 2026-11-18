@@ -22,6 +22,9 @@ import {
   SlidersHorizontal, ChevronDown, Facebook, Instagram, Music2, Globe2, UserPlus, MoreHorizontal, GraduationCap, BookOpen } from 'lucide-react';
 import { PageHeader } from '../components/ui';
 import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
+import { transferClients } from '../utils/transfers';
+import { phoneCheck, BridgeUnavailable } from '../bridgeService';
+import { claimPoolClient } from '../utils/poolClaim';
 import { searchTerm as toSearchKey, matchesSearch, buildSearchKeys } from '../utils/searchKeys.mjs';
 import { planEnableAutoFollowUp } from '../utils/autoFollowUp';
 import { usePagedQuery } from '../utils/usePagedQuery';
@@ -30,11 +33,12 @@ import { useServices, useLabels, useAgentOptions, useStaff } from '../utils/refD
 import Pager from '../components/Pager';
 import FilterPanel, { Field } from '../components/FilterPanel';
 import { EGYPT_GOVERNORATES } from '../utils/governorates';
-import { normalizePhoneKey } from '../utils/clientMerge.mjs';
+import { normalizePhoneKey, telHref, whatsappHref } from '../utils/phone';
 import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
 } from '../utils/currency';
+import { isLeaderRole } from '../utils/roles';
 
 // ACTIVE accounting bookings of a client, straight from the row (no read).
 const courseNames = (c: Client) => activeCourses(c);
@@ -186,7 +190,7 @@ const ClientsList: React.FC = () => {
     setNewClient(prev => ({ ...prev, phone: cleaned }));
   };
 
-  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.SUPERVISOR || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = isLeaderRole(effectiveRole);
   const isAdmin = user?.role === UserRole.ADMIN;
   const canDelete = isAdmin;
   const canBulkTransfer = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
@@ -375,24 +379,33 @@ const ClientsList: React.FC = () => {
       // إزالة التكرار من المصفوفة
       const uniqueVariations = Array.from(new Set(phoneVariations)).slice(0, 10);
 
-      // One indexed lookup on the normalized phone (same key the accounting sync uses).
+      // Duplicate check. Sales can no longer read every client, so the server checks it
+      // (phoneCheck); while that action isn't deployed yet, fall back to the direct lookup
+      // (the old rules still allow it).
       const phoneKey = normalizePhoneKey(phoneFull);
-      const phoneCheck = await firestore.getDocs(firestore.query(
-        firestore.collection(db, 'clients'),
-        phoneKey ? firestore.where('phoneKey', '==', phoneKey) : firestore.where('phone', 'in', uniqueVariations),
-        firestore.limit(1)
-      ));
+      let existingClient: { name: string; salesAgentName: string; status: string; createdAt: number } | null = null;
+      try {
+        const r = await phoneCheck(phoneFull, newClient.countryCode);
+        if (r.exists && r.client) existingClient = r.client;
+      } catch (err) {
+        if (!(err instanceof BridgeUnavailable)) throw err;
+        const snap = await firestore.getDocs(firestore.query(
+          firestore.collection(db, 'clients'),
+          phoneKey ? firestore.where('phoneKey', '==', phoneKey) : firestore.where('phone', 'in', uniqueVariations),
+          firestore.limit(1)
+        ));
+        if (!snap.empty) existingClient = snap.docs[0].data() as Client;
+      }
 
-      if (!phoneCheck.empty) {
-        const existingClient = phoneCheck.docs[0].data() as Client;
-        const regDate = new Date(existingClient.createdAt).toLocaleDateString('ar-EG');
+      if (existingClient) {
+        const regDate = existingClient.createdAt ? new Date(existingClient.createdAt).toLocaleDateString('ar-EG') : '—';
         setIsSubmitting(false);
         
         return alert(
-          `تنبيه: هذا الرقم مسجل مسبقاً لموظف آخر في النظام.\n\n` +
+          `تنبيه: هذا الرقم مسجل مسبقاً في النظام.\n\n` +
           `• اسم العميل: ${existingClient.name}\n` +
           `• الموظف المسؤول: ${existingClient.salesAgentName}\n` +
-          `• الحالة الحالية: ${StatusLabels[existingClient.status]?.ar || existingClient.status}\n` +
+          `• الحالة الحالية: ${StatusLabels[existingClient.status as ClientStatus]?.ar || existingClient.status}\n` +
           `• تاريخ التسجيل: ${regDate}\n\n` +
           `لا يمكنك إضافة هذا الرقم مجدداً.\n` +
           `يرجى التقاط سكرين شوت والتواصل مع الإدارة (الأدمن) لمراجعة بيانات العميل أو تحويله إليك.`
@@ -605,52 +618,36 @@ const ClientsList: React.FC = () => {
   };
 
   const handleTransfer = async () => {
-    if (!selectedClient || !transferAgentId) return;
+    if (!selectedClient || !transferAgentId || isSubmitting) return;
     const newAgent = salesAgents.find(a => a.id === transferAgentId);
     if (!newAgent) return;
 
+    setIsSubmitting(true);
     try {
-      const transferRecord: ClientTransfer = {
-        id: crypto.randomUUID(),
-        clientId: selectedClient.id, clientName: selectedClient.name,
-        oldAgentId: selectedClient.salesAgentId, oldAgentName: selectedClient.salesAgentName,
-        newAgentId: newAgent.id, newAgentName: newAgent.name,
-        reason: transferReason, timestamp: Date.now(),
-        performedById: user!.uid, performedByName: user!.name
-      };
-
-      await firestore.addDoc(firestore.collection(db, 'transfers'), transferRecord);
-      
-      const updatedHistory = [...(selectedClient.transferHistory || []), transferRecord];
-
-      await firestore.updateDoc(firestore.doc(db, 'clients', selectedClient.id), { 
-        salesAgentId: newAgent.id, 
-        salesAgentName: newAgent.name,
-        transferHistory: updatedHistory
+      await transferClients([selectedClient], {
+        to: { id: newAgent.id, name: newAgent.name }, reason: transferReason,
+        performedBy: { uid: user!.uid, name: user!.name },
       });
       await logActivity(user!.uid, user!.name, `تحويل العميل إلى ${newAgent.name}`, selectedClient.id, selectedClient.name);
       setIsTransferModalOpen(false);
+      paged.patchRow(selectedClient.id, { salesAgentId: newAgent.id, salesAgentName: newAgent.name } as Partial<Client>);
       setSelectedClient(null);
-      // Refresh list to show change
-      paged.patchRow(selectedClient.id, { salesAgentId: newAgent.id, salesAgentName: newAgent.name, transferHistory: updatedHistory } as Partial<Client>);
-    } catch (err) { 
+    } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'clients/transfers');
       alert("حدث خطأ في الصلاحيات أثناء تحويل العميل.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleAssignToMe = async (client: Client) => {
     if (!user) return;
     try {
-      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), {
-        salesAgentId: user.uid,
-        salesAgentName: user.name,
-      });
-      await logActivity(user.uid, user.name, 'تعيين عميل لنفسه من حساب Saber Group المشترك', client.id, client.name);
+      await claimPoolClient(client, user);
       paged.patchRow(client.id, { salesAgentId: user.uid, salesAgentName: user.name });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'clients/assign-to-me');
-      alert('حدث خطأ أثناء تعيين العميل.');
+      alert('ماقدرناش نحوّل العميل ليك. ممكن يكون حد تاني خده، حدّث الصفحة وجرّب تاني.');
     }
   };
 
@@ -675,36 +672,21 @@ const ClientsList: React.FC = () => {
         return;
       }
 
-      const batch = firestore.writeBatch(db);
+      // Chunked (<=400 writes per batch); the undo record is written only after every chunk is in.
       const timestamp = Date.now();
-      const clientIds: string[] = [];
-      
-      snapshot.docs.forEach(docSnap => {
-        const clientData = docSnap.data() as Client;
-        clientIds.push(docSnap.id);
-        const transferRecord: ClientTransfer = {
-          id: crypto.randomUUID(),
-          clientId: docSnap.id, clientName: clientData.name,
-          oldAgentId: fromAgent.id, oldAgentName: fromAgent.name,
-          newAgentId: toAgent.id, newAgentName: toAgent.name,
-          reason: 'تحويل جماعي من قبل الإدارة', timestamp,
-          performedById: user!.uid, performedByName: user!.name
-        };
-        
-        batch.update(docSnap.ref, {
-          salesAgentId: toAgent.id,
-          salesAgentName: toAgent.name,
-          transferHistory: firestore.arrayUnion(transferRecord)
-        });
-      });
+      const { moved } = await transferClients(
+        snapshot.docs.map(d => ({ id: d.id, name: (d.data() as Client).name, salesAgentId: fromAgent.id, salesAgentName: fromAgent.name })),
+        { to: { id: toAgent.id, name: toAgent.name }, from: { id: fromAgent.id, name: fromAgent.name },
+          reason: 'تحويل جماعي من قبل الإدارة', performedBy: { uid: user!.uid, name: user!.name } },
+      );
 
       const bulkTransferRecord: Omit<BulkTransfer, 'id'> = {
         fromAgentId: fromAgent.id,
         fromAgentName: fromAgent.name,
         toAgentId: toAgent.id,
         toAgentName: toAgent.name,
-        clientCount: snapshot.size,
-        clientIds,
+        clientCount: moved.length,
+        clientIds: moved,
         timestamp,
         performedById: user!.uid,
         performedByName: user!.name,
@@ -712,8 +694,7 @@ const ClientsList: React.FC = () => {
       };
 
       await firestore.addDoc(firestore.collection(db, 'bulk_transfers'), bulkTransferRecord);
-      await batch.commit();
-      await logActivity(user!.uid, user!.name, `تحويل جماعي من ${fromAgent.name} إلى ${toAgent.name}`, 'bulk', `${snapshot.size} عميل`);
+      await logActivity(user!.uid, user!.name, `تحويل جماعي من ${fromAgent.name} إلى ${toAgent.name}`, 'bulk', `${moved.length} عميل`);
       
       alert(`تم تحويل ${snapshot.size} عميل بنجاح.`);
       setIsBulkTransferOpen(false);
@@ -732,44 +713,17 @@ const ClientsList: React.FC = () => {
 
     setIsUndoing(true);
     try {
-      const batch = firestore.writeBatch(db);
-      const timestamp = Date.now();
-
-      // We need to fetch the clients to make sure they still exist and are currently assigned to 'bt.toAgentId'
-      // Or we can just try to update them if they match.
-      // Better fetch for safety to avoid overwriting newer manual transfers if any occurred since then.
-      // But for "Comprehensive Undo", the user expects them to go back.
-      
-      for (const cid of bt.clientIds) {
-        const clientRef = firestore.doc(db, 'clients', cid);
-        const clientSnap = await firestore.getDoc(clientRef);
-        
-        if (clientSnap.exists()) {
-          const clientData = clientSnap.data() as Client;
-          
-          // Only undo if they are still with the agent we transferred them to
-          if (clientData.salesAgentId === bt.toAgentId) {
-            const transferRecord: ClientTransfer = {
-              id: crypto.randomUUID(),
-              clientId: cid, clientName: clientData.name,
-              oldAgentId: bt.toAgentId, oldAgentName: bt.toAgentName,
-              newAgentId: bt.fromAgentId, newAgentName: bt.fromAgentName,
-              reason: 'تراجع عن تحويل جماعي', timestamp,
-              performedById: user!.uid, performedByName: user!.name
-            };
-
-            batch.update(clientRef, {
-              salesAgentId: bt.fromAgentId,
-              salesAgentName: bt.fromAgentName,
-              transferHistory: firestore.arrayUnion(transferRecord)
-            });
-          }
-        }
-      }
-
-      batch.update(firestore.doc(db, 'bulk_transfers', bt.id), { isUndone: true });
-      await batch.commit();
-      await logActivity(user!.uid, user!.name, `تراجع عن تحويل جماعي (${bt.clientCount} عميل)`, bt.id, `من ${bt.toAgentName} إلى ${bt.fromAgentName}`);
+      // Read the clients together (not one by one) and move back only those still with the
+      // agent we moved them to (a newer manual transfer wins).
+      const snaps = await Promise.all(bt.clientIds.map(cid => firestore.getDoc(firestore.doc(db, 'clients', cid))));
+      const back = snaps.filter(sn => sn.exists() && (sn.data() as Client).salesAgentId === bt.toAgentId)
+        .map(sn => ({ id: sn.id, name: (sn.data() as Client).name }));
+      await transferClients(back, {
+        to: { id: bt.fromAgentId, name: bt.fromAgentName }, from: { id: bt.toAgentId, name: bt.toAgentName },
+        reason: 'تراجع عن تحويل جماعي', performedBy: { uid: user!.uid, name: user!.name },
+      });
+      await firestore.updateDoc(firestore.doc(db, 'bulk_transfers', bt.id), { isUndone: true });
+      await logActivity(user!.uid, user!.name, `تراجع عن تحويل جماعي (${back.length} عميل)`, bt.id, `من ${bt.toAgentName} إلى ${bt.fromAgentName}`);
       
       alert("تم التراجع عن التحويل بنجاح.");
       paged.reload();
@@ -1115,8 +1069,8 @@ const ClientsList: React.FC = () => {
                   </td>
                   <td className="sgui-cell-wide sgui-cell-actions">
                     <div className="flex justify-center gap-2">
-                      <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="sgui-icon-button is-whatsapp" aria-label="واتساب"><MessageCircle size={16} /></a>
-                      <a href={`tel:${client.phone}`} title="اتصال هاتفي" className="sgui-icon-button" aria-label="اتصال"><Phone size={16} /></a>
+                      <a href={whatsappHref(client.phone, client.countryCode)} target="_blank" rel="noopener noreferrer" title="تواصل عبر واتساب" className="sgui-icon-button is-whatsapp" aria-label="واتساب"><MessageCircle size={16} /></a>
+                      <a href={telHref(client.phone, client.countryCode)} title="اتصال هاتفي" className="sgui-icon-button" aria-label="اتصال"><Phone size={16} /></a>
                       <button onClick={() => navigate(`/clients/${client.id}`)} title="عرض السجل والمتابعة" className="sgui-icon-button" aria-label="السجل والمتابعة"><History size={16} /></button>
                       {isAdmin && (
                         <button 

@@ -36,8 +36,11 @@ service cloud.firestore {
         (isAuthenticated() && userExists() && getUserData().get('isDeactivated', false) != true);
     }
 
+    // Flat (non-nested) role checks: the rules engine caps how many expressions one
+    // request may evaluate, and nested helper chains used to hit that cap.
     function roleIn(roles) {
-      return isStaff() && userExists() && getUserData().get('role', '') in roles;
+      return isAuthenticated() && userExists() && getUserData().get('isDeactivated', false) != true &&
+        getUserData().get('role', '') in roles;
     }
 
     function isAdmin() {
@@ -45,11 +48,11 @@ service cloud.firestore {
     }
 
     function isManager() {
-      return isAdmin() || roleIn(['manager', 'supervisor']);
+      return isOwnerAccount() || roleIn(['admin', 'administrator', 'manager', 'supervisor']);
     }
 
     function isTeamLeader() {
-      return isManager() || roleIn(['team_leader', 'leader']);
+      return isOwnerAccount() || roleIn(['admin', 'administrator', 'manager', 'supervisor', 'team_leader', 'leader']);
     }
 
     function isOwner(userId) {
@@ -73,6 +76,40 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/allowed_users/$(email)) &&
         invitationFor(email).get('isActive', true) == true &&
         invitationFor(email).get('role', '') == role;
+    }
+
+    // Roles a non-admin leader may hand out through an invitation.
+    function isSalesRole(role) {
+      return role in ['sales_agent'];
+    }
+
+    // uid of the shared pool account the automation parks unassigned leads on. Stored in
+    // app_settings/pool { uid } (written once by an admin, see docs/hardening-2026-11.md).
+    function poolUid() {
+      return exists(/databases/$(database)/documents/app_settings/pool)
+        ? get(/databases/$(database)/documents/app_settings/pool).data.get('uid', '__no_pool__')
+        : '__no_pool__';
+    }
+
+    // Clients a sales agent may see: their own plus the shared pool. Leaders see all.
+    function ownOrPool(agentId) {
+      return agentId == request.auth.uid || agentId == poolUid();
+    }
+
+    function canSeeClientId(clientId) {
+      return clientId is string && clientId.size() > 0 && (
+        exists(/databases/$(database)/documents/clients/$(clientId)) &&
+        ownOrPool(get(/databases/$(database)/documents/clients/$(clientId)).data.get('salesAgentId', ''))
+      );
+    }
+
+    // Shift timestamps written by the browser must be "now" (5 minutes of clock skew allowed).
+    function isNowMs(v) {
+      return v is number && v > request.time.toMillis() - 300000 && v < request.time.toMillis() + 300000;
+    }
+
+    function onlyKeys(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
     function isValidReport(data) {
@@ -103,14 +140,21 @@ service cloud.firestore {
     }
 
     match /clients/{clientId} {
-      allow read: if isStaff();
+      // Sales read their own clients and the shared pool; leaders read everything.
+      // (List queries from sales must filter on salesAgentId in [me, pool] — the app does.)
+      allow read: if isTeamLeader() || (isStaff() && ownOrPool(resource.data.salesAgentId));
       // A sales agent creates clients for themself; leaders can create for anyone.
       // Server-written fields can never be smuggled in on create.
       allow create: if isStaff() && (request.resource.data.get('salesAgentId', '') == request.auth.uid || isTeamLeader()) &&
-        !request.resource.data.keys().hasAny(['snapshot360', 'courseEndsAt', 'alumniDue', 'activeBookingsCount', 'multiCourse']);
+        !request.resource.data.keys().hasAny(['snapshot360', 'courseEndsAt', 'alumniDue', 'activeBookingsCount', 'multiCourse',
+          'aiRecommendation', 'accountingBookingIds', 'accountingLastSyncedAt', 'accounting']);
+      // "Assign to me": a sales agent may take a client that sits on the shared pool account,
+      // changing only the owner fields, and only to themself.
+      allow update: if resource.data.get('salesAgentId', '') == poolUid() && isStaff() &&
+        request.resource.data.get('salesAgentId', '') == request.auth.uid &&
+        onlyKeys(['salesAgentId', 'salesAgentName', 'claimedFromPoolAt']);
       allow update: if isAdmin() || (
-        isStaff() &&
-        (isTeamLeader() || resource.data.get('salesAgentId', '') == request.auth.uid) &&
+        (isTeamLeader() || (isStaff() && resource.data.get('salesAgentId', '') == request.auth.uid)) &&
         // AI recommendations, accounting-synced fields and the client 360 snapshot (and the
         // list fields derived from it / from the bookings) are written by the server only.
         // isAlumni / alumniSince are NOT here on purpose: the owner agent sets them from the
@@ -127,9 +171,17 @@ service cloud.firestore {
     }
 
     match /followups/{id} {
-      allow read: if isStaff();
-      allow create: if isStaff() && (request.resource.data.get('agentId', '') == request.auth.uid || isTeamLeader());
-      allow update, delete: if isManager();
+      // Sales read the follow-ups they wrote, and those of their own / pool clients
+      // (clientAgentId = the client's owner when the follow-up was written, re-stamped on transfer).
+      allow read: if isTeamLeader() || (isStaff() && (
+        resource.data.agentId == request.auth.uid || ownOrPool(resource.data.clientAgentId)));
+      // A follow-up is written by its own agent, about a client they can see.
+      allow create: if isTeamLeader() || (isStaff() &&
+        request.resource.data.get('agentId', '') == request.auth.uid &&
+        canSeeClientId(request.resource.data.get('clientId', '')));
+      // Managers edit; a leader moving clients may only re-stamp the owner (utils/transfers.ts).
+      allow update: if isManager() || (isTeamLeader() && onlyKeys(['clientAgentId']));
+      allow delete: if isManager();
     }
 
     // Invitations are private: leaders manage them; an invited person can read and
@@ -137,7 +189,9 @@ service cloud.firestore {
     match /invitations/{id} {
       allow read: if isTeamLeader() ||
         (isAuthenticated() && resource.data.get('email', '') == request.auth.token.email);
-      allow create, delete: if isTeamLeader();
+      // Only an admin can invite a leader/manager/admin; other leaders invite sales only.
+      allow create: if isAdmin() || (isTeamLeader() && isSalesRole(request.resource.data.get('role', '')));
+      allow delete: if isAdmin() || (isTeamLeader() && isSalesRole(resource.data.get('role', '')));
       allow update: if isTeamLeader() ||
         (isAuthenticated() && resource.data.get('email', '') == request.auth.token.email &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
@@ -147,7 +201,12 @@ service cloud.firestore {
     // together with the invitation.
     match /allowed_users/{email} {
       allow read: if isTeamLeader() || (isAuthenticated() && request.auth.token.email == email);
-      allow write: if isTeamLeader();
+      // This mirror decides which role a person may self-create (users create rule), so a
+      // non-admin leader may only grant / change / remove sales invitations.
+      allow create: if isAdmin() || (isTeamLeader() && isSalesRole(request.resource.data.get('role', '')));
+      allow update: if isAdmin() || (isTeamLeader() && isSalesRole(resource.data.get('role', '')) &&
+        isSalesRole(request.resource.data.get('role', '')));
+      allow delete: if isAdmin() || (isTeamLeader() && isSalesRole(resource.data.get('role', '')));
     }
 
     // Merge audit trail for the Duplicates page (admin only).
@@ -172,7 +231,8 @@ service cloud.firestore {
 
     match /logs/{id} {
       allow read: if isStaff();
-      allow create: if isStaff();
+      // A log line is always written in the writer's own name (the server writes the rest).
+      allow create: if isAdmin() || (isStaff() && request.resource.data.get('userId', '') == request.auth.uid);
     }
 
     match /services/{id} {
@@ -189,7 +249,7 @@ service cloud.firestore {
       allow read: if isStaff();
       allow create: if isStaff() && isValidReport(request.resource.data);
       allow update: if isStaff() && (resource.data.userId == request.auth.uid || isManager());
-      allow delete: if isStaff() && (resource.data.userId == request.auth.uid || isManager());
+      allow delete: if isManager();
     }
 
     match /targets/{id} {
@@ -204,7 +264,10 @@ service cloud.firestore {
 
     match /transfers/{id} {
       allow read: if isTeamLeader() || (isStaff() && (resource.data.oldAgentId == request.auth.uid || resource.data.newAgentId == request.auth.uid));
-      allow create: if isTeamLeader();
+      // Leaders record transfers; a sales agent may record only their own claim from the pool.
+      allow create: if isTeamLeader() || (isStaff() &&
+        request.resource.data.get('newAgentId', '') == request.auth.uid &&
+        request.resource.data.get('oldAgentId', '') == poolUid());
     }
 
     match /bulk_transfers/{id} {
@@ -214,8 +277,38 @@ service cloud.firestore {
 
     match /shifts/{id} {
       allow read: if isStaff();
-      allow create: if isStaff() && (request.resource.data.userId == request.auth.uid || isAdmin());
-      allow update: if isStaff() && (resource.data.userId == request.auth.uid || isManager());
+      // Admin resets and manager edits are free. The owner can only open a fresh shift "now"
+      // and walk it through the normal steps: start, break on/off (appending, never rewriting
+      // earlier breaks), end, and link the day's report. Times are checked against the clock.
+      allow create: if isAdmin() || (isStaff() &&
+        request.resource.data.get('userId', '') == request.auth.uid &&
+        request.resource.data.keys().hasOnly(['userId', 'userName', 'date', 'createdAt', 'status', 'preShiftReviewStartedAt', 'breaks']) &&
+        request.resource.data.status == 'reviewing' &&
+        request.resource.data.breaks.size() == 0 &&
+        isNowMs(request.resource.data.createdAt));
+      allow update: if isManager() || (isStaff() && resource.data.userId == request.auth.uid && (
+        // reviewing -> active
+        (resource.data.status == 'reviewing' && request.resource.data.status == 'active' &&
+          onlyKeys(['status', 'startedAt', 'preShiftReviewDurationMs']) && isNowMs(request.resource.data.startedAt)) ||
+        // active -> on_break: one new open break appended
+        (resource.data.status == 'active' && request.resource.data.status == 'on_break' && onlyKeys(['status', 'breaks']) &&
+          request.resource.data.breaks.size() == resource.data.breaks.size() + 1 &&
+          request.resource.data.breaks.size() <= 6 &&
+          request.resource.data.breaks[0:resource.data.breaks.size()] == resource.data.breaks &&
+          isNowMs(request.resource.data.breaks[resource.data.breaks.size()].startedAt)) ||
+        // on_break -> active: only the last break gets closed
+        (resource.data.status == 'on_break' && request.resource.data.status == 'active' && onlyKeys(['status', 'breaks']) &&
+          request.resource.data.breaks.size() == resource.data.breaks.size() &&
+          request.resource.data.breaks.size() > 0 &&
+          request.resource.data.breaks[0:resource.data.breaks.size() - 1] == resource.data.breaks[0:resource.data.breaks.size() - 1] &&
+          request.resource.data.breaks[resource.data.breaks.size() - 1].startedAt == resource.data.breaks[resource.data.breaks.size() - 1].startedAt &&
+          isNowMs(request.resource.data.breaks[resource.data.breaks.size() - 1].endedAt)) ||
+        // any open state -> ended
+        (resource.data.status != 'ended' && request.resource.data.status == 'ended' &&
+          onlyKeys(['status', 'endedAt']) && isNowMs(request.resource.data.endedAt)) ||
+        // link the day's report
+        onlyKeys(['reportId'])
+      ));
     }
   }
 }

@@ -22,6 +22,9 @@ export interface PagedQueryOptions {
   pageSize?: number;
   // Set false to skip the count read (e.g. lists that never get long).
   withTotal?: boolean;
+  // Set false for work queues whose rows change on another page (e.g. "شغل النهارده": a lead
+  // handled on the client page must not still show as overdue when the user comes back).
+  sessionCache?: boolean;
 }
 
 export interface PagedQueryResult<T> {
@@ -46,7 +49,7 @@ const SESSION_TTL = 3 * 60 * 1000;
 const session = new Map<string, SessionEntry>();
 
 export function usePagedQuery<T extends { id: string }>({
-  collectionName, constraints, queryKey, orderField, orderDirection = 'desc', pageSize = 10, withTotal = true,
+  collectionName, constraints, queryKey, orderField, orderDirection = 'desc', pageSize = 10, withTotal = true, sessionCache = true,
 }: PagedQueryOptions): PagedQueryResult<T> {
   const [rows, setRows] = useState<T[]>([]);
   const [page, setPage] = useState(1);
@@ -160,7 +163,7 @@ export function usePagedQuery<T extends { id: string }>({
   useEffect(() => {
     if (!constraints) return;
     activeKey.current = sessionKey;
-    start(1, true);
+    start(1, sessionCache);
   }, [sessionKey, constraints === null]);
 
   const reload = useCallback(() => start(page, false), [start, page]);
@@ -188,3 +191,6 @@ export function usePagedList<T>(items: T[], pageSize = 10, resetKey = '') {
     goToPage: async (p: number) => setPage(Math.max(1, Math.min(p, pageCount))),
   };
 }
+
+/** Forget every cached page (sign-out or account change: no rows of the previous account stay in memory). */
+export const clearPagedSessions = () => session.clear();

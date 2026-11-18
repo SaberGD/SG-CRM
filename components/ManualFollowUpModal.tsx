@@ -4,7 +4,7 @@ import { X, Clock, Calendar, LayoutList, Timer, Save } from 'lucide-react';
 import { useServices } from '../utils/refData';
 import { Client, ClientStatus, CommMethod, StatusLabels, CommMethodLabels } from '../types';
 import * as firestore from 'firebase/firestore';
-import { db, logActivity } from '../firebase';
+import { db } from '../firebase';
 import { planOnBecameBooked, legacyCheckInCleanup } from '../utils/autoFollowUp';
 
 import FloatingPanel from './FloatingPanel';
@@ -17,8 +17,12 @@ interface ManualFollowUpModalProps {
 }
 
 const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClose, client, user }) => {
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [time, setTime] = useState(new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }));
+  const [date, setDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+  // Local date/time (toISOString() would give the UTC date after midnight-ish).
+  const [time, setTime] = useState(() => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; });
+  const [error, setError] = useState('');
+  // Money and the booking of a client linked to accounting come from accounting only.
+  const accountingOwned = ((client as any)?.accountingBookingIds || []).length > 0;
   const [duration, setDuration] = useState('5');
   
   const [salesBrief, setSalesBrief] = useState('');
@@ -61,7 +65,9 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
+    setError('');
 
     try {
       const followUpTimestamp = calculateTimestamp(date, time);
@@ -83,9 +89,15 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
         else if (delayMins > 5) delayStatus = 'acceptable';
       }
 
-      await firestore.addDoc(firestore.collection(db, 'followups'), {
+      // One batch: follow-up + client + log lines, all or nothing.
+      const batch = firestore.writeBatch(db);
+      const logLine = (action: string) => batch.set(firestore.doc(firestore.collection(db, 'logs')), {
+        userId: user.uid, userName: user.name, action, targetId: client.id, targetName: client.name, timestamp: Date.now(),
+      });
+      batch.set(firestore.doc(firestore.collection(db, 'followups')), {
         clientId: client.id,
         clientName: client.name,
+        clientAgentId: client.salesAgentId || '',
         agentId: user.uid,
         agentName: user.name,
         note,
@@ -105,7 +117,7 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
         lastFollowUpDate: followUpTimestamp
       };
 
-      if (isBooked) {
+      if (isBooked && !accountingOwned) {
         updateData.isBooked = true;
         updateData.bookedCourseId = bookedCourseId;
         updateData.bookedCourseName = bookedCourseName;
@@ -127,14 +139,15 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
       const enable = planOnBecameBooked(client, after, { now: Date.now(), anchor: followUpTimestamp, by: user.uid, byName: user.name, via: 'booking' }, firestore.deleteField());
       if (enable) Object.assign(updateData, enable);
 
-      await firestore.updateDoc(firestore.doc(db, 'clients', client.id), updateData);
+      batch.update(firestore.doc(db, 'clients', client.id), updateData);
+      logLine(`تسجيل متابعة خارجية: ${salesBrief}`);
+      if (enable) logLine('تشغيل المتابعة التلقائية كل أسبوعين (العميل حجز)');
+      await batch.commit();
 
-      await logActivity(user.uid, user.name, `تسجيل متابعة خارجية: ${salesBrief}`, client.id, client.name);
-      if (enable) await logActivity(user.uid, user.name, 'تشغيل المتابعة التلقائية كل أسبوعين (العميل حجز)', client.id, client.name);
-      
       onClose();
     } catch (error) {
       console.error("Error saving manual follow-up:", error);
+      setError('ماتسجلتش المتابعة. اتأكد إن العميل ده بتاعك (أو اعمله Assign to me) وجرّب تاني.');
     } finally {
       setLoading(false);
     }
@@ -225,7 +238,10 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
             </div>
           </div>
 
-          {/* Booking Section */}
+          {/* Booking Section: hidden for clients whose bookings come from accounting */}
+          {accountingOwned ? (
+            <p className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 text-[11px] font-bold text-slate-500">الحجز والفلوس للعميل ده بتيجي من نظام الحسابات، مش من هنا.</p>
+          ) : (
           <div className="p-6 bg-amber-50 dark:bg-amber-500/5 rounded-[2rem] border border-amber-200 dark:border-amber-500/20 space-y-4">
             <div className="flex items-center justify-between">
               <label className="text-xs font-black text-amber-700 dark:text-amber-400">هل قام العميل بالحجز في هذا التواصل؟</label>
@@ -287,6 +303,9 @@ const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({ isOpen, onClo
               </div>
             )}
           </div>
+          )}
+
+          {error && <p role="alert" className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 text-xs font-bold">{error}</p>}
 
           <button type="submit" disabled={loading} className="w-full py-5 bg-primary-500 text-white rounded-3xl font-black shadow-xl hover:bg-primary-600 transition-all flex items-center justify-center gap-3 disabled:opacity-50 active:scale-[0.98]">
             {loading ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><Save size={20}/> حفظ المتابعة</>}

@@ -1,6 +1,6 @@
 {
   "name": "functions",
-  "description": "Firebase Cloud Functions for Meta Conversions API and Gemini AI bridge",
+  "description": "Firebase Cloud Functions for Meta Conversions API and the AI bridge",
   "scripts": {
     "test": "node --test *.test.js",
     "serve": "firebase emulators:start --only functions",
@@ -14,7 +14,7 @@
   "dependencies": {
     "firebase-functions": "^5.0.0",
     "firebase-admin": "^12.6.0",
-    "@google/genai": "^2.16.0"
+    "google-auth-library": "^10.9.1"
   },
   "private": true
 }

@@ -14,6 +14,8 @@ import { useNavigate } from 'react-router-dom';
 import ManualFollowUpModal from '../components/ManualFollowUpModal';
 import { PageHeader, SectionTitle, StatCard, Badge, Tabs, EmptyState, LoadingState } from '../components/ui';
 import { useShift } from '../ShiftContext';
+import { isLeaderRole } from '../utils/roles';
+import { overdueConstraints } from '../utils/overdue';
 
 const Dashboard: React.FC = () => {
   const { user, effectiveRole, effectiveUser } = useAuth();
@@ -29,8 +31,7 @@ const Dashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedClientForManual, setSelectedClientForManual] = useState<Client | null>(null);
 
-  const isAdminOrManager = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER;
-  const isHighRole = isAdminOrManager || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = isLeaderRole(effectiveRole);
   const agentId = isHighRole && selectedAgentId !== 'all' ? selectedAgentId : (effectiveUser?.uid || user?.uid || '');
   const scope = useMemo<QueryConstraint[]>(() => (isHighRole && selectedAgentId === 'all' ? [] : [where('salesAgentId', '==', agentId)]), [isHighRole, selectedAgentId, agentId]);
 
@@ -52,11 +53,11 @@ const Dashboard: React.FC = () => {
           count([]),
           count([where('nextFollowUpDate', '>=', todayStart), where('nextFollowUpDate', '<=', todayEnd)]),
           count([where('nextFollowUpDate', '>', todayEnd)]),
-          count([where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now)]),
+          count(overdueConstraints(now)),
           count([where('status', '==', ClientStatus.BOOKED)]),
           // Personal check-ins (اطمئنان) due today or overdue: their own field, never part of the counts above.
           count([where('nextCheckInDate', '>', 0), where('nextCheckInDate', '<=', todayEnd)]),
-          getDocs(query(clientsRef, ...scope, where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now), orderBy('nextFollowUpDate', 'asc'), limit(3))),
+          getDocs(query(clientsRef, ...scope, ...overdueConstraints(now), orderBy('nextFollowUpDate', 'asc'), limit(3))),
           getDocs(query(clientsRef, ...scope, where('nextFollowUpDate', '>=', now), where('nextFollowUpDate', '<=', todayEnd), orderBy('nextFollowUpDate', 'asc'), limit(3))),
         ]);
         if (cancelled) return;
@@ -88,7 +89,7 @@ const Dashboard: React.FC = () => {
     const todayStart = new Date().setHours(0, 0, 0, 0);
     const todayEnd = new Date().setHours(23, 59, 59, 999);
     if (activeTab === 'today') return [where('nextFollowUpDate', '>=', todayStart), where('nextFollowUpDate', '<=', todayEnd)];
-    if (activeTab === 'overdue') return [where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now)];
+    if (activeTab === 'overdue') return overdueConstraints(now);
     if (activeTab === '3days') return [where('nextFollowUpDate', '>', now), where('nextFollowUpDate', '<=', now + 3 * 86400000)];
     return [where('nextFollowUpDate', '>', todayEnd)];
   };

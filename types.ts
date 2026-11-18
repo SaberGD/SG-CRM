@@ -190,7 +190,12 @@ export interface Client {
   chatId?: string;
   distinctiveSearchPhrase?: string;
   automationSalesRepNameRaw?: string;
-  createdVia?: 'ai_automation' | 'manual';
+  createdVia?: 'ai_automation' | 'manual' | 'bulk_import' | 'accounting';
+  /** Ad code from the customer's first message (n8n), first touch only. */
+  adCode?: string;
+  firstMessageAt?: number;
+  /** A date the automation proposed (suggested or already past): shown, never set as nextFollowUpDate. */
+  automationSuggestedFollowUp?: { at: number; channel?: string; reason?: 'suggested' | 'past'; note?: string; receivedAt?: number };
   reviewedBySales?: boolean;
   reviewedByName?: string;
   reviewedAt?: number;

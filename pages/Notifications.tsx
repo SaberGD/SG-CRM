@@ -14,6 +14,11 @@ import { useServices, useAgentOptions } from '../utils/refData';
 import FloatingPanel from '../components/FloatingPanel';
 import AcceptFlowModal from '../components/AcceptFlowModal';
 import { useNavigate, Link } from 'react-router-dom';
+import { isLeaderRole } from '../utils/roles';
+import { overdueConstraints } from '../utils/overdue';
+
+// Flip to true once firestore.indexes.json from the hardening branch is deployed.
+const INDEXES_LIVE = false;
 
 type Tab = 'overdue' | 'today' | 'upcoming' | 'checkin';
 type CheckInView = 'pending' | 'done';
@@ -46,7 +51,7 @@ const Notifications: React.FC = () => {
   const [newTime, setNewTime] = useState('10:00');
   const [newPeriod, setNewPeriod] = useState<'AM' | 'PM'>('AM');
 
-  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = isLeaderRole(effectiveRole);
   const scopeId = effectiveUser?.uid || user?.uid || '';
 
   // Who and which service (shared by the list and the tab counts).
@@ -65,7 +70,10 @@ const Notifications: React.FC = () => {
       const d = new Date(filterDate); d.setHours(0, 0, 0, 0);
       return [where('nextFollowUpDate', '>=', d.getTime()), where('nextFollowUpDate', '<=', d.getTime() + DAY_MS - 1)];
     }
-    if (t === 'overdue') return [where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now)];
+    // Same "overdue" as every page (open leads only). With a service filter that needs the
+    // (serviceId, status, nextFollowUpDate) indexes, which go live with the go-live index deploy;
+    // until then the service-filtered view keeps the old any-status count.
+    if (t === 'overdue') return filterServiceId === 'all' || INDEXES_LIVE ? overdueConstraints(now) : [where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', now)];
     if (t === 'today') return [where('nextFollowUpDate', '>=', now), where('nextFollowUpDate', '<=', endOfToday())];
     return [where('nextFollowUpDate', '>', endOfToday())];
   };

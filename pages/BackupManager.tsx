@@ -14,6 +14,7 @@ import { PageHeader } from '../components/ui';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { isLeaderRole } from '../utils/roles';
 
 const BackupManager: React.FC = () => {
   const { user, effectiveRole } = useAuth();
@@ -22,7 +23,7 @@ const BackupManager: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('');
 
-  const isHighRole = effectiveRole === UserRole.ADMIN || effectiveRole === UserRole.MANAGER || effectiveRole === UserRole.TEAM_LEADER;
+  const isHighRole = isLeaderRole(effectiveRole);
   const isAdmin = effectiveRole === UserRole.ADMIN;
 
   const collections = [

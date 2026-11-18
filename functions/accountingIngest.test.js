@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { normalizePhoneKey, customerPhoneKeys, summarizeBooking, planClientAccounting, newClientFromBooking } = require("./accountingIngest");
 
-const booking = (over = {}) => ({ status: "ACTIVE", bookingDate: "2026-10-01", productId: "p1", productType: "course", pricing: { finalPriceSnapshot: 3250 }, paymentSummary: { paidTotal: 800, remaining: 2450, next_due_date: "2026-11-01" }, salesName: "Alyaa", ...over });
+const booking = (over = {}) => ({ status: "ACTIVE", bookingDate: "2026-10-01", productId: "p1", productType: "course", pricing: { finalPriceSnapshot: 3250 }, paymentSummary: { paidTotal: 800, remaining: 2450, next_due_date: "2026-11-01" }, salesName: "Agent One", ...over });
 
 test("phone keys unify formats and use phone AND whatsapp", () => {
   assert.equal(normalizePhoneKey("+20 101 234 5678"), "1012345678");
@@ -59,4 +59,49 @@ test("activeBookingsCount / multiCourse follow the ACTIVE bookings only", () => 
   assert.equal(refunded.activeBookingsCount, 1); assert.equal(refunded.multiCourse, false);
   const none = planClientAccounting({ accounting: { bookings: one.accounting.bookings } }, summarizeBooking("b1", booking({ status: "REFUNDED" }), "A", 4), 4).patch;
   assert.equal(none.activeBookingsCount, 0); assert.equal(none.multiCourse, false);
+});
+
+const { timeMs, sourceUpdatedAtMs, isStaleSummary, accountingClientId } = require("./accountingIngest");
+
+test("accounting times are read from every shape they can arrive in", () => {
+  const ms = Date.parse("2026-11-10T10:00:00Z");
+  assert.equal(timeMs(ms), ms);
+  assert.equal(timeMs(ms / 1000), ms);                       // seconds
+  assert.equal(timeMs(String(ms)), ms);                      // numeric string
+  assert.equal(timeMs("2026-11-10T10:00:00Z"), ms);          // ISO
+  assert.equal(timeMs({ seconds: ms / 1000, nanoseconds: 0 }), ms);
+  assert.equal(timeMs({ _seconds: ms / 1000, _nanoseconds: 5e6 }), ms + 5);
+  assert.equal(timeMs({ toMillis: () => ms }), ms);
+  for (const bad of [undefined, null, "", "not a date", -5, NaN, {}, []]) assert.equal(timeMs(bad), 0);
+});
+
+test("the booking's own updated time goes into the summary as sourceUpdatedAt", () => {
+  assert.equal(sourceUpdatedAtMs({ updatedAtMs: 2000000000000 }), 2000000000000);
+  assert.equal(sourceUpdatedAtMs({ updatedAt: { _seconds: 1800000000 } }), 1800000000000);
+  assert.equal(sourceUpdatedAtMs({ lastModified: "2026-11-10T10:00:00Z" }), Date.parse("2026-11-10T10:00:00Z"));
+  assert.equal(sourceUpdatedAtMs({}), 0);
+  assert.equal(summarizeBooking("b1", booking({ updatedAt: { seconds: 1800000000 } }), "C", 1).sourceUpdatedAt, 1800000000000);
+  assert.equal(summarizeBooking("b1", booking(), "C", 1).sourceUpdatedAt, 0);
+});
+
+test("an older payload than the stored one is stale; equal, newer or untimed is not", () => {
+  const stored = planClientAccounting({}, summarizeBooking("b1", booking({ updatedAtMs: 2000 * 1e9 }), "C", 1), 1).patch;
+  const older = summarizeBooking("b1", booking({ updatedAtMs: 1999 * 1e9, paymentSummary: { paidTotal: 0 } }), "C", 2);
+  const same = summarizeBooking("b1", booking({ updatedAtMs: 2000 * 1e9 }), "C", 2);
+  const newer = summarizeBooking("b1", booking({ updatedAtMs: 2001 * 1e9 }), "C", 2);
+  const untimed = summarizeBooking("b1", booking(), "C", 2);
+  assert.equal(isStaleSummary(stored, older), true);
+  assert.equal(isStaleSummary(stored, same), false);
+  assert.equal(isStaleSummary(stored, newer), false);
+  assert.equal(isStaleSummary(stored, untimed), false);
+  // a different booking or a client with no stored time is never stale
+  assert.equal(isStaleSummary(stored, summarizeBooking("b2", booking({ updatedAtMs: 1 * 1e12 }), "C", 2)), false);
+  assert.equal(isStaleSummary({}, older), false);
+});
+
+test("clients created from accounting get a deterministic id", () => {
+  assert.equal(accountingClientId("cust_123", "1012345678"), "acc_cust_123");
+  assert.equal(accountingClientId("", "1012345678"), "acc_pk_1012345678");
+  assert.equal(accountingClientId("bad/id", "1012345678"), "acc_pk_1012345678");
+  assert.equal(accountingClientId(undefined, ""), "");
 });

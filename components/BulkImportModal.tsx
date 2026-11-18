@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { normalizePhoneKey } from '../utils/clientMerge.mjs';
+import { normalizePhoneKey, toE164, clientIdentityKeys } from '../utils/phone';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
 import { planEnableAutoFollowUp, isRecentBooking, isBookedState } from '../utils/autoFollowUp';
@@ -235,9 +235,12 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
         );
 
         // Normalize Gender
-        let parsedGender: Gender = Gender.MALE;
+        // Only when the sheet says so (an empty cell used to make everyone male).
+        let parsedGender: Gender | undefined;
         if (rawGender.includes('أنثى') || rawGender.toLowerCase() === 'female' || rawGender.toLowerCase() === 'f') {
           parsedGender = Gender.FEMALE;
+        } else if (rawGender.includes('ذكر') || rawGender.toLowerCase() === 'male' || rawGender.toLowerCase() === 'm') {
+          parsedGender = Gender.MALE;
         }
 
         // Normalize Source
@@ -299,6 +302,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     let updatedCount = 0;
     let createdCount = 0;
     let autoOnCount = 0;
+    let skippedLinked = 0;
 
     try {
       const chunkSize = 200; // Batch limit safe size
@@ -328,7 +332,11 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             : null;
           if (autoOn) autoOnCount++;
 
-          if (row.isExistingClient && row.existingClientId) {
+          const linkedToAccounting = ((existing as any).accountingBookingIds || []).length > 0;
+          if (row.isExistingClient && row.existingClientId && linkedToAccounting) {
+            // Money and booking of this client come from accounting: never overwrite them here.
+            skippedLinked++;
+          } else if (row.isExistingClient && row.existingClientId) {
             // UPDATE EXISTING CLIENT -> Change status to BOOKED and attach booking details
             const clientRef = firestore.doc(db, 'clients', row.existingClientId);
             batch.update(clientRef, {
@@ -353,11 +361,17 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           } else {
             // CREATE NEW CLIENT WITH BOOKED STATUS
             const newDocRef = firestore.doc(firestore.collection(db, 'clients'));
+            // Same identity fields as a client added by hand: E.164 phone, search keys, phoneKey.
+            const phone = toE164(row.phone, '+20') || row.phone;
             const clientData: Partial<Client> = {
               nextFollowUpDate: 0, // "no date yet" (queryable; a missing field is not)
               name: row.name,
-              phone: row.phone,
-              gender: row.gender || Gender.MALE,
+              phone,
+              countryCode: phone.startsWith('+20') ? '+20' : '',
+              ...clientIdentityKeys(row.name, phone),
+              createdVia: 'bulk_import',
+              reviewedBySales: true,
+              ...(row.gender ? { gender: row.gender } : {}),
               source: row.source || ClientSource.OTHER,
               profileLink: row.profileLink || '',
               status: ClientStatus.BOOKED,
@@ -394,7 +408,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
       await logActivity(
         currentUser.uid, 
         currentUser.name, 
-        `استيراد جماعي لـ ${validRows.length} حجز (تحديث: ${updatedCount} - جديد: ${createdCount} - تشغيل المتابعة التلقائية: ${autoOnCount})`,
+        `استيراد جماعي لـ ${validRows.length} حجز (تحديث: ${updatedCount} - جديد: ${createdCount} - متروك لأنه من الحسابات: ${skippedLinked} - تشغيل المتابعة التلقائية: ${autoOnCount})`,
         'BULK_IMPORT',
         `تم الاستيراد بنجاح من ملف ${file?.name || ''}`
       );

@@ -1,4 +1,4 @@
-const a = require(process.env.HOME + '/work/new-accounting-sys/functions/node_modules/firebase-admin');
+const a = require(process.env.ADMIN_PATH || 'firebase-admin');
 const crm = a.initializeApp({ projectId: 'sg-crm-e3a38' }, 'crm'); const db = a.firestore(crm);
 (async () => {
   const snap = await db.collection('integrationEvents').select('sourceSystem').get();

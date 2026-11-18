@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import * as firestore from 'firebase/firestore';
 import { db, logActivity } from '../firebase';
+import { clientIdentityKeys } from '../utils/phone';
+import { toLocalInputValue } from '../utils/time';
 import { useAuth } from '../App';
 import { Client, ClientSource, SourceLabels, CommMethodLabels } from '../types';
 import { CheckCircle2, Edit2, XCircle, Sparkles, X, CalendarClock } from 'lucide-react';
@@ -26,7 +28,9 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
   );
   const [saving, setSaving] = useState(false);
   const [editingFollowUp, setEditingFollowUp] = useState(false);
-  const [fuDate, setFuDate] = useState(() => working.nextFollowUpDate ? (() => { const d = new Date(working.nextFollowUpDate); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 16); })() : '');
+  // Local time in the picker (it used to be UTC, so saving an untouched edit moved the time 2-3 h).
+  const [fuDate, setFuDate] = useState(() => toLocalInputValue(working.nextFollowUpDate));
+  const [error, setError] = useState('');
 
   const [form, setForm] = useState({
     name: client.name,
@@ -53,13 +57,18 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
   };
 
   const handleAcceptClient = async () => {
-    if (!user) return;
+    if (!user || saving) return;
     setSaving(true);
+    setError('');
     try {
       const reviewedAt = Date.now();
+      const name = form.name.trim();
+      const phone = form.phone.trim();
       const updateData = {
-        name: form.name.trim(),
-        phone: form.phone.trim(),
+        name,
+        phone,
+        // Name/phone may have been corrected: keep search and the accounting sync able to find it.
+        ...clientIdentityKeys(name, phone),
         profileLink: form.profileLink.trim(),
         distinctiveSearchPhrase: form.distinctiveSearchPhrase.trim(),
         source: form.source,
@@ -72,14 +81,16 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
       advanceOrFinish({ ...working, ...updateData });
     } catch (err) {
       console.error(err);
+      setError('ماقدرناش نحفظ. اتأكد إن العميل ده بتاعك وجرّب تاني.');
     } finally {
       setSaving(false);
     }
   };
 
   const handleFollowUpApprove = async () => {
-    if (!user) return;
+    if (!user || saving) return;
     setSaving(true);
+    setError('');
     try {
       const reviewedAt = Date.now();
       const updateData = {
@@ -92,14 +103,16 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
       onDone({ ...working, ...updateData });
     } catch (err) {
       console.error(err);
+      setError('ماقدرناش نحفظ. اتأكد إن العميل ده بتاعك وجرّب تاني.');
     } finally {
       setSaving(false);
     }
   };
 
   const handleFollowUpSaveEdit = async () => {
-    if (!user || !fuDate) return;
+    if (!user || !fuDate || saving) return;
     setSaving(true);
+    setError('');
     try {
       const newTs = new Date(fuDate).getTime();
       const reviewedAt = Date.now();
@@ -114,14 +127,16 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
       onDone({ ...working, ...updateData });
     } catch (err) {
       console.error(err);
+      setError('ماقدرناش نحفظ. اتأكد إن العميل ده بتاعك وجرّب تاني.');
     } finally {
       setSaving(false);
     }
   };
 
   const handleFollowUpCancel = async () => {
-    if (!user) return;
+    if (!user || saving) return;
     setSaving(true);
+    setError('');
     try {
       const reviewedAt = Date.now();
       const updateData = {
@@ -135,6 +150,7 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
       onDone({ ...working, ...updateData });
     } catch (err) {
       console.error(err);
+      setError('ماقدرناش نحفظ. اتأكد إن العميل ده بتاعك وجرّب تاني.');
     } finally {
       setSaving(false);
     }
@@ -151,6 +167,8 @@ const AcceptFlowModal: React.FC<Props> = ({ client, onClose, onDone }) => {
             </h2>
             <button onClick={onClose} className="sg-icon-btn bg-slate-50 dark:bg-slate-800 text-slate-400"><X size={16} /></button>
           </div>
+
+          {error && <p role="alert" className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 text-xs font-bold">{error}</p>}
 
           {phase === 'client' ? (
             <div className="space-y-4">

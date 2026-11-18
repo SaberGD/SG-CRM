@@ -44,3 +44,11 @@ export const useAllClientsLive = (enabled: boolean): { clients: Client[]; loadin
   }, [enabled]);
   return state;
 };
+
+/** Drops every cached client and stops the listener (sign-out or a different account). */
+export const resetAllClientsStore = () => {
+  if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+  unsub?.(); unsub = null;
+  data = []; ready = false;
+  subs.forEach((fn) => fn([], false));
+};

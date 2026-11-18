@@ -25,6 +25,7 @@ import { EmptyState, LoadingState } from '../components/ui';
 import { analyzeDailyReport } from '../geminiService';
 import { normalizeLabelColor } from '../utils/labelColors';
 import { isLeaderRole } from '../utils/roles';
+import { overdueConstraints } from '../utils/overdue';
 
 const Reports: React.FC = () => {
   const { user, effectiveRole } = useAuth();
@@ -132,7 +133,7 @@ const Reports: React.FC = () => {
           count(where('status', '==', ClientStatus.NOT_INTERESTED)),
           count(where('status', '==', ClientStatus.POTENTIAL)),
           count(where('nextFollowUpDate', '>=', startTs), where('nextFollowUpDate', '<=', endTs)),
-          count(where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', endTs)),
+          count(...overdueConstraints(Math.min(Date.now(), endTs))),
         ]);
         if (cancelled) return;
         setDayData({
@@ -591,7 +592,7 @@ const Reports: React.FC = () => {
             <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <div className="bg-emerald-500 text-white p-8 rounded-[3rem] shadow-xl shadow-emerald-500/20 flex items-center justify-between">
                   <div>
-                    <p className="text-[10px] font-black uppercase opacity-80 mb-1">إجمالي الدخل المحصل اليوم</p>
+                    <p className="text-[10px] font-black uppercase opacity-80 mb-1">مدفوع على حجوزات النهارده</p>
                     <p className="text-3xl font-black">{todayStats.totalPaidToday?.toLocaleString('ar-EG')} ج.م</p>
                   </div>
                   <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center"><TrendingUp size={32}/></div>
@@ -622,9 +623,28 @@ const Reports: React.FC = () => {
                 <TargetProgress label="العملاء الجدد" current={todayStats.newClients || 0} target={todayTarget?.newClients || 0} />
                 <TargetProgress label="الحجوزات" current={todayStats.booked || 0} target={todayTarget?.bookings || 0} />
                 <TargetProgress label="المتابعات المنفذة" current={todayStats.completedToday || 0} target={todayTarget?.followUps || 0} />
-                <TargetProgress label="إجمالي الدخل (ج.م)" current={todayStats.totalPaidToday || 0} target={todayTarget?.income || 0} />
+                <TargetProgress label="مدفوع على حجوزات النهارده (ج.م)" current={todayStats.totalPaidToday || 0} target={todayTarget?.income || 0} />
               </div>
             </section>
+
+            {/* New clients of the day by ad code (from n8n: adCode; "بدون كود" = none sent) */}
+            {dayData.created.length > 0 && (() => {
+              const byCode: Record<string, number> = {};
+              dayData.created.forEach(c => { const k = (c as any).adCode || 'بدون كود'; byCode[k] = (byCode[k] || 0) + 1; });
+              return (
+                <section className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl space-y-6">
+                  <h2 className="text-xl font-black">عملاء اليوم حسب كود الإعلان</h2>
+                  <div className="flex flex-wrap gap-4">
+                    {Object.entries(byCode).sort((a, b) => b[1] - a[1]).map(([code, n]) => (
+                      <div key={code} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800">
+                        <p className="text-xs font-black text-slate-500" dir="ltr">{code}</p>
+                        <p className="text-lg font-black">{n}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })()}
 
             {/* Labels Summary Today */}
             {Object.keys(labelStats).length > 0 && (

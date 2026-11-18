@@ -854,6 +854,18 @@ const ClientDetails: React.FC = () => {
           <span className="sgui-row-icon"><UserCheck size={18}/></span>
           <div><span>الحالة الحالية</span><strong>{StatusLabels[client.status].ar}</strong></div>
         </div>
+        {(client as any).adCode && (
+          <div className="sgui-info-card">
+            <span className="sgui-row-icon"><Sparkles size={18}/></span>
+            <div><span>كود الإعلان</span><strong dir="ltr">{(client as any).adCode}{(client as any).firstMessageAt ? ` · ${new Date((client as any).firstMessageAt).toLocaleDateString('ar-EG')}` : ''}</strong></div>
+          </div>
+        )}
+        {(client as any).automationSuggestedFollowUp?.at > 0 && !client.nextFollowUpDate && (
+          <div className="sgui-info-card">
+            <span className="sgui-row-icon"><CalendarPlus size={18}/></span>
+            <div><span>اقتراح موعد من الأتمتة (مش متسجل)</span><strong>{new Date((client as any).automationSuggestedFollowUp.at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</strong></div>
+          </div>
+        )}
       </div>
 
       {(isBookedState(client) || client.autoFollowUp) && (() => {

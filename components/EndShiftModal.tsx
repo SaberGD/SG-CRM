@@ -7,6 +7,7 @@ import { useShift } from '../ShiftContext';
 import { Client } from '../types';
 import { X, AlertTriangle, MessageCircle, CheckCircle2, ArrowLeft, Sparkles } from 'lucide-react';
 import AcceptFlowModal, { needsClientAccept, needsFollowUpAccept } from './AcceptFlowModal';
+import { overdueConstraints } from '../utils/overdue';
 
 type Step = 'pending' | 'overdue' | 'whatsapp' | 'done';
 
@@ -43,13 +44,15 @@ const EndShiftModal: React.FC = () => {
           firestore.where('nextFollowUpReviewedBySales', '==', false)
         ));
         // Only follow-ups the automation proposed are reviewable; others would be phantom queue items.
-        setPendingFollowUpClients(unreviewedFollowUpSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(needsFollowUpAccept));
+        // A proposed date that already passed is not worth reviewing now: it shows under "overdue".
+        const now = Date.now();
+        setPendingFollowUpClients(unreviewedFollowUpSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client))
+          .filter(c => needsFollowUpAccept(c) && (c.nextFollowUpDate || 0) >= now));
 
         const overdueSnap = await firestore.getDocs(firestore.query(
           clientsRef,
           firestore.where('salesAgentId', '==', user.uid),
-          firestore.where('nextFollowUpDate', '<', Date.now()),
-          firestore.where('nextFollowUpDate', '>', 0)
+          ...overdueConstraints(now),
         ));
         setOverdueClients(overdueSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
       } catch (err) {
@@ -98,12 +101,16 @@ const EndShiftModal: React.FC = () => {
                 <div className="p-5 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-2xl text-center">
                   <Sparkles className="mx-auto text-orange-500 mb-2" size={24} />
                   <p className="font-black text-orange-700 dark:text-orange-400 text-sm mb-3">
-                    فيه {queue.length} عميل AI Generated لسه محتاج توافق عليه قبل ما تقفل الشيفت
+                    فيه {queue.length} عميل من الأتمتة لسه محتاج مراجعة منك
                   </p>
                   <button onClick={() => setQueueOpen(true)} className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-xs">
                     يلا نراجعهم
                   </button>
                 </div>
+                {/* Never blocks closing the shift (owner's rule): they stay in the queue for tomorrow. */}
+                <button onClick={() => setStep('overdue')} className="sg-btn sg-btn-secondary w-full justify-center py-3 text-xs">
+                  التالي، هراجعهم بكرة <ArrowLeft size={16} />
+                </button>
               </div>
             ) : (
               <div className="space-y-4">

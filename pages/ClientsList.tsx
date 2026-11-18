@@ -30,7 +30,7 @@ import { useServices, useLabels, useAgentOptions, useStaff } from '../utils/refD
 import Pager from '../components/Pager';
 import FilterPanel, { Field } from '../components/FilterPanel';
 import { EGYPT_GOVERNORATES } from '../utils/governorates';
-import { normalizePhoneKey } from '../utils/clientMerge.mjs';
+import { normalizePhoneKey, telHref, whatsappHref } from '../utils/phone';
 import { buildChatwootConversationLink } from '../utils/chatwoot';
 import { 
   CURRENCY_LABELS, fetchExchangeRates, calculateExternalTransfer 
@@ -1116,8 +1116,8 @@ const ClientsList: React.FC = () => {
                   </td>
                   <td className="sgui-cell-wide sgui-cell-actions">
                     <div className="flex justify-center gap-2">
-                      <a href={`https://wa.me/${client.phone.replace('+', '')}`} target="_blank" title="تواصل عبر واتساب" className="sgui-icon-button is-whatsapp" aria-label="واتساب"><MessageCircle size={16} /></a>
-                      <a href={`tel:${client.phone}`} title="اتصال هاتفي" className="sgui-icon-button" aria-label="اتصال"><Phone size={16} /></a>
+                      <a href={whatsappHref(client.phone, client.countryCode)} target="_blank" rel="noopener noreferrer" title="تواصل عبر واتساب" className="sgui-icon-button is-whatsapp" aria-label="واتساب"><MessageCircle size={16} /></a>
+                      <a href={telHref(client.phone, client.countryCode)} title="اتصال هاتفي" className="sgui-icon-button" aria-label="اتصال"><Phone size={16} /></a>
                       <button onClick={() => navigate(`/clients/${client.id}`)} title="عرض السجل والمتابعة" className="sgui-icon-button" aria-label="السجل والمتابعة"><History size={16} /></button>
                       {isAdmin && (
                         <button 

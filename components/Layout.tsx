@@ -15,6 +15,7 @@ import ShiftWidget from './ShiftWidget';
 import EndShiftModal from './EndShiftModal';
 import ErrorBoundary from './ErrorBoundary';
 import { useStaff } from '../utils/refData';
+import { overdueConstraints } from '../utils/overdue';
 import { LoadingState } from './ui';
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -51,7 +52,7 @@ const AlarmManager: React.FC<{ user: any }> = ({ user }) => {
       setActiveAlarm(prev => (due ? (prev?.id === due.id ? prev : due) : null));
     };
     const refreshOverdue = () => getCountFromServer(query(collection(db, 'clients'), where('salesAgentId', '==', user.uid),
-      where('nextFollowUpDate', '>', 0), where('nextFollowUpDate', '<', Date.now() - 60000)))
+      ...overdueConstraints(Date.now() - 60000)))
       .then(r => setHasOverdueTasks(r.data().count > 0)).catch(() => {});
     const unsubscribe = onSnapshot(q, (snapshot) => {
       todayDueRef.current = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Client));

@@ -609,23 +609,121 @@ function autoFollowUpLog(auto, clientId, clientName, now) {
     targetId: clientId, targetName: clientName || "", timestamp: now };
 }
 
+// The writes that apply one accounting booking summary to a CRM client (inside a transaction).
+// Shared by the normal ingest, a resolved sync_review, a create race and linkSyncReview, so
+// every path computes money, booking status and the 2-week follow-up the same way.
+function planSummaryWrite(current, summary, { now, bookingId }) {
+  const plan = accountingIngest.planClientAccounting(current, summary, now);
+  // On for a new/recent booking, off when no booking is ACTIVE any more; null = no change
+  // (repeat syncs of the same booking never touch it, so this cannot loop or pile up).
+  const auto = autoFollowUp.planAccountingAutoFollowUp(current, plan.patch, { now, bookingId }, admin.firestore.FieldValue.delete());
+  return {
+    plan, auto,
+    update: { ...plan.patch, ...(auto || {}), accountingBookingIds: admin.firestore.FieldValue.arrayUnion(bookingId) },
+  };
+}
+
+// One audit document per booking (overwritten on each sync, with a counter) so the collection
+// never grows with repeated syncs.
+function accountingAuditRef(bookingId) {
+  return db.collection("integrationEvents").doc(`accounting_sync_${bookingId}`);
+}
+function accountingAuditFields(bookingId, summary, now, extra) {
+  return {
+    correlationId: `accounting_booking_${bookingId}`, sourceSystem: "accounting", targetSystem: "crm", eventType: "booking_synced",
+    sourceRef: bookingId, processedAt: now, bookingStatus: summary.status, syncCount: admin.firestore.FieldValue.increment(1), ...extra,
+  };
+}
+
+// Applies the summary to an existing client in one transaction. { missing } when the client is
+// gone, { stale } when the client already holds a newer version of this booking.
+async function applySummaryToClient(clientRef, summary, { now, bookingId }) {
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(clientRef);
+    if (!snap.exists) return { missing: true };
+    const current = snap.data() || {};
+    if (accountingIngest.isStaleSummary(current, summary)) return { stale: true, changedFields: [] };
+    const { plan, auto, update } = planSummaryWrite(current, summary, { now, bookingId });
+    tx.update(clientRef, update);
+    if (auto) tx.set(db.collection("logs").doc(), autoFollowUpLog(auto, clientRef.id, current.name, now));
+    return { ...plan, autoFollowUp: auto ? (auto.autoFollowUp.enabled ? "enabled" : "disabled") : null };
+  });
+}
+
+// Creates the client for a booking nobody had, under a deterministic id and a per-phone lock
+// (client_locks/pk_<phoneKey>, server-only), so two concurrent syncs for the same new customer
+// cannot create two clients. Returns { createdId } or { existingId } (then the caller updates it).
+async function createClientFromBooking({ customer, booking, summary, bookingId, now, customerId }) {
+  const agent = (await findAgentByName(booking.salesName)) || (await getDefaultAutomationAgent());
+  const created = accountingIngest.newClientFromBooking(customer, summary, agent, now);
+  created.searchKeys = (await import("./searchKeys.mjs")).buildSearchKeys(created.name, created.phone);
+  const phoneKey = created.phoneKey || accountingIngest.customerPhoneKeys(customer)[0] || "";
+  const clientId = accountingIngest.accountingClientId(customerId, phoneKey);
+  if (!clientId || !phoneKey) throw new Error("no deterministic id for the new client");
+  const clientRef = db.collection("clients").doc(clientId);
+  const lockRef = db.collection("client_locks").doc(`pk_${phoneKey}`);
+  // Personal follow-up every 2 weeks for a recent booking (no delete sentinels in a new doc).
+  const autoOn = autoFollowUp.planAccountingAutoFollowUp({}, created, { now, bookingId });
+  return db.runTransaction(async (tx) => {
+    const [lockSnap, clientSnap] = await Promise.all([tx.get(lockRef), tx.get(clientRef)]);
+    if (clientSnap.exists) return { existingId: clientRef.id };
+    const lockedId = lockSnap.exists ? String(lockSnap.data().clientId || "") : "";
+    if (lockedId) {
+      const lockedSnap = await tx.get(db.collection("clients").doc(lockedId));
+      if (lockedSnap.exists) return { existingId: lockedId };
+    }
+    tx.set(clientRef, { ...created, ...(autoOn || {}), accountingBookingIds: [bookingId] });
+    tx.set(lockRef, { clientId: clientRef.id, phoneKey, bookingId, createdAt: now, by: "accounting_ingest" });
+    return { createdId: clientRef.id, autoFollowUp: autoOn ? "enabled" : null };
+  });
+}
+
 async function handleAccountingIngest(req, res) {
   if (!(await verifyAccountingService(req))) return res.status(403).json({ error: "Not allowed" });
   await loadAutoFollowUp();
   const bookingId = String(req.body?.bookingId || "");
   const booking = req.body?.booking;
-  const customer = req.body?.customer || {};
+  const customer = req.body?.customer && typeof req.body.customer === "object" ? req.body.customer : {};
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(bookingId) || !booking || typeof booking !== "object") return res.status(400).json({ error: "Invalid payload" });
 
   const now = Date.now();
   const summary = accountingIngest.summarizeBooking(bookingId, booking, req.body?.productName, now);
   const keys = accountingIngest.customerPhoneKeys(customer);
+  const customerId = customer.id || booking.customerId || "";
+  const reviewRef = db.collection("sync_review").doc(bookingId);
   const review = async (reason, candidates = []) => {
-    await db.collection("sync_review").doc(bookingId).set({ bookingId, reason, candidates, keys, summary, customerName: customer.name || "", createdAt: now, resolved: false }, { merge: true });
+    await reviewRef.set({ bookingId, reason, candidates, keys, summary, customerName: customer.name || "", createdAt: now, resolved: false }, { merge: true });
     // Still a real booking for Meta, even when the CRM client is unclear.
     await reportPurchaseToMeta({ bookingId, booking, customer, summary, clientId: null });
     return res.json({ success: true, action: "queued_for_review", reason });
   };
+  const audit = (extra) => accountingAuditRef(bookingId).set(accountingAuditFields(bookingId, summary, now, extra), { merge: true });
+  const updated = async (clientRef, via) => {
+    const result = await applySummaryToClient(clientRef, summary, { now, bookingId });
+    if (result.missing) return null;
+    if (result.stale) {
+      await audit({ targetRef: clientRef.id, result: "ignored_stale", staleSourceUpdatedAt: summary.sourceUpdatedAt });
+      res.json({ success: true, action: "ignored_stale", clientId: clientRef.id });
+      return result;
+    }
+    await audit({ targetRef: clientRef.id, result: "updated_client", via, changedFields: result.changedFields, overwroteFinancials: result.overwroteFinancials, autoFollowUp: result.autoFollowUp });
+    await reportPurchaseToMeta({ bookingId, booking, customer, summary, clientId: clientRef.id });
+    res.json({ success: true, action: "updated_client", clientId: clientRef.id, changedFields: result.changedFields });
+    return result;
+  };
+
+  // A manager (or scripts/resolve-review.cjs) already chose the client for this booking: keep
+  // applying it there, and keep the review resolved instead of re-opening it.
+  const reviewSnap = await reviewRef.get();
+  const resolvedClientId = reviewSnap.exists ? String(reviewSnap.data().resolvedClientId || "") : "";
+  if (resolvedClientId && /^[A-Za-z0-9_-]{1,128}$/.test(resolvedClientId)) {
+    const done = await updated(db.collection("clients").doc(resolvedClientId), "resolved_review");
+    if (done) {
+      await reviewRef.set({ resolved: true, resolvedAt: reviewSnap.data().resolvedAt || now, summary, lastAppliedAt: now }, { merge: true });
+      return;
+    }
+  }
+
   if (!keys.length) return review("no_phone");
 
   const found = new Map();
@@ -635,42 +733,22 @@ async function handleAccountingIngest(req, res) {
   }
   if (found.size > 1) return review("ambiguous_phone", [...found.keys()]);
 
-  // One audit document per booking (overwritten on each sync, with a counter) so the collection
-  // never grows with repeated syncs.
-  const audit = (extra) => db.collection("integrationEvents").doc(`accounting_sync_${bookingId}`).set({
-    correlationId: `accounting_booking_${bookingId}`, sourceSystem: "accounting", targetSystem: "crm", eventType: "booking_synced",
-    sourceRef: bookingId, processedAt: now, bookingStatus: summary.status, syncCount: admin.firestore.FieldValue.increment(1), ...extra }, { merge: true });
-
-  if (found.size === 0) {
+  let clientRef = found.size === 1 ? found.values().next().value.ref : null;
+  if (!clientRef) {
     if (summary.status !== "ACTIVE") return res.json({ success: true, action: "ignored_inactive_no_client" });
-    const agent = (await findAgentByName(booking.salesName)) || (await getDefaultAutomationAgent());
-    const ref = db.collection("clients").doc();
-    const created = accountingIngest.newClientFromBooking(customer, summary, agent, now);
-    created.searchKeys = (await import("./searchKeys.mjs")).buildSearchKeys(created.name, created.phone);
-    // Personal follow-up every 2 weeks for a recent booking (no delete sentinels in a new doc).
-    const autoOn = autoFollowUp.planAccountingAutoFollowUp({}, created, { now, bookingId });
-    await ref.set({ ...created, ...(autoOn || {}), accountingBookingIds: [bookingId] });
-    await audit({ targetRef: ref.id, result: "created_client", autoFollowUp: autoOn ? "enabled" : null });
-    await reportPurchaseToMeta({ bookingId, booking, customer, summary, clientId: ref.id });
-    return res.json({ success: true, action: "created_client", clientId: ref.id });
+    const outcome = await createClientFromBooking({ customer, booking, summary, bookingId, now, customerId });
+    if (outcome.createdId) {
+      await audit({ targetRef: outcome.createdId, result: "created_client", autoFollowUp: outcome.autoFollowUp });
+      await reportPurchaseToMeta({ bookingId, booking, customer, summary, clientId: outcome.createdId });
+      return res.json({ success: true, action: "created_client", clientId: outcome.createdId });
+    }
+    // Another sync created this customer a moment ago: update that client instead.
+    clientRef = db.collection("clients").doc(outcome.existingId);
   }
 
-  const clientRef = found.values().next().value.ref;
-  const result = await db.runTransaction(async (tx) => {
-    const snap = await tx.get(clientRef);
-    const current = snap.data() || {};
-    const plan = accountingIngest.planClientAccounting(current, summary, now);
-    // On for a new/recent booking, off when no booking is ACTIVE any more; null = no change
-    // (repeat syncs of the same booking never touch it, so this cannot loop or pile up).
-    const auto = autoFollowUp.planAccountingAutoFollowUp(current, plan.patch, { now, bookingId }, admin.firestore.FieldValue.delete());
-    tx.update(clientRef, { ...plan.patch, ...(auto || {}), accountingBookingIds: admin.firestore.FieldValue.arrayUnion(bookingId) });
-    if (auto) tx.set(db.collection("logs").doc(), autoFollowUpLog(auto, clientRef.id, current.name, now));
-    return { ...plan, autoFollowUp: auto ? (auto.autoFollowUp.enabled ? "enabled" : "disabled") : null };
-  });
-  await audit({ targetRef: clientRef.id, result: "updated_client", changedFields: result.changedFields, overwroteFinancials: result.overwroteFinancials, autoFollowUp: result.autoFollowUp });
-  await db.collection("sync_review").doc(bookingId).delete().catch(() => {});
-  await reportPurchaseToMeta({ bookingId, booking, customer, summary, clientId: clientRef.id });
-  return res.json({ success: true, action: "updated_client", clientId: clientRef.id, changedFields: result.changedFields });
+  const done = await updated(clientRef, "phone_match");
+  if (!done) return review("client_missing", [clientRef.id]);
+  if (!done.stale && reviewSnap.exists) await reviewRef.delete().catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -834,12 +912,154 @@ async function handleClientSnapshot(req, res) {
   }
 }
 
-exports.accountingCrmBridge = onRequest({ region: "us-central1", cors: true, secrets: [ANTHROPIC_API_KEY_CRM], timeoutSeconds: 120 }, async (req, res) => {
+// ---------------------------------------------------------------------------
+// Staff actions on the bridge (active staff Firebase ID token, role from users/{uid}).
+// ---------------------------------------------------------------------------
+const MANAGER_ROLES = ["admin", "administrator", "manager", "supervisor"];
+const isManager = (role) => MANAGER_ROLES.includes(role);
+const DOC_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+async function staffOr401(req, res) {
+  let user = null;
+  try { user = await assistantStaff(req); } catch (e) { user = null; }
+  if (!user) res.status(401).json({ error: "سجّل دخولك الأول." });
+  return user;
+}
+
+/**
+ * linkSyncReview (managers): attach a booking waiting in sync_review to the CRM client the
+ * manager picked. Same writes as a normal ingest update (money, status, 2-week follow-up,
+ * integrationEvents audit) plus the review marked resolved and an activity log, in ONE
+ * transaction. Idempotent: linking again to the same client changes nothing.
+ * Body: { action: "linkSyncReview", bookingId, clientId }
+ * 200 { success: true, clientId, changedFields, alreadyLinked? } | 400 | 401 | 403 | 404 | 409
+ */
+async function handleLinkSyncReview(req, res) {
+  const user = await staffOr401(req, res);
+  if (!user) return;
+  if (!isManager(user.role)) return res.status(403).json({ error: "الربط للمديرين بس." });
+  const bookingId = String(req.body?.bookingId || "").trim();
+  const clientId = String(req.body?.clientId || "").trim();
+  if (!DOC_ID_RE.test(bookingId) || !DOC_ID_RE.test(clientId)) return res.status(400).json({ error: "Invalid bookingId or clientId" });
+  await loadAutoFollowUp();
+  const reviewRef = db.collection("sync_review").doc(bookingId);
+  const clientRef = db.collection("clients").doc(clientId);
+  const now = Date.now();
+  const out = await db.runTransaction(async (tx) => {
+    const [reviewSnap, clientSnap] = await Promise.all([tx.get(reviewRef), tx.get(clientRef)]);
+    if (!reviewSnap.exists) return { status: 404, error: "الحجز ده مش في قايمة المراجعة." };
+    if (!clientSnap.exists) return { status: 404, error: "العميل مش موجود." };
+    const reviewData = reviewSnap.data() || {};
+    const summary = reviewData.summary;
+    if (!summary || typeof summary !== "object" || summary.id !== bookingId) return { status: 409, error: "بيانات الحجز في المراجعة ناقصة." };
+    if (reviewData.resolved === true && reviewData.resolvedClientId) {
+      if (reviewData.resolvedClientId === clientId) return { success: true, clientId, changedFields: [], alreadyLinked: true };
+      return { status: 409, error: "الحجز ده اتربط بعميل تاني قبل كده." };
+    }
+    const current = clientSnap.data() || {};
+    const stale = accountingIngest.isStaleSummary(current, summary);
+    let changedFields = [];
+    if (!stale) {
+      const { plan, auto, update } = planSummaryWrite(current, summary, { now, bookingId });
+      changedFields = plan.changedFields;
+      tx.update(clientRef, update);
+      if (auto) tx.set(db.collection("logs").doc(), autoFollowUpLog(auto, clientId, current.name, now));
+      tx.set(accountingAuditRef(bookingId), accountingAuditFields(bookingId, summary, now, {
+        targetRef: clientId, result: "linked_from_review", via: "linkSyncReview", processedBy: user.uid,
+        changedFields: plan.changedFields, overwroteFinancials: plan.overwroteFinancials,
+        autoFollowUp: auto ? (auto.autoFollowUp.enabled ? "enabled" : "disabled") : null,
+      }), { merge: true });
+    }
+    tx.set(reviewRef, { resolved: true, resolvedClientId: clientId, resolvedBy: user.uid, resolvedAt: now }, { merge: true });
+    tx.set(db.collection("logs").doc(), {
+      userId: user.uid, userName: user.name || "", action: `ربط حجز من الحسابات بعميل (مراجعة): ${bookingId}`,
+      targetId: clientId, targetName: current.name || "", timestamp: now,
+    });
+    return { success: true, clientId, changedFields };
+  });
+  if (out.status) return res.status(out.status).json({ error: out.error });
+  return res.json(out);
+}
+
+/**
+ * integrationHealth (leaders): small numbers for an "is the sync alive" card. Count
+ * aggregations and limit(1) reads only. A query whose index is still building returns null.
+ * Body: { action: "integrationHealth" }
+ * 200 { openSyncReview, failedAutomation24h, lastIngestAt, lastAutomationAt, errors? }
+ */
+async function handleIntegrationHealth(req, res) {
+  const user = await staffOr401(req, res);
+  if (!user) return;
+  if (!crmAssistant.isLeader(user.role)) return res.status(403).json({ error: "للقيادات بس." });
+  const since = Date.now() - 24 * 3600 * 1000;
+  const errors = {};
+  const safe = (name, p) => p.catch((e) => { errors[name] = String(e?.code || e?.message || e).slice(0, 120); return null; });
+  const autoRuns = db.collection("automation_processed_conversations");
+  const [openReview, failed, lastIngest, lastAutomation] = await Promise.all([
+    safe("openSyncReview", db.collection("sync_review").where("resolved", "==", false).count().get()),
+    safe("failedAutomation24h", autoRuns.where("status", "==", "failed").where("updatedAt", ">=", since).orderBy("updatedAt", "desc").count().get()),
+    safe("lastIngestAt", db.collection("integrationEvents").where("sourceSystem", "==", "accounting").orderBy("processedAt", "desc").limit(1).get()),
+    safe("lastAutomationAt", autoRuns.where("status", "==", "processed").orderBy("updatedAt", "desc").limit(1).get()),
+  ]);
+  return res.json({
+    openSyncReview: openReview ? openReview.data().count : null,
+    failedAutomation24h: failed ? failed.data().count : null,
+    lastIngestAt: lastIngest ? (lastIngest.empty ? 0 : lastIngest.docs[0].data().processedAt || 0) : null,
+    lastAutomationAt: lastAutomation ? (lastAutomation.empty ? 0 : lastAutomation.docs[0].data().updatedAt || 0) : null,
+    ...(Object.keys(errors).length ? { errors } : {}),
+  });
+}
+
+/**
+ * phoneCheck (any active staff): "is this phone already a client?" for the add-client screen,
+ * now that sales cannot read every client. Returns the oldest client with that phoneKey (then
+ * phoneKeys, then the old raw-phone variations for legacy docs).
+ * Body: { action: "phoneCheck", phone, countryCode? }
+ * 200 { exists: false } | { exists: true, client: { id, name, salesAgentName, status, createdAt, mine } } | 400 | 401
+ */
+async function handlePhoneCheck(req, res) {
+  const user = await staffOr401(req, res);
+  if (!user) return;
+  const phone = req.body?.phone;
+  const countryCode = req.body?.countryCode;
+  if ((typeof phone !== "string" && typeof phone !== "number") || String(phone).length > 32) return res.status(400).json({ error: "Invalid phone" });
+  if (countryCode !== undefined && countryCode !== null && countryCode !== "" && (typeof countryCode !== "string" || !/^\+?\d{1,4}$/.test(countryCode.trim()))) {
+    return res.status(400).json({ error: "Invalid countryCode" });
+  }
+  const cc = countryCode ? (countryCode.trim().startsWith("+") ? countryCode.trim() : `+${countryCode.trim()}`) : "+20";
+  const phoneFull = normalizeIncomingPhone(phone, cc);
+  const key = phoneFull ? accountingIngest.normalizePhoneKey(phoneFull) : "";
+  if (!key) return res.status(400).json({ error: "Invalid phone" });
+  const clients = db.collection("clients");
+  const asDocs = (snap) => snap.docs.map((d) => ({ id: d.id, data: d.data() || {} }));
+  let docs = asDocs(await clients.where("phoneKey", "==", key).limit(5).get());
+  if (!docs.length) docs = asDocs(await clients.where("phoneKeys", "array-contains", key).limit(5).get());
+  if (!docs.length) docs = asDocs(await clients.where("phone", "in", buildPhoneVariations(phoneFull)).limit(5).get());
+  const match = automationUpsert.pickDedupeMatch(docs);
+  if (!match) return res.json({ exists: false });
+  const c = match.pick.data;
+  return res.json({
+    exists: true,
+    client: {
+      id: match.pick.id, name: c.name || "", salesAgentName: c.salesAgentName || "", status: c.status || "",
+      createdAt: typeof c.createdAt === "number" ? c.createdAt : (c.createdAt?.toMillis?.() ?? null),
+      mine: !!c.salesAgentId && c.salesAgentId === user.uid,
+    },
+  });
+}
+
+const STAFF_BRIDGE_ACTIONS = { linkSyncReview: handleLinkSyncReview, integrationHealth: handleIntegrationHealth, phoneCheck: handlePhoneCheck };
+
+exports.accountingCrmBridge = onRequest({ region: "us-central1", cors: true, secrets: [ANTHROPIC_API_KEY_CRM], timeoutSeconds: 120, maxInstances: 10 }, async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   const action = req.body?.action;
-  if (!["lookup", "syncBooking", "ingest", "export", "assistant", "clientSnapshot"].includes(action)) return res.status(400).json({ error: "Invalid action" });
+  if (!["lookup", "syncBooking", "ingest", "export", "assistant", "clientSnapshot", ...Object.keys(STAFF_BRIDGE_ACTIONS)].includes(action)) return res.status(400).json({ error: "Invalid action" });
   if (action === "assistant") return handleAssistant(req, res);
   if (action === "clientSnapshot") return handleClientSnapshot(req, res);
+  if (STAFF_BRIDGE_ACTIONS[action]) {
+    try { return await STAFF_BRIDGE_ACTIONS[action](req, res); }
+    catch (error) { console.error(`bridge ${action} failed:`, error?.message || error); return res.status(500).json({ error: "حصلت مشكلة. جرّب تاني بعد شوية." }); }
+  }
   if (action === "export") {
     try { return await handleCrmExport(req, res); }
     catch (error) { console.error("crm export failed:", error); return res.status(500).json({ error: "Export failed" }); }

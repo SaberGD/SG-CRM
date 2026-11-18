@@ -20,6 +20,58 @@ function bookingDateMs(booking) {
   return Number.isFinite(t) ? t : 0;
 }
 
+// A time from the accounting side in any shape it may arrive in: ms or seconds number, numeric
+// string, ISO string, or a Firestore Timestamp serialised as {seconds}/{_seconds}. 0 = unknown.
+function timeMs(value) {
+  if (value === undefined || value === null || value === "") return 0;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    return value < 1e11 ? Math.round(value * 1000) : Math.round(value);
+  }
+  if (typeof value === "string") {
+    const raw = value.trim();
+    if (!raw) return 0;
+    if (/^\d+(\.\d+)?$/.test(raw)) return timeMs(Number(raw));
+    const t = Date.parse(raw);
+    return Number.isFinite(t) && t > 0 ? t : 0;
+  }
+  if (typeof value === "object") {
+    if (typeof value.toMillis === "function") return timeMs(value.toMillis());
+    const sec = value.seconds ?? value._seconds;
+    if (typeof sec === "number" && Number.isFinite(sec)) {
+      const nanos = value.nanoseconds ?? value._nanoseconds ?? 0;
+      return timeMs(sec * 1000 + Math.floor((Number(nanos) || 0) / 1e6));
+    }
+  }
+  return 0;
+}
+
+// When the accounting booking itself was last changed (0 when the payload does not say).
+// Used to drop a retried/late payload that is older than what the CRM already applied.
+function sourceUpdatedAtMs(booking) {
+  if (!booking || typeof booking !== "object") return 0;
+  return timeMs(booking.updatedAtMs) || timeMs(booking.updatedAt) || timeMs(booking.lastModified) || 0;
+}
+
+// True when the CRM already holds a NEWER version of this booking than `summary`.
+// Equal times are not stale (a repeat of the same version is harmless and idempotent);
+// a payload without a time is never stale (older senders do not send one).
+function isStaleSummary(current, summary) {
+  const incoming = num(summary?.sourceUpdatedAt);
+  if (!incoming) return false;
+  const stored = num(current?.accounting?.bookings?.[summary.id]?.sourceUpdatedAt);
+  return stored > incoming;
+}
+
+// Deterministic id for a client created from accounting, so two concurrent syncs for the same
+// new customer land on the same document instead of creating two clients.
+function accountingClientId(customerId, phoneKey) {
+  const id = String(customerId || "").trim();
+  if (/^[A-Za-z0-9_-]{1,100}$/.test(id)) return `acc_${id}`;
+  const key = String(phoneKey || "").replace(/\D/g, "");
+  return key ? `acc_pk_${key}` : "";
+}
+
 // One compact record per accounting booking, stored under client.accounting.bookings[bookingId].
 function summarizeBooking(bookingId, booking, productName, now) {
   const inactive = booking.isDeleted === true || booking.status !== "ACTIVE";
@@ -39,6 +91,8 @@ function summarizeBooking(bookingId, booking, productName, now) {
     refundedTotal: num(booking.refundedTotal),
     accountingSalesName: String(booking.salesName || ""),
     updatedAt: now,
+    // When accounting last changed the booking (0 = the sender did not say).
+    sourceUpdatedAt: sourceUpdatedAtMs(booking),
   };
 }
 
@@ -97,4 +151,7 @@ function newClientFromBooking(customer, summary, agent, now = Date.now()) {
   return { ...base, ...planClientAccounting({}, summary, now).patch };
 }
 
-module.exports = { normalizePhoneKey, customerPhoneKeys, summarizeBooking, planClientAccounting, newClientFromBooking, bookingDateMs };
+module.exports = {
+  normalizePhoneKey, customerPhoneKeys, summarizeBooking, planClientAccounting, newClientFromBooking, bookingDateMs,
+  timeMs, sourceUpdatedAtMs, isStaleSummary, accountingClientId,
+};

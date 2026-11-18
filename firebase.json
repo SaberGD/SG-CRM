@@ -5,6 +5,6 @@
   },
   "functions": {
     "source": "functions",
-    "predeploy": []
+    "predeploy": ["npm --prefix \"$RESOURCE_DIR\" test"]
   }
 }

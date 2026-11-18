@@ -6,11 +6,14 @@ steps:
       - |
         echo "META_PIXEL_ID=1748422296177915" > functions/.env
         echo "META_ACCESS_TOKEN=$$META_ACCESS_TOKEN" >> functions/.env
+        set -e
         cd functions
         npm install
+        # Unit tests gate the deploy: a failing test stops the build here.
+        npm test
         cd ..
         npm install -g firebase-tools
-        firebase deploy --only functions:metaCapiEvent,functions:geminiPredictSales,functions:geminiAnalyzeReport,functions:geminiAnalyzeClient,functions:upsertClientFromAutomation,functions:getActiveServicesForAutomation,functions:accountingCrmBridge --project=sg-crm-e3a38 --non-interactive
+        firebase deploy --only functions:metaCapiEvent,functions:geminiAnalyzeReport,functions:geminiAnalyzeClient,functions:upsertClientFromAutomation,functions:getActiveServicesForAutomation,functions:accountingCrmBridge --project=sg-crm-e3a38 --non-interactive
     secretEnv: ['META_ACCESS_TOKEN']
 availableSecrets:
   secretManager:

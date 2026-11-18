@@ -1,5 +1,5 @@
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { execSync } from 'child_process';
 
@@ -14,8 +14,7 @@ const versionFile = () => ({
   },
 });
 
-export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
+export default defineConfig(() => {
     return {
       server: {
         port: 3000,
@@ -23,10 +22,10 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [react(), versionFile()],
       define: {
+        // No API keys are ever inlined into the public bundle: AI runs in the Cloud Functions.
         __APP_BUILD_ID__: JSON.stringify(BUILD_ID),
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
       },
+      build: { sourcemap: false },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),

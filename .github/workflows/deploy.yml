@@ -4,12 +4,36 @@ on:
   push:
     branches:
       - main
+      - dev
+  pull_request:
   workflow_dispatch:
 
 jobs:
-  build-and-deploy:
+  # Gate: nothing reaches the live site unless types, build and the functions tests pass.
+  check:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Build
+        run: npx vite build
+      - name: Functions tests
+        run: |
+          cd functions
+          npm ci
+          npm test
 
+  build-and-deploy:
+    # Only main deploys (there is no CRM dev site); dev and PRs run the check only.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: check
+    runs-on: ubuntu-latest
     steps:
       - name: Get latest code
         uses: actions/checkout@v4
@@ -17,18 +41,25 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Build project
-        run: npm run build
+      - name: Build project (static site only)
+        run: npx vite build
+
+      - name: Make sure no server files or source maps ship
+        run: |
+          if find dist -name '*.map' -o -name '*.cjs' -o -name 'server*' | grep -q .; then
+            echo "dist contains server files or source maps"; exit 1
+          fi
 
       - name: Deploy dist to Hostinger
         uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with:
+          # Host and user live in GitHub Secrets (the repo is public).
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}

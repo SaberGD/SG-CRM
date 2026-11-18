@@ -10,30 +10,8 @@ const authHeaders = async (): Promise<Record<string, string>> => ({
 });
 
 /**
- * Predicts sales opportunity and analyzes lead history via the geminiPredictSales
- * Cloud Function (mirrors server.ts's /api/gemini/predict-sales route, which only
- * runs inside AI Studio's own preview - production is a static Hostinger deploy).
- */
-export const predictSalesOpportunity = async (client: Client, followUps: FollowUp[]) => {
-  try {
-    const response = await fetch(`${CLOUD_FUNCTIONS_BASE}/geminiPredictSales`, {
-      method: "POST",
-      headers: await authHeaders(),
-      body: JSON.stringify({ client, followUps }),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return await response.json();
-  } catch (error) {
-    console.error("predictSalesOpportunity error calling endpoint:", error);
-    return { score: 'Medium', reason: 'حدث خطأ في الاتصال بالسيرفر للتحليل الذكي' };
-  }
-};
-
-/**
  * Provides automated analysis for daily sales reports via the geminiAnalyzeReport
- * Cloud Function (mirrors server.ts's /api/gemini/analyze-report route).
+ * Cloud Function (Claude behind the old function name).
  */
 export const analyzeDailyReport = async (report: DailyReport) => {
   try {
@@ -46,17 +24,18 @@ export const analyzeDailyReport = async (report: DailyReport) => {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     const data = await response.json();
-    return data.text || "فشل تحليل التقرير بواسطة AI.";
+    // A canned answer (AI down / daily limit) is not an analysis: save nothing.
+    if (data.fallback) return "";
+    return data.text || "";
   } catch (error) {
     console.error("analyzeDailyReport error calling endpoint:", error);
-    return "فشل تحليل التقرير بسبب مشكلة في الاتصال بالسيرفر.";
+    return "";
   }
 };
 
 /**
  * Analyzes client history and generates AI sales assistant recommendation via the
- * geminiAnalyzeClient Cloud Function (mirrors server.ts's /api/gemini/analyze-client
- * route - this is the "AI Sales Assistant" / مساعد ذكي feature).
+ * geminiAnalyzeClient Cloud Function (Claude behind the old function name; this is the "AI Sales Assistant" / مساعد ذكي feature).
  */
 export const analyzeClientWithAi = async (client: Client, followUps: FollowUp[] = []) => {
   try {

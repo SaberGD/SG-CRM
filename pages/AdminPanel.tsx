@@ -19,6 +19,7 @@ import FloatingPanel from '../components/FloatingPanel';
 import { BREAK_DAILY_BUDGET_MS, BREAK_GRACE_MS, MAX_BREAK_SEGMENTS, getUsedBreakMs } from '../ShiftContext';
 import { formatDuration } from '../utils/time';
 import { isShiftTrackedRole } from '../utils/roles';
+import { transferClients } from '../utils/transfers';
 
 function todayDateStr(): string {
   const d = new Date();
@@ -161,6 +162,24 @@ const AdminPanel: React.FC = () => {
     return () => { cancelled = true; };
   }, [usersPage.rows.map(u => u.uid).join(',')]);
 
+  // Transfers through the shared helper: batches of <=400 writes, a transferHistory entry and a
+  // transfers record per client (they used to be one updateDoc each, with no history).
+  const moveClients = async (pairs: Array<[Client, User]>, reason: string) => {
+    const byTarget = new Map<string, { agent: User; clients: Client[] }>();
+    pairs.forEach(([c, a]) => { const e = byTarget.get(a.uid) || { agent: a, clients: [] }; e.clients.push(c); byTarget.set(a.uid, e); });
+    for (const { agent, clients } of byTarget.values()) {
+      await transferClients(clients, { to: { id: agent.uid, name: agent.name || agent.email }, reason, performedBy: { uid: user!.uid, name: user!.name } });
+    }
+  };
+
+  // The invitation mirror decides who may (re)create a profile: a stopped or deleted person
+  // must not be able to sign in again with the old invitation.
+  const setInvitationActive = async (u: User, isActive: boolean) => {
+    const email = (u.email || '').toLowerCase().trim();
+    if (!email) return;
+    await setDoc(doc(db, 'allowed_users', email), { email, role: u.role, isActive, updatedAt: Date.now(), updatedBy: user!.uid }, { merge: true });
+  };
+
   const fetchClientsOf = async (uid: string) =>
     (await getDocs(query(collection(db, 'clients'), where('salesAgentId', '==', uid)))).docs.map(d => ({ id: d.id, ...d.data() } as Client));
 
@@ -300,12 +319,7 @@ const AdminPanel: React.FC = () => {
             return;
           }
 
-          for (const client of userClients) {
-            await updateDoc(doc(db, 'clients', client.id), {
-              salesAgentId: targetAgent.uid,
-              salesAgentName: targetAgent.name || targetAgent.email
-            });
-          }
+          await moveClients(userClients.map(c => [c, targetAgent] as [Client, User]), 'إيقاف الموظف وتحويل عملائه');
         } else if (transferMode === 'distribute') {
           if (availableAgents.length === 0) {
             alert("لا يوجد مسؤولي مبيعات مفعلين آخرين لتوزيع العملاء عليهم!");
@@ -313,22 +327,16 @@ const AdminPanel: React.FC = () => {
             return;
           }
 
-          for (let i = 0; i < userClients.length; i++) {
-            const client = userClients[i];
-            const targetAgent = availableAgents[i % availableAgents.length];
-            await updateDoc(doc(db, 'clients', client.id), {
-              salesAgentId: targetAgent.uid,
-              salesAgentName: targetAgent.name || targetAgent.email
-            });
-          }
+          await moveClients(userClients.map((c, i) => [c, availableAgents[i % availableAgents.length]] as [Client, User]), 'إيقاف الموظف وتوزيع عملائه');
         }
       }
 
-      // Mark user as deactivated
+      // Mark user as deactivated, and close their invitation
       await updateDoc(doc(db, 'users', deactivatingUser.uid), {
         isDeactivated: true,
         deactivatedAt: Date.now()
       });
+      await setInvitationActive(deactivatingUser, false);
 
       await logActivity(
         user.uid,
@@ -359,6 +367,7 @@ const AdminPanel: React.FC = () => {
       await updateDoc(doc(db, 'users', u.uid), {
         isDeactivated: false
       });
+      await setInvitationActive(u, true);
 
       await logActivity(
         user.uid,
@@ -408,12 +417,7 @@ const AdminPanel: React.FC = () => {
           return;
         }
 
-        for (const client of userClients) {
-          await updateDoc(doc(db, 'clients', client.id), {
-            salesAgentId: targetAgent.uid,
-            salesAgentName: targetAgent.name || targetAgent.email
-          });
-        }
+        await moveClients(userClients.map(c => [c, targetAgent] as [Client, User]), 'تحويل عملاء من إدارة الفريق');
       } else if (transferMode === 'distribute') {
         if (availableAgents.length === 0) {
           alert("لا يوجد مسؤولي مبيعات مفعلين آخرين لتوزيع العملاء عليهم!");
@@ -421,14 +425,7 @@ const AdminPanel: React.FC = () => {
           return;
         }
 
-        for (let i = 0; i < userClients.length; i++) {
-          const client = userClients[i];
-          const targetAgent = availableAgents[i % availableAgents.length];
-          await updateDoc(doc(db, 'clients', client.id), {
-            salesAgentId: targetAgent.uid,
-            salesAgentName: targetAgent.name || targetAgent.email
-          });
-        }
+        await moveClients(userClients.map((c, i) => [c, availableAgents[i % availableAgents.length]] as [Client, User]), 'توزيع عملاء من إدارة الفريق');
       }
 
       await logActivity(
@@ -457,6 +454,7 @@ const AdminPanel: React.FC = () => {
     const confirmation = prompt(`لحذف المستخدم [${u.name || u.email}] نهائياً، يرجى كتابة كلمة 'delete' للتأكيد:`);
     if (confirmation === 'delete') {
       try {
+        await setInvitationActive(u, false);
         await deleteDoc(doc(db, 'users', u.uid));
         await logActivity(user.uid, user.name, `حذف الموظف [${u.name || u.email}]`, u.uid, u.name || 'غير معروف');
         alert("تم حذف المستخدم بنجاح");

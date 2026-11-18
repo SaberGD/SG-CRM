@@ -10,7 +10,7 @@ const users = [
   { id: "u4", name: "Omar", email: "omar@example.invalid" },
   { id: "u5", name: "Old Agent", email: "old@example.invalid", isDeactivated: true },
   { id: "u6", name: "Ali Hassan", email: "ali.h@example.invalid" },
-  { id: "u7", name: "Aliaa Samir", email: "aliaa@example.invalid" },
+  { id: "u7", name: "Alina Samir", email: "alina@example.invalid" },
 ];
 
 test("normalisation unifies Arabic spelling and case", () => {
@@ -29,7 +29,7 @@ test("exact name / e-mail / e-mail local part match first", () => {
 test("whole-word prefix match either way, never a substring inside a word", () => {
   assert.equal(matchAgent(users, "منى").id, "u3");
   assert.equal(matchAgent(users, "Omar Khaled").id, "u4");
-  assert.equal(matchAgent(users, "Ali").id, "u6", "Ali does not match Aliaa");
+  assert.equal(matchAgent(users, "Ali").id, "u6", "Ali does not match Alina");
   assert.equal(matchAgent(users, "Ahmed Sara").id, "u1", "same words in another order");
   assert.equal(matchAgent(users, "mar"), null);
 });

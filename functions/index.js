@@ -433,11 +433,11 @@ ${historyText || "لا توجد متابعات سابقة بعد"}`;
 // logs a follow-up entry, without ever touching staff's native
 // WhatsApp/Messenger/Instagram apps or Chatwoot's own UI.
 //
-// Auth: shared secret in the "x-automation-secret" header (or
-// req.body.automationSecret), checked by automationKey.js.
+// Auth: shared secret in the "x-automation-secret" header only, checked by
+// automationKey.js.
 //
 // Deliberately conservative: never sets isBooked/financial fields and never
-// overwrites a status of "not_interested" — those stay human-only decisions.
+// changes booked / not_interested / interested (rules in automationUpsert.js).
 // If the AI extraction says the customer mentioned booking, that's recorded
 // in the follow-up note/salesBrief for a human to close out, not auto-applied.
 // ---------------------------------------------------------------------------

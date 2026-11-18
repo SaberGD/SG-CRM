@@ -191,3 +191,6 @@ export function usePagedList<T>(items: T[], pageSize = 10, resetKey = '') {
     goToPage: async (p: number) => setPage(Math.max(1, Math.min(p, pageCount))),
   };
 }
+
+/** Forget every cached page (sign-out or account change: no rows of the previous account stay in memory). */
+export const clearPagedSessions = () => session.clear();

@@ -13,6 +13,8 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import { LoadingState } from './components/ui';
 import UpdateBanner from './components/UpdateBanner';
+import { resetAllClientsStore } from './utils/allClientsStore';
+import { clearPagedSessions } from './utils/usePagedQuery';
 
 // Every other page is its own file, downloaded the first time it is opened, so the first
 // screen loads only what it needs (the app used to be one 1.8 MB file).
@@ -72,7 +74,12 @@ const App: React.FC = () => {
     };
     testConnection();
 
+    let lastUid: string | null = null;
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      // Signed out or a different account on the same browser: drop cached client data so
+      // nothing from the previous account can be shown.
+      const uid = firebaseUser?.uid || null;
+      if (uid !== lastUid) { resetAllClientsStore(); clearPagedSessions(); lastUid = uid; }
       setLoading(true);
       if (firebaseUser) {
         try {

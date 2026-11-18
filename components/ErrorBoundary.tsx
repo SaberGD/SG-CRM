@@ -11,6 +11,9 @@ interface State { error: Error | null; stack: string }
 
 // Isolates render crashes so one broken widget can't spin the whole app in an error loop.
 class ErrorBoundary extends Component<Props, State> {
+  // The project has no @types/react, so the base class is untyped: declare what we use.
+  declare props: Props;
+  declare setState: (state: Partial<State>) => void;
   state: State = { error: null, stack: '' };
 
   static getDerivedStateFromError(error: unknown): Partial<State> {

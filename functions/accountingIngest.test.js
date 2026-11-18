@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { normalizePhoneKey, customerPhoneKeys, summarizeBooking, planClientAccounting, newClientFromBooking } = require("./accountingIngest");
 
-const booking = (over = {}) => ({ status: "ACTIVE", bookingDate: "2026-10-01", productId: "p1", productType: "course", pricing: { finalPriceSnapshot: 3250 }, paymentSummary: { paidTotal: 800, remaining: 2450, next_due_date: "2026-11-01" }, salesName: "Alyaa", ...over });
+const booking = (over = {}) => ({ status: "ACTIVE", bookingDate: "2026-10-01", productId: "p1", productType: "course", pricing: { finalPriceSnapshot: 3250 }, paymentSummary: { paidTotal: 800, remaining: 2450, next_due_date: "2026-11-01" }, salesName: "Agent One", ...over });
 
 test("phone keys unify formats and use phone AND whatsapp", () => {
   assert.equal(normalizePhoneKey("+20 101 234 5678"), "1012345678");

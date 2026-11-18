@@ -4,7 +4,7 @@
 // accounting booking stay where they are. Asked for by the owner on 2026-11-17: the automatic
 // check-in follow-ups of 290 booked clients were landing on the owner instead of the sales team.
 //
-//   KEY=/path/to/service-account.json node scripts/reassign-owner-clients.cjs              (dry run)
+//   KEY=/path/to/service-account.json node scripts/reassign-owner-clients.cjs --aliases=<file> --fallback=<name>   (dry run)
 //   KEY=... node scripts/reassign-owner-clients.cjs --execute
 //   KEY=... node scripts/reassign-owner-clients.cjs --restore=<backup file> [--force]
 // (KEY may be left out when GOOGLE_APPLICATION_CREDENTIALS is set. The key must read the
@@ -24,9 +24,14 @@ const db = admin.initializeApp({ ...cred, projectId: 'sg-crm-e3a38' }).firestore
 const acc = admin.initializeApp({ ...cred, projectId: 'crm---acounting-sg' }, 'accounting').firestore();
 
 const OWNER_NAME = 'saber.gd.fl';
-// accounting sales name -> CRM user name (the two systems spell them differently)
-const SALES_TO_CRM_USER = { 'Aliaa': 'Alyaa Elsayed', 'Tasneem Ahmed': 'Tasneem Ahmad', 'Lamia Tarek': 'Lamia Tarek', 'Yasmin Gamal': 'Yasmin Gamal' };
-const FALLBACK = 'Alyaa Elsayed';
+// accounting sales name -> CRM user name (the two systems spell them differently). Staff names
+// stay out of this public repo: pass a LOCAL json file { "<accounting name>": "<CRM user name>" }
+// with --aliases=<file> and the CRM user that takes clients with no active booking with
+// --fallback=<CRM user name>.
+const argOf = (k) => (process.argv.find((a) => a.startsWith(`--${k}=`)) || '').slice(k.length + 3);
+const SALES_TO_CRM_USER = argOf('aliases') ? JSON.parse(fs.readFileSync(argOf('aliases'), 'utf8')) : {};
+const FALLBACK = argOf('fallback');
+if (!FALLBACK || !Object.keys(SALES_TO_CRM_USER).length) { console.error('usage: --aliases=<local json> --fallback=<CRM user name>'); process.exit(1); }
 const REASON = 'تصحيح: العميل تبع السيلز ده في نظام الحسابات';
 const ACTOR = { performedById: 'system', performedByName: 'تصحيح من نظام الحسابات' };
 const EXECUTE = process.argv.includes('--execute');

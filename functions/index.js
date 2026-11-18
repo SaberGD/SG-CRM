@@ -49,7 +49,7 @@ async function requireStaffOrAutomation(req, res) {
   }
 }
 
-exports.metaCapiEvent = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+exports.metaCapiEvent = onRequest({ region: "us-central1", cors: true, maxInstances: 5 }, async (req, res) => {
   const caller = await requireStaffOrAutomation(req, res);
   if (!caller) return;
   if (req.method !== "POST") {
@@ -153,9 +153,12 @@ async function logAiUsage(task, caller, model, usage, ok) {
   const inTokens = u.input_tokens || 0, outTokens = u.output_tokens || 0;
   const cacheRead = u.cache_read_input_tokens || 0, cacheWrite = u.cache_creation_input_tokens || 0;
   console.log(JSON.stringify({ aiCall: task, model, ok, inTokens, outTokens, cacheRead, cacheWrite, caller: caller.automation ? "automation" : caller.uid }));
-  if (!inTokens && !outTokens) return;
+  if (ok && !inTokens && !outTokens) return;
   const inc = admin.firestore.FieldValue.increment;
-  await aiUsageRef(caller).set({ inTokens: inc(inTokens), outTokens: inc(outTokens), cacheRead: inc(cacheRead), cacheWrite: inc(cacheWrite) }, { merge: true })
+  const fields = ok
+    ? { inTokens: inc(inTokens), outTokens: inc(outTokens), cacheRead: inc(cacheRead), cacheWrite: inc(cacheWrite) }
+    : { failures: inc(1), lastFailureAt: Date.now(), lastFailureTask: task };
+  await aiUsageRef(caller).set(fields, { merge: true })
     .catch((e) => console.warn("ai usage log failed:", e?.message || e));
 }
 
@@ -189,54 +192,12 @@ async function callClaude({ model, system, prompt, maxTokens, tool }) {
   };
 }
 
-const AI_FN_OPTIONS = { region: "us-central1", cors: true, secrets: [ANTHROPIC_API_KEY_CRM], timeoutSeconds: 90 };
+const AI_FN_OPTIONS = { region: "us-central1", cors: true, secrets: [ANTHROPIC_API_KEY_CRM], timeoutSeconds: 90, maxInstances: 5 };
 
-/**
- * Predicts a lead's conversion likelihood from their status + follow-up history.
- * Mirrors server.ts's POST /api/gemini/predict-sales route.
- */
-exports.geminiPredictSales = onRequest(AI_FN_OPTIONS, async (req, res) => {
-  const caller = await requireStaffOrAutomation(req, res);
-  if (!caller) return;
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-  try {
-    const { client, followUps } = req.body || {};
-    if (!client) {
-      return res.status(400).json({ error: "Missing client parameter" });
-    }
-    if (!(await takeAiQuota(caller, res))) return;
+// geminiPredictSales was removed: nothing in the web app called it. The deployed copy must be
+// deleted by hand at go-live (firebase functions:delete geminiPredictSales).
 
-    const history = (followUps || []).map((f) => {
-      const timing = f.isEarly ? "EARLY" : "ON-TIME";
-      return `${new Date(f.timestamp).toLocaleDateString()}: ${f.note} (${timing}, Method: ${f.method})`;
-    }).join("\n");
-
-    const prompt = `Analyze educational academy lead: ${client.name}, Current Status: ${client.status}.
-      Communication History:\n${history}\n
-      Task:
-      1. Predict conversion score (High, Medium, Low).
-      2. Analyze if early communication is working for this lead.
-      3. Provide 1 professional recommendation in Arabic.`;
-
-    const r = await callClaude({
-      model: AI_MODEL_FAST, maxTokens: 400, prompt,
-      tool: {
-        name: "submit_prediction", description: "Submit the conversion prediction for this lead.",
-        input_schema: { type: "object", properties: { score: { type: "string", enum: ["High", "Medium", "Low"] }, reason: { type: "string" }, earlyContactEffect: { type: "string" } }, required: ["score", "reason"] },
-      },
-    });
-    await logAiUsage("predictSales", caller, AI_MODEL_FAST, r.usage, true);
-    if (!r.input) {
-      return res.json({ score: "Medium", reason: "لم يتم استلام رد من الذكاء الاصطناعي" });
-    }
-    return res.json(r.input);
-  } catch (error) {
-    console.error("geminiPredictSales error:", error);
-    return res.json({ score: "Medium", reason: "فرصة تحويل متوسطة - بناءً على بيانات العميل وسجل المتابعات" });
-  }
-});
+const REPORT_FALLBACK_TEXT = "تم تسجيل التقرير بنجاح. ينصح باستغلال المتابعات الأولى لزيادة نسبة الحجز.";
 
 /**
  * Generates a short Arabic performance analysis for a daily sales report.
@@ -263,16 +224,29 @@ exports.geminiAnalyzeReport = onRequest(AI_FN_OPTIONS, async (req, res) => {
       متابعات مكتملة: ${report.completedToday}
       نسبة الالتزام بالمواعيد: ${report.punctualityRatio}%
       تأخيرات كبيرة: ${report.largeDelays}
-      ملاحظات الموظف: ${report.notes}
+      ملاحظات الموظف: ${String(report.notes || "").slice(0, 1500)}
 
       قدم تحليل مهني قصير (30 كلمة) باللغة العربية مع نصيحة واحدة لتحسين الأداء أو سرعة المتابعة.`;
 
-    const r = await callClaude({ model: AI_MODEL_FAST, maxTokens: 300, prompt });
-    await logAiUsage("analyzeReport", caller, AI_MODEL_FAST, r.usage, true);
-    return res.json({ text: r.text || "تم تسجيل التقرير بنجاح. ينصح بالتركيز على سرعة التواصل مع الجدد." });
+    // Owner rule: one retry, then a canned answer MARKED fallback (never to be saved as a real
+    // analysis by the caller); limitReached when Claude itself rate-limited us.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const r = await callClaude({ model: AI_MODEL_FAST, maxTokens: 300, prompt });
+        await logAiUsage("analyzeReport", caller, AI_MODEL_FAST, r.usage, true);
+        if (r.text) return res.json({ text: r.text });
+      } catch (err) {
+        console.error("analyzeReport AI error:", err?.message || err);
+        await logAiUsage("analyzeReport", caller, AI_MODEL_FAST, null, false);
+        if (err?.status === 429) return res.json({ text: REPORT_FALLBACK_TEXT, fallback: true, limitReached: true });
+        if ([400, 401, 403].includes(err?.status)) break;
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+    return res.json({ text: REPORT_FALLBACK_TEXT, fallback: true });
   } catch (error) {
-    console.error("geminiAnalyzeReport error:", error);
-    return res.json({ text: "تم تسجيل التقرير بنجاح. ينصح باستغلال المتابعات الأولى لزيادة نسبة الحجز." });
+    console.error("geminiAnalyzeReport error:", error?.message || error);
+    return res.json({ text: REPORT_FALLBACK_TEXT, fallback: true });
   }
 });
 
@@ -326,8 +300,8 @@ exports.geminiAnalyzeClient = onRequest(AI_FN_OPTIONS, async (req, res) => {
 
   const historyText = (followUps || []).map((f) => {
     const dateStr = f.timestamp ? new Date(f.timestamp).toLocaleDateString("ar-EG") : "";
-    return `- [${dateStr}] [وسيلة التواصل: ${f.method || "اتصال"}] ملاحظات: ${f.note || "متابعة"} (النتيجة: ${f.result || "غير محدد"}) (الملخص: ${f.salesBrief || "لا يوجد"})`;
-  }).join("\n");
+    return clientSnapshot.scrub(`- [${dateStr}] [وسيلة التواصل: ${f.method || "اتصال"}] ملاحظات: ${String(f.note || "متابعة").slice(0, 800)} (النتيجة: ${String(f.result || "غير محدد").slice(0, 300)}) (الملخص: ${String(f.salesBrief || "لا يوجد").slice(0, 800)})`);
+  }).slice(0, 40).join("\n");
 
   const todayStr = new Date().toISOString().split("T")[0];
 
@@ -401,12 +375,11 @@ ${SABER_KNOWLEDGE_BASE}
 
 بيانات العميل المراد تحليله:
 - الاسم: ${client.name}
-- الهاتف: ${client.phone}
 - الحالة الحالية: ${client.status}
 - المصدر: ${client.source || "غير محدد"}
 - الكورس المطلوب / الخدمة: ${client.bookedCourseName || client.serviceName || "كورس جرافيك ديزاين"}
 - الدولة: ${client.country || "مصر"}
-- الملاحظات المسجلة: ${client.notes || "لا يوجد"}
+- الملاحظات المسجلة: ${clientSnapshot.scrub(String(client.notes || "لا يوجد").slice(0, 3000))}
 - تاريخ إنشاء البروفايل: ${client.createdAt ? new Date(client.createdAt).toLocaleDateString("ar-EG") : "غير محدد"}
 
 سجل المتابعة والمكالمات السابقة:
@@ -440,9 +413,10 @@ ${historyText || "لا توجد متابعات سابقة بعد"}`;
       }
     } catch (err) {
       console.error("analyzeClient AI error:", err?.message || err);
+      await logAiUsage("analyzeClient", caller, AI_MODEL_PITCH, null, false);
       // Bad key, no credit or rate limit: a second try won't help.
       if ([400, 401, 403, 429].includes(err?.status)) {
-        return res.json({ ...generateFallbackClientAnalysis(client), fallback: true });
+        return res.json({ ...generateFallbackClientAnalysis(client), fallback: true, ...(err?.status === 429 ? { limitReached: true } : {}) });
       }
       if (attempt < 2) {
         await new Promise((r) => setTimeout(r, 1000));

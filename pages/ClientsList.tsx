@@ -23,6 +23,7 @@ import {
 import { PageHeader } from '../components/ui';
 import { POOL_AGENT_EMAIL } from '../utils/poolAgent';
 import { transferClients } from '../utils/transfers';
+import { phoneCheck, BridgeUnavailable } from '../bridgeService';
 import { claimPoolClient } from '../utils/poolClaim';
 import { searchTerm as toSearchKey, matchesSearch, buildSearchKeys } from '../utils/searchKeys.mjs';
 import { planEnableAutoFollowUp } from '../utils/autoFollowUp';
@@ -378,24 +379,33 @@ const ClientsList: React.FC = () => {
       // إزالة التكرار من المصفوفة
       const uniqueVariations = Array.from(new Set(phoneVariations)).slice(0, 10);
 
-      // One indexed lookup on the normalized phone (same key the accounting sync uses).
+      // Duplicate check. Sales can no longer read every client, so the server checks it
+      // (phoneCheck); while that action isn't deployed yet, fall back to the direct lookup
+      // (the old rules still allow it).
       const phoneKey = normalizePhoneKey(phoneFull);
-      const phoneCheck = await firestore.getDocs(firestore.query(
-        firestore.collection(db, 'clients'),
-        phoneKey ? firestore.where('phoneKey', '==', phoneKey) : firestore.where('phone', 'in', uniqueVariations),
-        firestore.limit(1)
-      ));
+      let existingClient: { name: string; salesAgentName: string; status: string; createdAt: number } | null = null;
+      try {
+        const r = await phoneCheck(phoneFull, newClient.countryCode);
+        if (r.exists && r.client) existingClient = r.client;
+      } catch (err) {
+        if (!(err instanceof BridgeUnavailable)) throw err;
+        const snap = await firestore.getDocs(firestore.query(
+          firestore.collection(db, 'clients'),
+          phoneKey ? firestore.where('phoneKey', '==', phoneKey) : firestore.where('phone', 'in', uniqueVariations),
+          firestore.limit(1)
+        ));
+        if (!snap.empty) existingClient = snap.docs[0].data() as Client;
+      }
 
-      if (!phoneCheck.empty) {
-        const existingClient = phoneCheck.docs[0].data() as Client;
-        const regDate = new Date(existingClient.createdAt).toLocaleDateString('ar-EG');
+      if (existingClient) {
+        const regDate = existingClient.createdAt ? new Date(existingClient.createdAt).toLocaleDateString('ar-EG') : '—';
         setIsSubmitting(false);
         
         return alert(
-          `تنبيه: هذا الرقم مسجل مسبقاً لموظف آخر في النظام.\n\n` +
+          `تنبيه: هذا الرقم مسجل مسبقاً في النظام.\n\n` +
           `• اسم العميل: ${existingClient.name}\n` +
           `• الموظف المسؤول: ${existingClient.salesAgentName}\n` +
-          `• الحالة الحالية: ${StatusLabels[existingClient.status]?.ar || existingClient.status}\n` +
+          `• الحالة الحالية: ${StatusLabels[existingClient.status as ClientStatus]?.ar || existingClient.status}\n` +
           `• تاريخ التسجيل: ${regDate}\n\n` +
           `لا يمكنك إضافة هذا الرقم مجدداً.\n` +
           `يرجى التقاط سكرين شوت والتواصل مع الإدارة (الأدمن) لمراجعة بيانات العميل أو تحويله إليك.`
